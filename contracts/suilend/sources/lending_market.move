@@ -356,9 +356,7 @@ module suilend::lending_market {
 
         let (receive_balance, borrow_amount_with_fees) = reserve::borrow_liquidity<P, T>(reserve, amount);
         let origination_fee_amount = borrow_amount_with_fees - balance::value(&receive_balance); 
-        obligation::borrow<P>(obligation, &mut lending_market.reserves, reserve_array_index, clock, borrow_amount_with_fees);
-
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        obligation::borrow<P>(obligation, reserve, clock, borrow_amount_with_fees);
 
         let borrow_value = reserve::market_value_upper_bound(reserve, decimal::from(borrow_amount_with_fees));
         rate_limiter::process_qty(
