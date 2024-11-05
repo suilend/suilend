@@ -186,7 +186,11 @@ module suilend::reserve_tests {
         let ctoken_supply_old = reserve.ctoken_supply();
 
         let ctokens = balance::create_for_testing(10);
-        let tokens = redeem_ctokens<TEST_LM, TEST_USDC>(&mut reserve, ctokens);
+        let liquidity_request = redeem_ctokens<TEST_LM, TEST_USDC>(&mut reserve, ctokens);
+        assert!(reserve::liquidity_request_amount(&liquidity_request) == 50, 0);
+        assert!(reserve::liquidity_request_fee(&liquidity_request) == 0, 0);
+
+        let tokens = reserve::fulfill_liquidity_request(&mut reserve, liquidity_request);
 
         assert!(balance::value(&tokens) == 50, 0);
         assert!(reserve.available_amount() == available_amount_old - 50, 0);
@@ -241,9 +245,12 @@ module suilend::reserve_tests {
         let available_amount_old = reserve.available_amount();
         let borrowed_amount_old = reserve.borrowed_amount();
 
-        let (tokens, borrowed_amount_with_fee) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 400);
+        let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 400);
+        assert!(reserve::liquidity_request_amount(&liquidity_request) == 404, 0);
+        assert!(reserve::liquidity_request_fee(&liquidity_request) == 4, 0);
+
+        let tokens = reserve::fulfill_liquidity_request(&mut reserve, liquidity_request);
         assert!(balance::value(&tokens) == 400, 0);
-        assert!(borrowed_amount_with_fee == 404, 0);
 
         assert!(reserve.available_amount() == available_amount_old - 404, 0);
         assert!(reserve.borrowed_amount() == add(borrowed_amount_old, decimal::from(404)), 0);
@@ -302,10 +309,10 @@ module suilend::reserve_tests {
             balance::create_for_testing(1000)
         );
 
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1);
+        let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1);
 
+        sui::test_utils::destroy(liquidity_request);
         sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
         sui::test_utils::destroy(ctokens);
 
         test_scenario::end(scenario);
@@ -347,10 +354,10 @@ module suilend::reserve_tests {
             balance::create_for_testing(10_000_000)
         );
 
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1_000_000 + 1);
+        let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1_000_000 + 1);
 
+        sui::test_utils::destroy(liquidity_request);
         sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
         sui::test_utils::destroy(ctokens);
 
         test_scenario::end(scenario);
@@ -409,7 +416,8 @@ module suilend::reserve_tests {
             balance::create_for_testing(100 * 1_000_000)
         );
 
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 50 * 1_000_000);
+        let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 50 * 1_000_000);
+        let tokens = reserve::fulfill_liquidity_request(&mut reserve, liquidity_request);
 
         clock::set_for_testing(&mut clock, 1000);
         compound_interest(&mut reserve, &clock);
@@ -474,7 +482,8 @@ module suilend::reserve_tests {
             balance::create_for_testing(1000)
         );
 
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 400);
+        let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 400);
+        let tokens = reserve::fulfill_liquidity_request(&mut reserve, liquidity_request);
 
         let available_amount_old = reserve.available_amount();
         let borrowed_amount_old = reserve.borrowed_amount();

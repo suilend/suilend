@@ -85,6 +85,13 @@ module suilend::reserve {
     /// the underlying token + any interest earned.
     public struct CToken<phantom P, phantom T> has drop {}
 
+    /// A request to withdraw liquidity from the reserve. This is a hot potato object.
+    public struct LiquidityRequest<phantom P, phantom T> {
+        amount: u64, // includes fee
+        fee: u64,
+    }
+
+
     // === Dynamic Field Keys ===
     public struct BalanceKey has copy, drop, store {}
 
@@ -472,6 +479,13 @@ module suilend::reserve {
         &balances.ctoken_fees
     }
 
+    public fun liquidity_request_amount<P, T>(request: &LiquidityRequest<P, T>): u64 {
+        request.amount
+    }
+    public fun liquidity_request_fee<P, T>(request: &LiquidityRequest<P, T>): u64 {
+        request.fee
+    }
+
     // === Public-Mutative Functions
     public(package) fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.deposits_pool_reward_manager
@@ -656,7 +670,7 @@ module suilend::reserve {
     public(package) fun redeem_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         ctokens: Balance<CToken<P, T>>
-    ): Balance<T> {
+    ): LiquidityRequest<P, T> {
         let ctoken_ratio = ctoken_ratio(reserve);
         let liquidity_amount = floor(mul(
             decimal::from(balance::value(&ctokens)),
@@ -678,14 +692,35 @@ module suilend::reserve {
         );
 
         balance::decrease_supply(&mut balances.ctoken_supply, ctokens);
-        balance::split(&mut balances.available_amount, liquidity_amount)
+
+        LiquidityRequest<P, T> {
+            amount: liquidity_amount,
+            fee: 0
+        }
+    }
+
+    public(package) fun fulfill_liquidity_request<P, T>(
+        reserve: &mut Reserve<P>,
+        request: LiquidityRequest<P, T>,
+    ): Balance<T> {
+        let LiquidityRequest { amount, fee } = request;
+
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+
+        let mut liquidity = balance::split(&mut balances.available_amount, amount);
+        balance::join(&mut balances.fees, balance::split(&mut liquidity, fee));
+
+        liquidity
     }
 
     /// Borrow tokens from the reserve. A fee is charged on the borrowed amount
     public(package) fun borrow_liquidity<P, T>(
         reserve: &mut Reserve<P>, 
         amount: u64
-    ): (Balance<T>, u64) {
+    ): LiquidityRequest<P, T> {
         let borrow_fee = calculate_borrow_fee(reserve, amount);
         let borrow_amount_with_fees = amount + borrow_fee;
 
@@ -712,16 +747,11 @@ module suilend::reserve {
         );
 
         log_reserve_data(reserve);
-        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
 
-        let mut receive_balance = balance::split(&mut balances.available_amount, borrow_amount_with_fees);
-        let fee_balance = balance::split(&mut receive_balance, borrow_fee);
-        balance::join(&mut balances.fees, fee_balance);
-
-        (receive_balance, borrow_amount_with_fees)
+        LiquidityRequest<P, T> {
+            amount: borrow_amount_with_fees,
+            fee: borrow_fee
+        }
     }
 
     public(package) fun repay_liquidity<P, T>(
