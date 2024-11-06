@@ -8,14 +8,18 @@ module suilend::obligation {
     use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{
+        Self,
         open_ltv, 
         close_ltv, 
         borrow_weight, 
         liquidation_bonus, 
         protocol_liquidation_fee,
         isolated,
+        open_ltv_emode,
+        close_ltv_emode,
     };
     use sui::clock::{Clock};
+    use sui::dynamic_field::{Self as df};
     use suilend::decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, floor, le, eq, saturating_sub};
     use suilend::liquidity_mining::{Self, UserRewardManager, PoolRewardManager};
 
@@ -29,11 +33,19 @@ module suilend::obligation {
     const ETooManyBorrows: u64 = 6;
     const EObligationIsNotForgivable: u64 = 7;
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
+    const EEModeNotValidWithCrossMargin: u64 = 9;
+    const ENoEmodeConfigForGivenDepositReserve : u64 = 10;
+    const EInvalidEModeDeposit: u64 = 13;
+    const EInvalidEModeBorrow: u64 = 14;
+    const EEModeAlreadySet: u64 = 15;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
     const MAX_DEPOSITS: u64 = 5;
     const MAX_BORROWS: u64 = 5;
+
+    // === Dynamic Field Keys ===
+    public struct EModeFlag has store, copy, drop {}
 
     // === public structs ===
     public struct Obligation<phantom P> has key, store {
@@ -157,6 +169,30 @@ module suilend::obligation {
         }
     }
 
+    public(package) fun set_emode<P>(
+        obligation: &mut Obligation<P>,
+        reserves: &mut vector<Reserve<P>>,
+        clock: &Clock,
+    ) {
+        assert!(!is_emode(obligation), EEModeAlreadySet);
+        assert!(vector::length(&obligation.borrows) <= 1, EEModeNotValidWithCrossMargin);
+        assert!(vector::length(&obligation.deposits) <= 1, EEModeNotValidWithCrossMargin);
+
+        if (vector::length(&obligation.deposits) == 1) {
+            let reserve_array_index = vector::borrow(&obligation.deposits, 0).reserve_array_index;
+            let deposit_reserve = vector::borrow(reserves, reserve_array_index);
+
+            assert!(
+                reserve_config::has_emode_config(config(deposit_reserve)),
+                ENoEmodeConfigForGivenDepositReserve,
+            );
+
+            refresh(obligation, reserves, clock);
+
+        };
+
+        df::add(&mut obligation.id, EModeFlag {}, true);
+    }
 
     /// update the obligation's borrowed amounts and health values. this is 
     /// called by the lending market prior to any borrow, withdraw, or liquidate operation.
@@ -169,6 +205,7 @@ module suilend::obligation {
         let mut deposited_value_usd = decimal::from(0);
         let mut allowed_borrow_value_usd = decimal::from(0);
         let mut unhealthy_borrow_value_usd = decimal::from(0);
+        let is_emode = is_emode(obligation);
 
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow_mut(&mut obligation.deposits, i);
@@ -189,19 +226,27 @@ module suilend::obligation {
 
             deposit.market_value = market_value;
             deposited_value_usd = add(deposited_value_usd, market_value);
+
+            let (open_ltv, close_ltv) = get_ltvs(
+                obligation,
+                deposit_reserve,
+                is_emode,
+            );
+
             allowed_borrow_value_usd = add(
                 allowed_borrow_value_usd,
                 mul(
                     market_value_lower_bound,
-                    open_ltv(config(deposit_reserve))
-                )
+                    open_ltv,
+                ),
             );
+
             unhealthy_borrow_value_usd = add(
                 unhealthy_borrow_value_usd,
                 mul(
                     market_value,
-                    close_ltv(config(deposit_reserve))
-                )
+                    close_ltv,
+                ),
             );
 
             i = i + 1;
@@ -230,22 +275,29 @@ module suilend::obligation {
             let market_value_upper_bound = reserve::market_value_upper_bound(
                 borrow_reserve, 
                 borrow.borrowed_amount
-            ); 
+            );
 
             borrow.market_value = market_value;
             unweighted_borrowed_value_usd = add(unweighted_borrowed_value_usd, market_value);
+
+            let borrow_weight = if (is_emode) {
+                decimal::from(1)
+            } else {
+                borrow_weight(config(borrow_reserve))
+            };
+            
             weighted_borrowed_value_usd = add(
                 weighted_borrowed_value_usd,
                 mul(
                     market_value,
-                    borrow_weight(config(borrow_reserve))
+                    borrow_weight
                 )
             );
             weighted_borrowed_value_upper_bound_usd = add(
                 weighted_borrowed_value_upper_bound_usd,
                 mul(
                     market_value_upper_bound,
-                    borrow_weight(config(borrow_reserve))
+                    borrow_weight
                 )
             );
 
@@ -1219,6 +1271,59 @@ module suilend::obligation {
             cumulative_borrow_rate,
             market_value,
             user_reward_manager_index
+        }
+    }
+
+    fun get_ltvs<P>(
+        obligation: &Obligation<P>,
+        deposit_reserve: &Reserve<P>,
+        is_emode: bool,
+    ): (Decimal, Decimal) {
+        if (is_emode) {
+            // check_normal_ltv_against_emode_ltvs
+            let borrow_reserve_index = get_single_borrow_array_reserve_if_any(obligation);
+
+            assert!(
+                reserve_config::has_emode_config(config(deposit_reserve)),
+                ENoEmodeConfigForGivenDepositReserve,
+            );
+
+            if (option::is_none(&borrow_reserve_index)) {
+                // When obligation is emode but there is no borrows
+                (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)))
+            } else {
+                // When obligation is emode and there is a borrow
+                let emode_data = reserve_config::try_get_emode_data(
+                    config(deposit_reserve),
+                    option::borrow(&borrow_reserve_index)
+                );
+
+                if (option::is_some(&emode_data)) {
+                    // When obligation is emode and there is a borrow AND there is a matching emode config
+                    (open_ltv_emode(option::borrow(&emode_data)), close_ltv_emode(option::borrow(&emode_data)))
+                } else {
+                    // When obligation is emode and there is a borrow BUT there is no matching emode config
+                    (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)))
+                }
+        }
+        } else {
+            // When obligation normal mode
+            (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)))
+        }
+    }
+
+    fun is_emode<P>(obligation: &Obligation<P>): bool {
+        df::exists_(&obligation.id, EModeFlag {})
+    }
+
+    fun get_single_borrow_array_reserve_if_any<P>(
+        obligation: &Obligation<P>,
+    ): Option<u64> {
+        let len = vector::length(&obligation.borrows);
+        if (len != 1) {
+            option::none()
+        } else {
+            option::some(vector::borrow(&obligation.borrows, 0).reserve_array_index)
         }
     }
 }
