@@ -7,6 +7,8 @@ module suilend::staker {
     use sui::coin::{Self, TreasuryCap};
     use sui_system::sui_system::{SuiSystemState};
     use sui::sui::SUI;
+    use std::option::{Self, Option};
+    use sui::transfer::Self;
 
     // errors
     const ETreasuryCapNonZeroSupply: u64 = 0;

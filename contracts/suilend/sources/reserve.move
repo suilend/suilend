@@ -1,6 +1,7 @@
 /// The reserve module holds the coins of a certain type for a given lending market. 
 module suilend::reserve {
     // === Imports ===
+    use sui::sui::SUI;
     use std::type_name::{Self, TypeName};
     use sui::dynamic_field::{Self};
     use sui::balance::{Self, Balance, Supply};
@@ -31,6 +32,8 @@ module suilend::reserve {
         liquidation_bonus
     };
     use suilend::liquidity_mining::{Self, PoolRewardManager};
+    use suilend::staker::{Self, Staker};
+    use sui_system::sui_system::{SuiSystemState};
 
     // === Errors ===
     const EPriceStale: u64 = 0;
@@ -40,6 +43,7 @@ module suilend::reserve {
     const EInvalidPrice: u64 = 4;
     const EMinAvailableAmountViolated: u64 = 5;
     const EInvalidRepayBalance: u64 = 6;
+    const EWrongType: u64 = 7;
 
     // === Constants ===
     const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
@@ -94,6 +98,7 @@ module suilend::reserve {
 
     // === Dynamic Field Keys ===
     public struct BalanceKey has copy, drop, store {}
+    public struct StakerKey has copy, drop, store {}
 
     /// Balances are stored in a dynamic field to avoid typing the Reserve with CoinType
     public struct Balances<phantom P, phantom T> has store {
@@ -711,6 +716,28 @@ module suilend::reserve {
         );
 
         let mut liquidity = balance::split(&mut balances.available_amount, amount);
+        balance::join(&mut balances.fees, balance::split(&mut liquidity, fee));
+
+        liquidity
+    }
+
+    public(package) fun unstake_sui_and_fulfill_liquidity_request<P, StakerType: drop>(
+        reserve: &mut Reserve<P>,
+        request: LiquidityRequest<P, SUI>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext,
+    ): Balance<SUI> {
+        assert!(reserve.coin_type == type_name::get<SUI>(), EWrongType);
+
+        let LiquidityRequest { amount, fee } = request;
+
+        let staker: &mut Staker<StakerType> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+        let mut liquidity = staker::withdraw(staker, amount, system_state, ctx);
+
+        let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
         balance::join(&mut balances.fees, balance::split(&mut liquidity, fee));
 
         liquidity
