@@ -13,7 +13,7 @@ module suilend::reserve {
     use suilend::oracles::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max, saturating_sub};
     use sui::clock::{Self, Clock};
-    use sui::coin::{Self, CoinMetadata};
+    use sui::coin::{Self, CoinMetadata, TreasuryCap};
     use sui::math::{Self};
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
@@ -44,7 +44,8 @@ module suilend::reserve {
     const EMinAvailableAmountViolated: u64 = 5;
     const EInvalidRepayBalance: u64 = 6;
     const EWrongType: u64 = 7;
-
+    const EStakerAlreadyInitialized: u64 = 8;
+    const EStakerNotInitialized: u64 = 9;
     // === Constants ===
     const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
     // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token amount
@@ -94,7 +95,6 @@ module suilend::reserve {
         amount: u64, // includes fee
         fee: u64,
     }
-
 
     // === Dynamic Field Keys ===
     public struct BalanceKey has copy, drop, store {}
@@ -721,6 +721,35 @@ module suilend::reserve {
         liquidity
     }
 
+    public(package) fun init_staker<P, StakerType: drop>(
+        reserve: &mut Reserve<P>,
+        treasury_cap: TreasuryCap<StakerType>,
+        ctx: &mut TxContext
+    ) {
+        assert!(!dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerAlreadyInitialized);
+
+        let staker = staker::create_staker(treasury_cap, ctx);
+        dynamic_field::add(&mut reserve.id, StakerKey {}, staker);
+    }
+
+    public(package) fun rebalance_staker<P, StakerType: drop>(
+        reserve: &mut Reserve<P>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        assert!(dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerNotInitialized);
+        let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+        let sui = balance::withdraw_all(&mut balances.available_amount);
+
+        let staker: &mut Staker<StakerType> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+
+        staker::deposit(staker, sui);
+        staker::rebalance(staker, system_state, ctx);
+    }
+
     public(package) fun unstake_sui_and_fulfill_liquidity_request<P, StakerType: drop>(
         reserve: &mut Reserve<P>,
         request: LiquidityRequest<P, SUI>,
@@ -731,6 +760,7 @@ module suilend::reserve {
 
         let LiquidityRequest { amount, fee } = request;
 
+        assert!(dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerNotInitialized);
         let staker: &mut Staker<StakerType> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
         let mut liquidity = staker::withdraw(staker, amount, system_state, ctx);
 

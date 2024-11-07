@@ -14,7 +14,7 @@ module suilend::lending_market {
     use suilend::reserve::{Self, Reserve, CToken, LiquidityRequest};
     use suilend::reserve_config::{ReserveConfig, borrow_fee};
     use suilend::obligation::{Self, Obligation};
-    use sui::coin::{Self, Coin, CoinMetadata};
+    use sui::coin::{Self, Coin, CoinMetadata, TreasuryCap};
     use sui::balance::{Self};
     use pyth::price_info::{PriceInfoObject};
     use std::type_name::{Self, TypeName};
@@ -284,13 +284,12 @@ module suilend::lending_market {
         )
     }
 
-
     public fun redeem_ctokens_and_withdraw_liquidity<P, T>(
         lending_market: &mut LendingMarket<P>, 
         reserve_array_index: u64,
         clock: &Clock,
         ctokens: Coin<CToken<P, T>>,
-        rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
+        mut rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
         ctx: &mut TxContext
     ): Coin<T> {
         let liquidity_request = redeem_ctokens_and_withdraw_liquidity_request(
@@ -780,6 +779,29 @@ module suilend::lending_market {
         }
     }
 
+    public fun init_staker<P, StakerType: drop>(
+        lending_market: &mut LendingMarket<P>,
+        sui_reserve_array_index: u64,
+        treasury_cap: TreasuryCap<StakerType>,
+        ctx: &mut TxContext
+    ) {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
+
+        reserve::init_staker<P, StakerType>(reserve, treasury_cap, ctx);
+    }
+
+    public fun rebalance_staker<P, StakerType: drop>(
+        lending_market: &mut LendingMarket<P>,
+        sui_reserve_array_index: u64,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
+
+        reserve::rebalance_staker<P, StakerType>(reserve, system_state, ctx);
+    }
 
     // === Public-View Functions ===
     fun max_borrow_amount<P>(
