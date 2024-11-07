@@ -16,10 +16,6 @@ module suilend::staker {
     const U64_MAX: u64 = 18446744073709551615;
     const SUILEND_VALIDATOR: address = @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
 
-    // how much of the sui should be staked. Eventually this number will trend to 100%, 
-    // but we start at 50% for safety reasons.
-    const TARGET_UTIL_BPS: u64 = 5000; // 50%
-
     // This is mostly so i don't hit the "zero lst coin mint" error.
     const MIN_DEPLOY_AMOUNT: u64 = 1_000_000; // 1 SUI
 
@@ -109,34 +105,24 @@ module suilend::staker {
     ) {
         staker.liquid_staking_info.refresh(system_state, ctx);
 
-        let staked_sui = staker.liquid_staking_info.total_sui_supply();
-        let target_staked_sui = (staker.total_sui_supply() * TARGET_UTIL_BPS) / 10000;
-
-        if (target_staked_sui >= staked_sui + MIN_DEPLOY_AMOUNT) {
-            let sui = staker.sui_balance.split(target_staked_sui - staked_sui);
-            let lst = staker.liquid_staking_info.mint(
-                system_state,
-                coin::from_balance(sui, ctx),
-                ctx
-            );
-
-            staker.liquid_staking_info.increase_validator_stake(
-                &staker.admin,
-                system_state,
-                SUILEND_VALIDATOR,
-                U64_MAX,
-                ctx
-            );
-
-            staker.lst_balance.join(lst.into_balance());
-        }
-        else {
-            staker.unstake_n_sui(system_state, staked_sui - target_staked_sui, ctx);
+        if (staker.sui_balance.value() < MIN_DEPLOY_AMOUNT) {
+            return
         };
 
-        assert!(
-            staker.liquid_staking_info.total_sui_supply() + staker.sui_balance.value() >= staker.liabilities,
-            EInvariantViolation
+        let sui = staker.sui_balance.withdraw_all();
+        let lst = staker.liquid_staking_info.mint(
+            system_state,
+            coin::from_balance(sui, ctx),
+            ctx
+        );
+        staker.lst_balance.join(lst.into_balance());
+
+        staker.liquid_staking_info.increase_validator_stake(
+            &staker.admin,
+            system_state,
+            SUILEND_VALIDATOR,
+            U64_MAX,
+            ctx
         );
     }
 
