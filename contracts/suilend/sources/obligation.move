@@ -198,8 +198,10 @@ module suilend::obligation {
         let mut unhealthy_borrow_value_usd = decimal::from(0);
         let is_emode = is_emode(obligation);
         if (is_emode) {
-            obligation.refresh_emode(reserves, is_emode, clock)
-        } else {
+            obligation.refresh_emode(reserves, is_emode, clock);
+            return
+        };
+
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow_mut(&mut obligation.deposits, i);
 
@@ -291,7 +293,6 @@ module suilend::obligation {
         obligation.weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd;
 
         obligation.borrowing_isolated_asset = borrowing_isolated_asset;
-        };
     }
     
     fun refresh_emode<P>(
