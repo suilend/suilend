@@ -247,8 +247,8 @@ module suilend::reserve_config {
             while (vector::length(&keys) > 0) {
                 let emode = vec_map::get(emode_ltvs, &vector::pop_back(&mut keys));
 
-                assert!(config.open_ltv_pct < emode.open_ltv_pct, ENormalOpenLtvBetterThanEModeLtvs);
-                assert!(config.close_ltv_pct < emode.close_ltv_pct, ENormalCloseLtvBetterThanEModeLtvs);
+                assert!(config.open_ltv_pct <= emode.open_ltv_pct, ENormalOpenLtvBetterThanEModeLtvs);
+                assert!(config.close_ltv_pct <= emode.close_ltv_pct, ENormalCloseLtvBetterThanEModeLtvs);
             };
         };
     }
@@ -575,15 +575,12 @@ module suilend::reserve_config {
         reserve_config: &ReserveConfig,
         reserve_array_index: &u64,
     ): bool {
-        let emode_config = get_emode_config(reserve_config);
-        vec_map::contains(emode_config, reserve_array_index)
-    }
+        if (!bag::contains(&reserve_config.additional_fields, EModeKey {})) {
+            return false
+        };
 
-    public(package) fun get_emode_config(
-        reserve_config: &ReserveConfig,
-    ): &VecMap<u64, EModeEntry> {
-        assert!(bag::contains(&reserve_config.additional_fields, EModeKey {}), ENoEModeConfigForDepositReserve);
-        bag::borrow(&reserve_config.additional_fields, EModeKey {})
+        let emode_config: &VecMap<u64, EModeEntry> = bag::borrow(&reserve_config.additional_fields, EModeKey {});
+        vec_map::contains(emode_config, reserve_array_index)
     }
     
     public(package) fun open_ltv_emode(
@@ -602,7 +599,11 @@ module suilend::reserve_config {
         reserve_config: &ReserveConfig,
         reserve_array_index: &u64,
     ): Option<EModeEntry> {
-        let emode_config = get_emode_config(reserve_config);
+        if (!bag::contains(&reserve_config.additional_fields, EModeKey {})) {
+            return option::none()
+        };
+
+        let emode_config = bag::borrow(&reserve_config.additional_fields, EModeKey {});
         let has_pair = vec_map::contains(emode_config, reserve_array_index);
 
         if (has_pair) {

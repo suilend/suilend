@@ -169,18 +169,22 @@ module suilend::obligation {
         }
     }
 
-    public(package) fun set_emode<P>(
+    public(package) fun toggle_emode<P>(
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
         clock: &Clock,
     ) {
         assert!(!is_emode(obligation), EEModeAlreadySet);
-        assert!(vector::length(&obligation.borrows) <= 1, EEModeNotValidWithCrossMargin);
-        assert!(vector::length(&obligation.deposits) <= 1, EEModeNotValidWithCrossMargin);
+
+        if (is_emode(obligation)) {
+            df::remove<EModeFlag, bool>(&mut obligation.id, EModeFlag {});
+        } else {
+            assert!(vector::length(&obligation.borrows) <= 1, EEModeNotValidWithCrossMargin);
+            assert!(vector::length(&obligation.deposits) <= 1, EEModeNotValidWithCrossMargin);
+            df::add(&mut obligation.id, EModeFlag {}, true);
+        };
 
         refresh(obligation, reserves, clock);
-
-        df::add(&mut obligation.id, EModeFlag {}, true);
     }
 
     /// update the obligation's borrowed amounts and health values. this is 
@@ -197,7 +201,6 @@ module suilend::obligation {
         let is_emode = is_emode(obligation);
         if (is_emode) {
             obligation.refresh_emode(reserves, is_emode, clock)
-
         } else {
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow_mut(&mut obligation.deposits, i);
@@ -299,117 +302,90 @@ module suilend::obligation {
         is_emode: bool,
         clock: &Clock
     ) {
-        let mut i = 0;
-        let mut deposited_value_usd = decimal::from(0);
-        let mut allowed_borrow_value_usd = decimal::from(0);
-        let mut unhealthy_borrow_value_usd = decimal::from(0);
+        // Deposit
 
-        while (i < vector::length(&obligation.deposits)) {
-            let deposit = vector::borrow_mut(&mut obligation.deposits, i);
-
-            let deposit_reserve = vector::borrow_mut(reserves, deposit.reserve_array_index);
-
-            reserve::compound_interest(deposit_reserve, clock);
-            reserve::assert_price_is_fresh(deposit_reserve, clock);
-
-            let market_value = reserve::ctoken_market_value(
-                deposit_reserve,
-                deposit.deposited_ctoken_amount
-            );
-            let market_value_lower_bound = reserve::ctoken_market_value_lower_bound(
-                deposit_reserve,
-                deposit.deposited_ctoken_amount
-            );
-
-            deposit.market_value = market_value;
-            deposited_value_usd = add(deposited_value_usd, market_value);
-
-            let (open_ltv, close_ltv) = get_ltvs(
-                obligation,
-                deposit_reserve,
-                is_emode,
-            );
-
-            allowed_borrow_value_usd = add(
-                allowed_borrow_value_usd,
-                mul(
-                    market_value_lower_bound,
-                    open_ltv,
-                ),
-            );
-
-            unhealthy_borrow_value_usd = add(
-                unhealthy_borrow_value_usd,
-                mul(
-                    market_value,
-                    close_ltv,
-                ),
-            );
-
-            i = i + 1;
+        if (obligation.deposits.length() == 0) {
+            return
         };
 
-        obligation.deposited_value_usd = deposited_value_usd;
-        obligation.allowed_borrow_value_usd = allowed_borrow_value_usd;
-        obligation.unhealthy_borrow_value_usd = unhealthy_borrow_value_usd;
+        assert!(vector::length(&obligation.deposits) == 1, 0);
 
-        let mut i = 0;
-        let mut unweighted_borrowed_value_usd = decimal::from(0);
-        let mut weighted_borrowed_value_usd = decimal::from(0);
-        let mut weighted_borrowed_value_upper_bound_usd = decimal::from(0);
-        let mut borrowing_isolated_asset = false;
+        let deposit = obligation.deposits.borrow_mut(0);
+        let deposit_reserve = vector::borrow_mut(reserves, deposit.reserve_array_index);
 
-        while (i < vector::length(&obligation.borrows)) {
-            let borrow = vector::borrow_mut(&mut obligation.borrows, i);
+        reserve::compound_interest(deposit_reserve, clock);
+        reserve::assert_price_is_fresh(deposit_reserve, clock);
 
-            let borrow_reserve = vector::borrow_mut(reserves, borrow.reserve_array_index);
-            reserve::compound_interest(borrow_reserve, clock);
-            reserve::assert_price_is_fresh(borrow_reserve, clock);
+        let market_value = reserve::ctoken_market_value(
+            deposit_reserve,
+            deposit.deposited_ctoken_amount
+        );
+        let market_value_lower_bound = reserve::ctoken_market_value_lower_bound(
+            deposit_reserve,
+            deposit.deposited_ctoken_amount
+        );
 
-            compound_debt(borrow, borrow_reserve);
+        deposit.market_value = market_value;
+        obligation.deposited_value_usd = market_value;
 
-            let market_value = reserve::market_value(borrow_reserve, borrow.borrowed_amount);
-            let market_value_upper_bound = reserve::market_value_upper_bound(
-                borrow_reserve, 
-                borrow.borrowed_amount
-            );
+        let (open_ltv, close_ltv, is_emode_ltvs) = get_ltvs(
+            obligation,
+            deposit_reserve,
+            is_emode,
+        );
 
-            borrow.market_value = market_value;
-            unweighted_borrowed_value_usd = add(unweighted_borrowed_value_usd, market_value);
+        obligation.allowed_borrow_value_usd = mul(
+            market_value_lower_bound,
+            open_ltv,
+        );
 
-            let borrow_weight = if (is_emode) {
-                decimal::from(1)
-            } else {
-                borrow_weight(config(borrow_reserve))
-            };
-            
-            weighted_borrowed_value_usd = add(
-                weighted_borrowed_value_usd,
-                mul(
-                    market_value,
-                    borrow_weight
-                )
-            );
-            weighted_borrowed_value_upper_bound_usd = add(
-                weighted_borrowed_value_upper_bound_usd,
-                mul(
-                    market_value_upper_bound,
-                    borrow_weight
-                )
-            );
+        obligation.unhealthy_borrow_value_usd = mul(
+            market_value,
+            close_ltv,
+        );
 
-            if (isolated(config(borrow_reserve))) {
-                borrowing_isolated_asset = true;
-            };
+        // Borrow
 
-            i = i + 1;
+        if (obligation.borrows.length() == 0) {
+            return
         };
 
-        obligation.unweighted_borrowed_value_usd = unweighted_borrowed_value_usd;
-        obligation.weighted_borrowed_value_usd = weighted_borrowed_value_usd;
-        obligation.weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd;
+        assert!(vector::length(&obligation.borrows) == 1, 0);
 
-        obligation.borrowing_isolated_asset = borrowing_isolated_asset;
+        let borrow = obligation.borrows.borrow_mut(0);
+
+        let borrow_reserve = vector::borrow_mut(reserves, borrow.reserve_array_index);
+        reserve::compound_interest(borrow_reserve, clock);
+        reserve::assert_price_is_fresh(borrow_reserve, clock);
+
+        compound_debt(borrow, borrow_reserve);
+
+        let market_value = reserve::market_value(borrow_reserve, borrow.borrowed_amount);
+        let market_value_upper_bound = reserve::market_value_upper_bound(
+            borrow_reserve, 
+            borrow.borrowed_amount
+        );
+
+        borrow.market_value = market_value;
+        obligation.unweighted_borrowed_value_usd = market_value;
+
+        let borrow_weight = if (is_emode_ltvs) {
+            decimal::from(1)
+        } else {
+            borrow_weight(config(borrow_reserve))
+        };
+
+        obligation.weighted_borrowed_value_usd = mul(
+            market_value,
+            borrow_weight
+        );
+
+        obligation.weighted_borrowed_value_upper_bound_usd = mul(
+            market_value_upper_bound,
+            borrow_weight
+        );
+
+        obligation.borrowing_isolated_asset = isolated(config(borrow_reserve));
     }
 
     /// Process a deposit action
@@ -1375,41 +1351,34 @@ module suilend::obligation {
         obligation: &Obligation<P>,
         deposit_reserve: &Reserve<P>,
         is_emode: bool,
-    ): (Decimal, Decimal) {
-        if (is_emode) {
-            // check_normal_ltv_against_emode_ltvs
-            let borrow_reserve_index = get_single_borrow_array_reserve_if_any(obligation);
-
-            assert!(
-                reserve_config::has_emode_config(config(deposit_reserve)),
-                ENoEmodeConfigForGivenDepositReserve,
-            );
-
-            if (option::is_none(&borrow_reserve_index)) {
-                // When obligation is emode but there is no borrows
-                (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)))
-            } else {
-                // When obligation is emode and there is a borrow
-                let emode_entry = reserve_config::try_get_emode_entry(
-                    config(deposit_reserve),
-                    option::borrow(&borrow_reserve_index)
-                );
-
-                if (option::is_some(&emode_entry)) {
-                    // When obligation is emode and there is a borrow AND there is a matching emode config
-                    (open_ltv_emode(option::borrow(&emode_entry)), close_ltv_emode(option::borrow(&emode_entry)))
-                } else {
-                    // When obligation is emode and there is a borrow BUT there is no matching emode config
-                    (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)))
-                }
-        }
-        } else {
+    ): (Decimal, Decimal, bool) {
+        if (!is_emode) {
             // When obligation normal mode
-            (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)))
+            return (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)), false)
+        };
+
+        let borrow_reserve_index = get_single_borrow_array_reserve_if_any(obligation);
+        if (borrow_reserve_index.is_none()) {
+            // When obligation is emode but there is no borrows
+            return (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)), false)
+        };
+
+        // When obligation is emode and there is a borrow
+        let emode_entry = reserve_config::try_get_emode_entry(
+            config(deposit_reserve),
+            option::borrow(&borrow_reserve_index)
+        );
+
+        if (option::is_some(&emode_entry)) {
+            // When obligation is emode and there is a borrow AND there is a matching emode config
+            (open_ltv_emode(option::borrow(&emode_entry)), close_ltv_emode(option::borrow(&emode_entry)), true)
+        } else {
+            // When obligation is emode and there is a borrow BUT there is no matching emode config
+            (open_ltv(config(deposit_reserve)), close_ltv(config(deposit_reserve)), false)
         }
     }
 
-    fun is_emode<P>(obligation: &Obligation<P>): bool {
+    public(package) fun is_emode<P>(obligation: &Obligation<P>): bool {
         df::exists_(&obligation.id, EModeFlag {})
     }
 
