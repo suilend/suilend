@@ -1621,4 +1621,83 @@ module suilend::lending_market_tests {
         test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
+
+    #[test]
+    public fun test_toggle_emode_on_and_off() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        use std::type_name::{Self};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
+            let mut bag = bag::new(test_scenario::ctx(&mut scenario));
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_USDC>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000
+                }
+            );
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_SUI>(), 
+                ReserveArgs {
+                    config: {
+                        let config = reserve_config::default_reserve_config();
+                        let mut builder = reserve_config::from(
+                            &config,
+                            test_scenario::ctx(&mut scenario)
+                        );
+
+                        let emode_ltvs = reserve_config::create_emode_entry(
+                            0, // USDC array index
+                            40,
+                            60,
+                        );
+
+                        builder.set_emode_ltv_for_borrow(emode_ltvs);
+
+                        test_utils::destroy(config);
+
+                        reserve_config::set_borrow_fee_bps(&mut builder, 10);
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000_000
+                }
+            );
+
+            bag
+        }, &mut scenario);
+
+        let obligation_owner_cap = lending_market::create_obligation(
+            &mut lending_market,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        lending_market.toggle_emode(&obligation_owner_cap, true, &clock);
+        lending_market.toggle_emode(&obligation_owner_cap, false, &clock);
+
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(obligation_owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
 }

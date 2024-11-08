@@ -2266,8 +2266,7 @@ module suilend::obligation_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = suilend::obligation::EEModeAlreadySet)]
-    public fun test_emode_already_set() {
+    public fun test_set_emod_on_and_off() {
         use sui::test_scenario::{Self};
 
         let owner = @0x26;
@@ -2307,7 +2306,9 @@ module suilend::obligation_tests {
         sui_reserve.update_reserve_config(new_config);
 
         obligation.toggle_emode(&mut reserves, &clock);
+        assert!(obligation.is_emode(), 0);
         obligation.toggle_emode(&mut reserves, &clock);
+        assert!(!obligation.is_emode(), 0);
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(reserves);

@@ -393,7 +393,7 @@ module suilend::lending_market {
         );
 
         if (obligation.is_emode() == turn_on) {
-            return;
+            return
         };
 
         obligation::toggle_emode(

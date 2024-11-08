@@ -174,8 +174,6 @@ module suilend::obligation {
         reserves: &mut vector<Reserve<P>>,
         clock: &Clock,
     ) {
-        assert!(!is_emode(obligation), EEModeAlreadySet);
-
         if (is_emode(obligation)) {
             df::remove<EModeFlag, bool>(&mut obligation.id, EModeFlag {});
         } else {
