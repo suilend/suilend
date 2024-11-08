@@ -2266,7 +2266,7 @@ module suilend::obligation_tests {
     }
 
     #[test]
-    public fun test_set_emod_on_and_off() {
+    public fun test_set_emode_on_and_off() {
         use sui::test_scenario::{Self};
 
         let owner = @0x26;
@@ -2281,7 +2281,7 @@ module suilend::obligation_tests {
         reserve::update_price_for_testing(
             get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
             &clock, 
-            decimal::from(1), 
+            decimal::from(1),
             decimal::from(2)
         );
         reserve::update_price_for_testing(
@@ -2305,9 +2305,9 @@ module suilend::obligation_tests {
         let new_config = builder.build(test_scenario::ctx(&mut scenario));
         sui_reserve.update_reserve_config(new_config);
 
-        obligation.toggle_emode(&mut reserves, &clock);
+        obligation.toggle_emode_on(&mut reserves, 0, 1, &clock);
         assert!(obligation.is_emode(), 0);
-        obligation.toggle_emode(&mut reserves, &clock);
+        obligation.toggle_emode_off(&mut reserves, &clock);
         assert!(!obligation.is_emode(), 0);
 
         sui::test_utils::destroy(lending_market_id);
@@ -2361,7 +2361,7 @@ module suilend::obligation_tests {
         borrow<TEST_MARKET>(&mut obligation, get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves), &clock, 12_500_000);
         borrow<TEST_MARKET>(&mut obligation, get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves), &clock, 12_500_000);
 
-        obligation.toggle_emode(&mut reserves, &clock);
+        obligation.toggle_emode_on(&mut reserves, 0, 1, &clock);
 
         refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
 

@@ -46,6 +46,10 @@ module suilend::obligation {
 
     // === Dynamic Field Keys ===
     public struct EModeFlag has store, copy, drop {}
+    public struct EModeReserveIndices has store, copy, drop {
+        deposit_reserve_array_index: u64,
+        borrow_reserve_array_index: u64,
+    }
 
     // === public structs ===
     public struct Obligation<phantom P> has key, store {
@@ -169,18 +173,43 @@ module suilend::obligation {
         }
     }
 
-    public(package) fun toggle_emode<P>(
+    public(package) fun toggle_emode_on<P>(
+        obligation: &mut Obligation<P>,
+        reserves: &mut vector<Reserve<P>>,
+        deposit_reserve_array_index: u64,
+        borrow_reserve_array_index: u64,
+        clock: &Clock,
+    ) {
+        assert!(!obligation.is_emode(), EEModeAlreadySet);
+
+        assert!(vector::length(&obligation.borrows) <= 1, EEModeNotValidWithCrossMargin);
+        assert!(vector::length(&obligation.deposits) <= 1, EEModeNotValidWithCrossMargin);
+
+        if (vector::length(&obligation.borrows) == 1) {
+            assert!(
+                obligation.borrows.borrow(0).reserve_array_index == borrow_reserve_array_index,
+                EInvalidEModeBorrow
+            );
+        };
+        
+        if (vector::length(&obligation.deposits) == 1) {
+            assert!(
+                obligation.deposits.borrow(0).reserve_array_index == deposit_reserve_array_index,
+                EInvalidEModeDeposit
+            );
+        };
+
+        df::add(&mut obligation.id, EModeFlag {}, EModeReserveIndices { deposit_reserve_array_index, borrow_reserve_array_index });
+
+        refresh(obligation, reserves, clock);
+    }
+    
+    public(package) fun toggle_emode_off<P>(
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
         clock: &Clock,
     ) {
-        if (is_emode(obligation)) {
-            df::remove<EModeFlag, bool>(&mut obligation.id, EModeFlag {});
-        } else {
-            assert!(vector::length(&obligation.borrows) <= 1, EEModeNotValidWithCrossMargin);
-            assert!(vector::length(&obligation.deposits) <= 1, EEModeNotValidWithCrossMargin);
-            df::add(&mut obligation.id, EModeFlag {}, true);
-        };
+        df::remove<EModeFlag, EModeReserveIndices>(&mut obligation.id, EModeFlag {});
 
         refresh(obligation, reserves, clock);
     }

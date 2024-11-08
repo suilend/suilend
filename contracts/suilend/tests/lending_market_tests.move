@@ -1689,8 +1689,8 @@ module suilend::lending_market_tests {
             test_scenario::ctx(&mut scenario)
         );
 
-        lending_market.toggle_emode(&obligation_owner_cap, true, &clock);
-        lending_market.toggle_emode(&obligation_owner_cap, false, &clock);
+        lending_market.toggle_emode_on<LENDING_MARKET, TEST_SUI, TEST_USDC>(&obligation_owner_cap, &clock);
+        lending_market.toggle_emode_off(&obligation_owner_cap, &clock);
 
         test_utils::destroy(owner_cap);
         test_utils::destroy(obligation_owner_cap);

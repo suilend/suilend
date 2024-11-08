@@ -379,10 +379,33 @@ module suilend::lending_market {
     }
 
     /// Set and unset emode for obligation - T is the deposit coin type
-    public fun toggle_emode<P>(
+    public fun toggle_emode_on<P, Deposit, Borrow>(
         lending_market: &mut LendingMarket<P>,
         obligation_owner_cap: &ObligationOwnerCap<P>,
-        turn_on: bool,
+        clock: &Clock
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let deposit_reserve_array_index = lending_market.reserve_array_index<P, Deposit>();
+        let borrow_reserve_array_index = lending_market.reserve_array_index<P, Borrow>();
+        
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        );
+
+        obligation::toggle_emode_on(
+            obligation,
+            &mut lending_market.reserves,
+            deposit_reserve_array_index,
+            borrow_reserve_array_index,
+            clock,
+        );
+    }
+    
+    public fun toggle_emode_off<P>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
@@ -392,11 +415,7 @@ module suilend::lending_market {
             obligation_owner_cap.obligation_id
         );
 
-        if (obligation.is_emode() == turn_on) {
-            return
-        };
-
-        obligation::toggle_emode(
+        obligation::toggle_emode_off(
             obligation,
             &mut lending_market.reserves,
             clock,
