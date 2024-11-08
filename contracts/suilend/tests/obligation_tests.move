@@ -2343,14 +2343,6 @@ module suilend::obligation_tests {
         );
 
         let borrow_idx = get_reserve_array_index<TEST_MARKET, TEST_USDC>(&reserves);
-        // reserve::set_emode_for_pair(
-        //     get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
-        //     borrow_idx,
-        //     40,
-        //     60,
-        //     test_scenario::ctx(&mut scenario)
-        // );
-
         let sui_reserve = get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves);
 
         let mut builder = sui_reserve.config().from(test_scenario::ctx(&mut scenario));

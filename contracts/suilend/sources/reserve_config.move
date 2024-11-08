@@ -565,25 +565,25 @@ module suilend::reserve_config {
 
     // === eMode Package Functions ==
 
-    public(package) fun check_has_emode_pair(
-        reserve_config: &ReserveConfig,
-        reserve_array_index: &u64,
-    ): bool {
-        let emode_config = get_emode_config_checked(reserve_config);
-        vec_map::contains(emode_config, reserve_array_index)
-    }
-
-    public(package) fun get_emode_config_checked(
-        reserve_config: &ReserveConfig,
-    ): &VecMap<u64, EModeEntry> {
-        assert!(bag::contains(&reserve_config.additional_fields, EModeKey {}), ENoEModeConfigForDepositReserve);
-        bag::borrow(&reserve_config.additional_fields, EModeKey {})
-    }
-    
     public(package) fun has_emode_config(
         reserve_config: &ReserveConfig,
     ): bool {
         bag::contains(&reserve_config.additional_fields, EModeKey {})
+    }
+
+    public(package) fun has_emode_pair(
+        reserve_config: &ReserveConfig,
+        reserve_array_index: &u64,
+    ): bool {
+        let emode_config = get_emode_config(reserve_config);
+        vec_map::contains(emode_config, reserve_array_index)
+    }
+
+    public(package) fun get_emode_config(
+        reserve_config: &ReserveConfig,
+    ): &VecMap<u64, EModeEntry> {
+        assert!(bag::contains(&reserve_config.additional_fields, EModeKey {}), ENoEModeConfigForDepositReserve);
+        bag::borrow(&reserve_config.additional_fields, EModeKey {})
     }
     
     public(package) fun open_ltv_emode(
@@ -602,7 +602,7 @@ module suilend::reserve_config {
         reserve_config: &ReserveConfig,
         reserve_array_index: &u64,
     ): Option<EModeEntry> {
-        let emode_config = get_emode_config_checked(reserve_config);
+        let emode_config = get_emode_config(reserve_config);
         let has_pair = vec_map::contains(emode_config, reserve_array_index);
 
         if (has_pair) {
@@ -839,8 +839,7 @@ module suilend::reserve_config {
             test_scenario::ctx(&mut scenario)
         );
 
-        check_has_emode_pair(&config, &1);
-
+        assert!(has_emode_pair(&config, &1), 0);
         assert!(has_emode_config(&config), 0);
         let emode_entry = option::destroy_some(try_get_emode_entry(&config, &1));
         assert_eq(open_ltv_emode(&emode_entry), decimal::from_percent(60));
@@ -896,7 +895,7 @@ module suilend::reserve_config {
             test_scenario::ctx(&mut scenario)
         );
 
-        assert_eq(check_has_emode_pair(&config, &2), false);
+        assert_eq(has_emode_pair(&config, &2), false);
 
 
         destroy(config);
@@ -949,7 +948,7 @@ module suilend::reserve_config {
             test_scenario::ctx(&mut scenario)
         );
 
-        check_has_emode_pair(&config, &1);
+        assert!(has_emode_pair(&config, &1), 0);
 
         assert!(has_emode_config(&config), 0);
         let emode_entry = option::destroy_some(try_get_emode_entry(&config, &1));
@@ -959,7 +958,7 @@ module suilend::reserve_config {
         let builder = from(&config, test_scenario::ctx(&mut scenario));
         let new_config = builder.build(test_scenario::ctx(&mut scenario));
 
-        check_has_emode_pair(&new_config, &1);
+        assert!(has_emode_pair(&new_config, &1), 0);
 
         assert!(has_emode_config(&new_config), 0);
         let emode_entry = option::destroy_some(try_get_emode_entry(&new_config, &1));
@@ -1020,7 +1019,7 @@ module suilend::reserve_config {
         builder.set_emode_ltv_for_borrow(emode_ltvs);
         let new_config = builder.build(test_scenario::ctx(&mut scenario));
 
-        check_has_emode_pair(&new_config, &1);
+        assert!(has_emode_pair(&new_config, &1), 0);
 
         assert!(has_emode_config(&new_config), 0);
         let emode_entry = option::destroy_some(try_get_emode_entry(&new_config, &1));
