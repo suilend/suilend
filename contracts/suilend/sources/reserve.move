@@ -1031,29 +1031,4 @@ module suilend::reserve {
 
         reserve
     }
-
-    #[test_only]
-    public fun set_emode_for_pair<P>(
-        reserve: &mut Reserve<P>, 
-        reserve_array_index: u64,
-        open_ltv_pct: u8,
-        close_ltv_pct: u8,
-        ctx: &mut TxContext,
-    ) {
-        let config = cell::get_mut(&mut reserve.config);
-
-        let mut builder = reserve_config::from(config, ctx);
-
-        let emode_data = reserve_config::create_emode_data(
-            reserve_array_index,
-            open_ltv_pct,
-            close_ltv_pct,
-        );
-
-        reserve_config::set_emode_ltv_for_borrow(&mut builder, emode_data);
-
-        reserve_config::destroy(
-            cell::set(&mut reserve.config, reserve_config::build(builder, ctx))
-        );
-    }
 }

@@ -378,6 +378,26 @@ module suilend::lending_market {
         coin::from_balance(receive_balance, ctx)
     }
 
+    /// Set emode for obligation - T is the deposit coin type
+    public fun set_emode<P>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations, 
+            obligation_owner_cap.obligation_id
+        );
+
+        obligation::set_emode(
+            obligation,
+            &mut lending_market.reserves,
+            clock,
+        );
+    }
+
     public fun withdraw_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
