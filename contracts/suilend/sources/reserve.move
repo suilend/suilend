@@ -155,7 +155,7 @@ module suilend::reserve {
         lending_market_id: ID,
         config: ReserveConfig, 
         array_index: u64,
-        coin_metadata: &CoinMetadata<T>,
+        mint_decimals: u8,
         price_info_obj: &PriceInfoObject, 
         clock: &Clock, 
         ctx: &mut TxContext
@@ -170,7 +170,7 @@ module suilend::reserve {
             array_index,
             coin_type: type_name::get<T>(),
             config: cell::new(config),
-            mint_decimals: coin::get_decimals(coin_metadata),
+            mint_decimals,
             price_identifier,
             price: option::extract(&mut price_decimal),
             smoothed_price: smoothed_price_decimal,
@@ -491,6 +491,10 @@ module suilend::reserve {
         request.fee
     }
 
+    public fun staker<P, StakerType: drop>(reserve: &Reserve<P>): &Staker<StakerType> {
+        dynamic_field::borrow(&reserve.id, StakerKey {})
+    }
+
     // === Public-Mutative Functions
     public(package) fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.deposits_pool_reward_manager
@@ -748,6 +752,37 @@ module suilend::reserve {
 
         staker::deposit(staker, sui);
         staker::rebalance(staker, system_state, ctx);
+    }
+
+    public(package) fun unstake_sui_from_staker<P, StakerType: drop>(
+        reserve: &mut Reserve<P>,
+        liquidity_request: &LiquidityRequest<P, SUI>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        if (!dynamic_field::exists_(&reserve.id, StakerKey {})) {
+            return
+        };
+
+        let balances: &Balances<P, SUI> = dynamic_field::borrow(&reserve.id, BalanceKey {});
+        if (liquidity_request.amount <= balance::value(&balances.available_amount)) {
+            return
+        };
+        let withdraw_amount = liquidity_request.amount - balance::value(&balances.available_amount);
+
+        let staker: &mut Staker<StakerType> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+        let sui = staker::withdraw(
+            staker,
+            withdraw_amount, 
+            system_state, 
+            ctx
+        );
+
+        let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+        balance::join(&mut balances.available_amount, sui);
     }
 
     public(package) fun unstake_sui_and_fulfill_liquidity_request<P, StakerType: drop>(

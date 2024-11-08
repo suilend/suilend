@@ -1,4 +1,5 @@
 module suilend::lending_market_tests {
+    use sui_system::sui_system::{SuiSystemState};
     use sui::test_scenario::{Self, Scenario};
     use sui::object::{Self, ID, UID};
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
@@ -23,6 +24,7 @@ module suilend::lending_market_tests {
     use sui::package;
     use suilend::lending_market::{Self, create_lending_market, LendingMarketOwnerCap, LendingMarket};
     use suilend::mock_pyth::{PriceState};
+    use sui::sui::SUI;
 
 
     public struct LENDING_MARKET has drop {}
@@ -132,10 +134,12 @@ module suilend::lending_market_tests {
         let mut prices = mock_pyth::init_state(test_scenario::ctx(scenario));
         mock_pyth::register<TEST_USDC>(&mut prices, test_scenario::ctx(scenario));
         mock_pyth::register<TEST_SUI>(&mut prices, test_scenario::ctx(scenario));
+        mock_pyth::register<SUI>(&mut prices, test_scenario::ctx(scenario));
 
         let mut type_to_index = bag::new(test_scenario::ctx(scenario));
         bag::add(&mut type_to_index, type_name::get<TEST_USDC>(), 0);
         bag::add(&mut type_to_index, type_name::get<TEST_SUI>(), 1);
+        bag::add(&mut type_to_index, type_name::get<SUI>(), 2);
 
         lending_market::add_reserve<LENDING_MARKET, TEST_USDC>(
             &owner_cap,
@@ -153,6 +157,16 @@ module suilend::lending_market_tests {
             mock_pyth::get_price_obj<TEST_SUI>(&prices),
             reserve_config::default_reserve_config(),
             mock_metadata::get<TEST_SUI>(&metadata),
+            &clock,
+            test_scenario::ctx(scenario)
+        );
+
+        lending_market::add_reserve_for_testing<LENDING_MARKET, SUI>(
+            &owner_cap,
+            &mut lending_market,
+            mock_pyth::get_price_obj<SUI>(&prices),
+            reserve_config::default_reserve_config(),
+            9,
             &clock,
             test_scenario::ctx(scenario)
         );
@@ -206,6 +220,33 @@ module suilend::lending_market_tests {
                 &owner_cap,
                 &mut lending_market,
                 1,
+                config
+            );
+
+            test_utils::destroy(ctokens);
+        };
+        if (bag::contains(&reserve_args, type_name::get<SUI>())) {
+            let ReserveArgs { config, initial_deposit } = bag::remove(
+                &mut reserve_args, 
+                type_name::get<SUI>()
+            );
+            let coins = coin::mint_for_testing<SUI>(
+                initial_deposit, 
+                test_scenario::ctx(scenario)
+            );
+
+            let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, SUI>(
+                &mut lending_market,
+                2,
+                &clock,
+                coins,
+                test_scenario::ctx(scenario)
+            );
+
+            lending_market::update_reserve_config<LENDING_MARKET, SUI>(
+                &owner_cap,
+                &mut lending_market,
+                2,
                 config
             );
 
@@ -1196,7 +1237,7 @@ module suilend::lending_market_tests {
         test_scenario::end(scenario);
     }
 
-     #[test]
+    #[test]
     public fun test_max_borrow() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
@@ -1621,4 +1662,95 @@ module suilend::lending_market_tests {
         test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
+
+    public struct STAKER has drop {}
+
+    use sui_system::governance_test_utils::{
+        advance_epoch_with_reward_amounts,
+        create_validator_for_testing,
+        create_sui_system_state_for_testing,
+    };
+
+    const SUILEND_VALIDATOR: address = @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
+
+    fun setup_sui_system(scenario: &mut Scenario) {
+        test_scenario::next_tx(scenario, SUILEND_VALIDATOR);
+        let validator = create_validator_for_testing(SUILEND_VALIDATOR, 100, test_scenario::ctx(scenario));
+        create_sui_system_state_for_testing(vector[validator], 0, 0, test_scenario::ctx(scenario));
+
+        advance_epoch_with_reward_amounts(0, 0, scenario);
+    }
+
+    #[test]
+    public fun test_staker_e2e() {
+        use sui::test_utils::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+        use suilend::test_usdc::{TEST_USDC};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        setup_sui_system(&mut scenario);
+
+        let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
+            let mut bag = bag::new(test_scenario::ctx(&mut scenario));
+            bag::add(
+                &mut bag, 
+                type_name::get<SUI>(), 
+                ReserveArgs {
+                    config: default_reserve_config(),
+                    initial_deposit: 100 * 1_000_000_000
+                }
+            );
+            bag::add(
+                &mut bag, 
+                type_name::get<TEST_USDC>(), 
+                ReserveArgs {
+                    config: {
+                        let config = default_reserve_config();
+                        let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                        reserve_config::set_open_ltv_pct(&mut builder, 50);
+                        reserve_config::set_close_ltv_pct(&mut builder, 50);
+                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                        sui::test_utils::destroy(config);
+
+                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                    },
+                    initial_deposit: 100 * 1_000_000
+                }
+            );
+
+            bag
+        }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+        let treasury_cap = coin::create_treasury_cap_for_testing<STAKER>(scenario.ctx());
+        lending_market::init_staker<LENDING_MARKET, STAKER>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<SUI>()),
+            treasury_cap,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let mut system_state = test_scenario::take_shared<SuiSystemState>(&scenario);
+        lending_market::rebalance_staker<LENDING_MARKET, STAKER>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<SUI>()),
+            &mut system_state,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let sui_reserve = lending_market::reserve<LENDING_MARKET, SUI>(&lending_market);
+        let staker = reserve::staker<LENDING_MARKET, STAKER>(sui_reserve);
+        std::debug::print(staker);
+
+        test_scenario::return_shared(system_state);
+
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
+
 }

@@ -779,6 +779,7 @@ module suilend::lending_market {
         }
     }
 
+    /* Staker operations */
     public fun init_staker<P, StakerType: drop>(
         lending_market: &mut LendingMarket<P>,
         sui_reserve_array_index: u64,
@@ -801,6 +802,19 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
 
         reserve::rebalance_staker<P, StakerType>(reserve, system_state, ctx);
+    }
+
+    public fun unstake_sui_from_staker<P, StakerType: drop>(
+        lending_market: &mut LendingMarket<P>,
+        sui_reserve_array_index: u64,
+        liquidity_request: &LiquidityRequest<P, SUI>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
+
+        reserve::unstake_sui_from_staker<P, StakerType>(reserve, liquidity_request, system_state, ctx);
     }
 
     // === Public-View Functions ===
@@ -941,7 +955,7 @@ module suilend::lending_market {
             object::id(lending_market),
             config, 
             vector::length(&lending_market.reserves),
-            coin_metadata, 
+            coin::get_decimals(coin_metadata),
             price_info, 
             clock, 
             ctx
@@ -1217,5 +1231,31 @@ module suilend::lending_market {
     public fun destroy_lending_market_owner_cap_for_testing<P>(lending_market_owner_cap: LendingMarketOwnerCap<P>) {
         let LendingMarketOwnerCap { id, lending_market_id: _ } = lending_market_owner_cap;
         object::delete(id);
+    }
+
+    #[test_only]
+    public fun add_reserve_for_testing<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        price_info: &PriceInfoObject,
+        config: ReserveConfig,
+        mint_decimals: u8,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves), EDuplicateReserve);
+
+        let reserve = reserve::create_reserve<P, T>(
+            object::id(lending_market),
+            config, 
+            vector::length(&lending_market.reserves),
+            mint_decimals,
+            price_info, 
+            clock, 
+            ctx
+        );
+
+        vector::push_back(&mut lending_market.reserves, reserve);
     }
 }
