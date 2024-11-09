@@ -350,7 +350,7 @@ module suilend::lending_market {
         reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock,
-        amount: u64,
+        mut amount: u64,
         ctx: &mut TxContext
     ): Coin<T> {
         let liquidity_request = borrow_request<P, T>(
