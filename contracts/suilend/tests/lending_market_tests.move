@@ -1728,7 +1728,7 @@ module suilend::lending_market_tests {
         std::debug::print(staker);
 
         let sui = coin::mint_for_testing<SUI>(100 * 1_000_000_000, test_scenario::ctx(&mut scenario));
-        let c_sui =lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, SUI>(
+        let c_sui = lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<SUI>()),
             &clock,
@@ -1746,15 +1746,6 @@ module suilend::lending_market_tests {
         let sui_reserve = lending_market::reserve<LENDING_MARKET, SUI>(&lending_market);
         let staker = reserve::staker<LENDING_MARKET, STAKER>(sui_reserve);
         std::debug::print(staker);
-
-        // let sui = lending_market::redeem_ctokens_and_withdraw_liquidity<LENDING_MARKET, SUI>(
-        //     &mut lending_market,
-        //     *bag::borrow(&type_to_index, type_name::get<SUI>()),
-        //     &clock,
-        //     c_sui,
-        //     option::none(),
-        //     test_scenario::ctx(&mut scenario)
-        // );
 
         let liquidity_request = lending_market::redeem_ctokens_and_withdraw_liquidity_request<LENDING_MARKET, SUI>(
             &mut lending_market,

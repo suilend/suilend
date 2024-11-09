@@ -417,6 +417,7 @@ module suilend::lending_market {
             origination_fee_amount: reserve::liquidity_request_fee(&liquidity_request),
         });
 
+        obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
         liquidity_request
     }
 
