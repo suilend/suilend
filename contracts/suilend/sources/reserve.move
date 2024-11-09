@@ -760,6 +760,7 @@ module suilend::reserve {
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ) {
+        assert!(reserve.coin_type == type_name::get<SUI>(), EWrongType);
         if (!dynamic_field::exists_(&reserve.id, StakerKey {})) {
             return
         };
@@ -783,29 +784,6 @@ module suilend::reserve {
             BalanceKey {}
         );
         balance::join(&mut balances.available_amount, sui);
-    }
-
-    public(package) fun unstake_sui_and_fulfill_liquidity_request<P, StakerType: drop>(
-        reserve: &mut Reserve<P>,
-        request: LiquidityRequest<P, SUI>,
-        system_state: &mut SuiSystemState,
-        ctx: &mut TxContext,
-    ): Balance<SUI> {
-        assert!(reserve.coin_type == type_name::get<SUI>(), EWrongType);
-
-        let LiquidityRequest { amount, fee } = request;
-
-        assert!(dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerNotInitialized);
-        let staker: &mut Staker<StakerType> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
-        let mut liquidity = staker::withdraw(staker, amount, system_state, ctx);
-
-        let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
-        balance::join(&mut balances.fees, balance::split(&mut liquidity, fee));
-
-        liquidity
     }
 
     /// Borrow tokens from the reserve. A fee is charged on the borrowed amount

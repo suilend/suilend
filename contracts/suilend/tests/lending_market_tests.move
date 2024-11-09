@@ -30,6 +30,7 @@ module suilend::lending_market_tests {
     public struct LENDING_MARKET has drop {}
 
     const U64_MAX: u64 = 18446744073709551615;
+    const MIST_PER_SUI: u64 = 1_000_000_000;
 
     #[test]
     fun test_create_lending_market() {
@@ -1701,23 +1702,6 @@ module suilend::lending_market_tests {
                     initial_deposit: 100 * 1_000_000_000
                 }
             );
-            bag::add(
-                &mut bag, 
-                type_name::get<TEST_USDC>(), 
-                ReserveArgs {
-                    config: {
-                        let config = default_reserve_config();
-                        let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                        reserve_config::set_open_ltv_pct(&mut builder, 50);
-                        reserve_config::set_close_ltv_pct(&mut builder, 50);
-                        reserve_config::set_max_close_ltv_pct(&mut builder, 50);
-                        sui::test_utils::destroy(config);
-
-                        reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-                    },
-                    initial_deposit: 100 * 1_000_000
-                }
-            );
 
             bag
         }, &mut scenario);
@@ -1743,8 +1727,63 @@ module suilend::lending_market_tests {
         let staker = reserve::staker<LENDING_MARKET, STAKER>(sui_reserve);
         std::debug::print(staker);
 
+        let sui = coin::mint_for_testing<SUI>(100 * 1_000_000_000, test_scenario::ctx(&mut scenario));
+        let c_sui =lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<SUI>()),
+            &clock,
+            sui,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        lending_market::rebalance_staker<LENDING_MARKET, STAKER>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<SUI>()),
+            &mut system_state,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let sui_reserve = lending_market::reserve<LENDING_MARKET, SUI>(&lending_market);
+        let staker = reserve::staker<LENDING_MARKET, STAKER>(sui_reserve);
+        std::debug::print(staker);
+
+        // let sui = lending_market::redeem_ctokens_and_withdraw_liquidity<LENDING_MARKET, SUI>(
+        //     &mut lending_market,
+        //     *bag::borrow(&type_to_index, type_name::get<SUI>()),
+        //     &clock,
+        //     c_sui,
+        //     option::none(),
+        //     test_scenario::ctx(&mut scenario)
+        // );
+
+        let liquidity_request = lending_market::redeem_ctokens_and_withdraw_liquidity_request<LENDING_MARKET, SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<SUI>()),
+            &clock,
+            c_sui,
+            option::none(),
+            test_scenario::ctx(&mut scenario)
+        );
+
+        lending_market::unstake_sui_from_staker<LENDING_MARKET, STAKER>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<SUI>()),
+            &liquidity_request,
+            &mut system_state,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        let sui = lending_market::fulfill_liquidity_request<LENDING_MARKET, SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<SUI>()),
+            liquidity_request,
+            test_scenario::ctx(&mut scenario)
+        );
+        assert!(coin::value(&sui) == 100 * MIST_PER_SUI, 0);
+
         test_scenario::return_shared(system_state);
 
+        test_utils::destroy(sui);
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);

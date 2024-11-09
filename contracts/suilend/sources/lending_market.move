@@ -252,38 +252,6 @@ module suilend::lending_market {
         coin::from_balance(ctokens, ctx)
     }
 
-    public fun redeem_ctokens_and_withdraw_liquidity_sui<P, StakerType: drop>(
-        lending_market: &mut LendingMarket<P>, 
-        system_state: &mut SuiSystemState,
-        reserve_array_index: u64,
-        clock: &Clock,
-        ctokens: Coin<CToken<P, SUI>>,
-        rate_limiter_exemption: Option<RateLimiterExemption<P, SUI>>,
-        ctx: &mut TxContext
-    ): Coin<SUI> {
-        let liquidity_request = redeem_ctokens_and_withdraw_liquidity_request(
-            lending_market, 
-            reserve_array_index, 
-            clock, 
-            ctokens, 
-            rate_limiter_exemption, 
-            ctx
-        );
-
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
-
-        coin::from_balance(
-            reserve::unstake_sui_and_fulfill_liquidity_request<P, StakerType>(
-                reserve, 
-                liquidity_request, 
-                system_state, 
-                ctx
-            ), 
-            ctx
-        )
-    }
-
     public fun redeem_ctokens_and_withdraw_liquidity<P, T>(
         lending_market: &mut LendingMarket<P>, 
         reserve_array_index: u64,
@@ -301,13 +269,7 @@ module suilend::lending_market {
             ctx
         );
 
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
-
-        coin::from_balance(
-            reserve::fulfill_liquidity_request(reserve, liquidity_request), 
-            ctx
-        )
+        fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
     public fun redeem_ctokens_and_withdraw_liquidity_request<P, T>(
@@ -382,35 +344,6 @@ module suilend::lending_market {
         )
     }
 
-    /// Borrow sui.
-    public fun borrow_sui<P, StakerType: drop>(
-        lending_market: &mut LendingMarket<P>,
-        system_state: &mut SuiSystemState,
-        reserve_array_index: u64,
-        obligation_owner_cap: &ObligationOwnerCap<P>,
-        clock: &Clock,
-        amount: u64,
-        ctx: &mut TxContext
-    ): Coin<SUI> {
-        let liquidity_request = borrow_request<P, SUI>(
-            lending_market, 
-            reserve_array_index, 
-            obligation_owner_cap, 
-            clock, 
-            amount
-        );
-
-        let mut reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        let sui = reserve::unstake_sui_and_fulfill_liquidity_request<P, StakerType>(
-            reserve, 
-            liquidity_request, 
-            system_state, 
-            ctx
-        );
-
-        coin::from_balance(sui, ctx)
-    }
-
     /// Borrow tokens of type T. A fee is charged.
     public fun borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
@@ -428,13 +361,7 @@ module suilend::lending_market {
             amount
         );
 
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
-
-        coin::from_balance(
-            reserve::fulfill_liquidity_request(reserve, liquidity_request), 
-            ctx
-        )
+        fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
     /// Borrow tokens of type T. A fee is charged.
@@ -491,6 +418,21 @@ module suilend::lending_market {
         });
 
         liquidity_request
+    }
+
+    public fun fulfill_liquidity_request<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        liquidity_request: LiquidityRequest<P, T>,
+        ctx: &mut TxContext
+    ): Coin<T> {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        coin::from_balance(
+            reserve::fulfill_liquidity_request(reserve, liquidity_request), 
+            ctx
+        )
     }
 
     public fun withdraw_ctokens<P, T>(
