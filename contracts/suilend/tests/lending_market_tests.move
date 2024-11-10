@@ -25,7 +25,7 @@ module suilend::lending_market_tests {
     use suilend::lending_market::{Self, create_lending_market, LendingMarketOwnerCap, LendingMarket};
     use suilend::mock_pyth::{PriceState};
     use sui::sui::SUI;
-
+    use suilend::staker::{STAKER};
 
     public struct LENDING_MARKET has drop {}
 
@@ -1664,8 +1664,6 @@ module suilend::lending_market_tests {
         test_scenario::end(scenario);
     }
 
-    public struct STAKER has drop {}
-
     use sui_system::governance_test_utils::{
         advance_epoch_with_reward_amounts,
         create_validator_for_testing,
@@ -1708,15 +1706,16 @@ module suilend::lending_market_tests {
 
         clock::set_for_testing(&mut clock, 1 * 1000);
         let treasury_cap = coin::create_treasury_cap_for_testing<STAKER>(scenario.ctx());
-        lending_market::init_staker<LENDING_MARKET, STAKER>(
+        lending_market::init_staker<LENDING_MARKET>(
             &mut lending_market,
+            &owner_cap,
             *bag::borrow(&type_to_index, type_name::get<SUI>()),
             treasury_cap,
             test_scenario::ctx(&mut scenario)
         );
 
         let mut system_state = test_scenario::take_shared<SuiSystemState>(&scenario);
-        lending_market::rebalance_staker<LENDING_MARKET, STAKER>(
+        lending_market::rebalance_staker<LENDING_MARKET>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<SUI>()),
             &mut system_state,
@@ -1724,7 +1723,7 @@ module suilend::lending_market_tests {
         );
 
         let sui_reserve = lending_market::reserve<LENDING_MARKET, SUI>(&lending_market);
-        let staker = reserve::staker<LENDING_MARKET, STAKER>(sui_reserve);
+        let staker = reserve::staker<LENDING_MARKET>(sui_reserve);
         std::debug::print(staker);
 
         let sui = coin::mint_for_testing<SUI>(100 * 1_000_000_000, test_scenario::ctx(&mut scenario));
@@ -1736,7 +1735,7 @@ module suilend::lending_market_tests {
             test_scenario::ctx(&mut scenario)
         );
 
-        lending_market::rebalance_staker<LENDING_MARKET, STAKER>(
+        lending_market::rebalance_staker<LENDING_MARKET>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<SUI>()),
             &mut system_state,
@@ -1744,7 +1743,7 @@ module suilend::lending_market_tests {
         );
 
         let sui_reserve = lending_market::reserve<LENDING_MARKET, SUI>(&lending_market);
-        let staker = reserve::staker<LENDING_MARKET, STAKER>(sui_reserve);
+        let staker = reserve::staker<LENDING_MARKET>(sui_reserve);
         std::debug::print(staker);
 
         let liquidity_request = lending_market::redeem_ctokens_and_withdraw_liquidity_request<LENDING_MARKET, SUI>(

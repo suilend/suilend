@@ -10,7 +10,7 @@ module suilend::staker_tests {
     };
     use sui::balance::{Self};
     use sui::coin::{Self};
-    use suilend::staker::{create_staker};
+    use suilend::staker::{create_staker, STAKER};
     use sui_system::sui_system::{SuiSystemState};
     use sui::sui::{SUI};
 
@@ -32,7 +32,7 @@ module suilend::staker_tests {
         let mut scenario = test_scenario::begin(owner);
         setup_sui_system(&mut scenario);
 
-        let treasury_cap = coin::create_treasury_cap_for_testing<STAKER_TESTS>(test_scenario::ctx(&mut scenario));
+        let treasury_cap = coin::create_treasury_cap_for_testing<STAKER>(test_scenario::ctx(&mut scenario));
 
         let mut staker = create_staker(treasury_cap, test_scenario::ctx(&mut scenario));
         assert!(staker.sui_balance().value() == 0, 0);

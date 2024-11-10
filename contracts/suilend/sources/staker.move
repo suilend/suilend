@@ -21,41 +21,58 @@ module suilend::staker {
     // This is mostly so i don't hit the "zero lst coin mint" error.
     const MIN_DEPLOY_AMOUNT: u64 = 1_000_000; // 1 SUI
 
-    public struct Staker<phantom P> has store {
-        admin: AdminCap<P>,
-        liquid_staking_info: LiquidStakingInfo<P>,
-        lst_balance: Balance<P>,
+    public struct STAKER has drop {}
+
+    fun init(otw: STAKER, ctx: &mut TxContext) {
+        let (treasury, metadata) = coin::create_currency(
+            otw,
+            9,
+            b"SprungSui",
+            b"",
+            b"",
+            option::none(),
+            ctx
+        );
+
+        transfer::public_freeze_object(metadata);
+        transfer::public_transfer(treasury, ctx.sender())
+    }
+
+    public struct Staker has store {
+        admin: AdminCap<STAKER>,
+        liquid_staking_info: LiquidStakingInfo<STAKER>,
+        lst_balance: Balance<STAKER>,
         sui_balance: Balance<SUI>,
         liabilities: u64, // how much sui is owed to the reserve
     }
 
     /* Public-View Functions */
-    public(package) fun liabilities<P>(staker: &Staker<P>): u64 {
+    public(package) fun liabilities(staker: &Staker): u64 {
         staker.liabilities
     }
 
-    public(package) fun lst_balance<P>(staker: &Staker<P>): &Balance<P> {
+    public(package) fun lst_balance(staker: &Staker): &Balance<STAKER> {
         &staker.lst_balance
     }
 
-    public(package) fun sui_balance<P>(staker: &Staker<P>): &Balance<SUI> {
+    public(package) fun sui_balance(staker: &Staker): &Balance<SUI> {
         &staker.sui_balance
     }
 
     // this value can be stale if the staker hasn't refreshed the liquid_staking_info
-    public(package) fun total_sui_supply<P>(staker: &Staker<P>): u64 {
+    public(package) fun total_sui_supply(staker: &Staker): u64 {
         staker.liquid_staking_info.total_sui_supply() + staker.sui_balance.value()
     }
 
-    public(package) fun liquid_staking_info<P>(staker: &Staker<P>): &LiquidStakingInfo<P> {
+    public(package) fun liquid_staking_info(staker: &Staker): &LiquidStakingInfo<STAKER> {
         &staker.liquid_staking_info
     }
 
     /* Public Mutative Functions */
-    public(package) fun create_staker<P: drop>(
-        treasury_cap: TreasuryCap<P>, 
+    public(package) fun create_staker(
+        treasury_cap: TreasuryCap<STAKER>, 
         ctx: &mut TxContext
-    ): Staker<P> {
+    ): Staker {
         assert!(coin::total_supply(&treasury_cap) == 0, ETreasuryCapNonZeroSupply);
 
         let (admin_cap, liquid_staking_info) = liquid_staking::create_lst(
@@ -73,16 +90,16 @@ module suilend::staker {
         }
     }
 
-    public(package) fun deposit<P: drop>(
-        staker: &mut Staker<P>,
+    public(package) fun deposit(
+        staker: &mut Staker,
         sui: Balance<SUI>,
     ) {
         staker.liabilities = staker.liabilities + sui.value();
         staker.sui_balance.join(sui);
     }
 
-    public(package) fun withdraw<P: drop>(
-        staker: &mut Staker<P>,
+    public(package) fun withdraw(
+        staker: &mut Staker,
         withdraw_amount: u64,
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
@@ -100,8 +117,8 @@ module suilend::staker {
         sui
     }
 
-    public(package) fun rebalance<P: drop>(
-        staker: &mut Staker<P>,
+    public(package) fun rebalance(
+        staker: &mut Staker,
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ) {
@@ -128,8 +145,8 @@ module suilend::staker {
         );
     }
 
-    public(package) fun claim_fees<P: drop>(
-        staker: &mut Staker<P>,
+    public(package) fun claim_fees(
+        staker: &mut Staker,
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ): Balance<SUI> {
@@ -157,8 +174,8 @@ module suilend::staker {
 
     // liquid_staking_info must be refreshed before calling this
     // this function can unstake slightly more sui than requested due to rounding.
-    fun unstake_n_sui<P: drop>(
-        staker: &mut Staker<P>,
+    fun unstake_n_sui(
+        staker: &mut Staker,
         system_state: &mut SuiSystemState,
         sui_amount_out: u64,
         ctx: &mut TxContext
