@@ -49,6 +49,13 @@ module suilend::staker_tests {
         assert!(staker.sui_balance().value() == 100 * MIST_PER_SUI, 0);
         assert!(staker.lst_balance().value() == 0, 0);
 
+        let sui = staker.withdraw(100 * MIST_PER_SUI, &mut system_state, scenario.ctx());
+        assert!(sui.value() == 100 * MIST_PER_SUI, 0);
+        assert!(staker.liabilities() == 0, 0);
+        assert!(staker.sui_balance().value() == 0, 0);
+        assert!(staker.lst_balance().value() == 0, 0);
+
+        staker.deposit(sui);
         staker.rebalance(&mut system_state, scenario.ctx());
 
         assert!(staker.liabilities() == 100 * MIST_PER_SUI, 0);
@@ -56,7 +63,6 @@ module suilend::staker_tests {
         assert!(staker.lst_balance().value() == 100 * MIST_PER_SUI, 0);
         assert!(staker.total_sui_supply() == 100 * MIST_PER_SUI, 0);
         assert!(staker.liquid_staking_info().total_sui_supply() == 100 * MIST_PER_SUI, 0);
-
 
         test_scenario::return_shared(system_state);
 

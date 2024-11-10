@@ -1755,7 +1755,7 @@ module suilend::lending_market_tests {
             test_scenario::ctx(&mut scenario)
         );
 
-        lending_market::unstake_sui_from_staker<LENDING_MARKET, STAKER>(
+        lending_market::unstake_sui_from_staker<LENDING_MARKET>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<SUI>()),
             &liquidity_request,

@@ -162,10 +162,7 @@ module suilend::staker {
 
         let sui = staker.sui_balance.split(excess_sui);
 
-        assert!(
-            staker.liquid_staking_info.total_sui_supply() + staker.sui_balance.value() >= staker.liabilities,
-            EInvariantViolation
-        );
+        assert!(staker.total_sui_supply() >= staker.liabilities, EInvariantViolation);
 
         sui
     }
