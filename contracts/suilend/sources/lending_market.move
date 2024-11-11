@@ -366,7 +366,7 @@ module suilend::lending_market {
     }
 
     /// Borrow tokens of type T. A fee is charged.
-    fun borrow_request<P, T>(
+    public fun borrow_request<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
