@@ -97,6 +97,14 @@ module suilend::staker_tests {
         assert!(staker.total_sui_supply() == 99 * MIST_PER_SUI - 1, 0);
         sui::test_utils::destroy(sui);
 
+        let sui = staker.claim_fees(&mut system_state, scenario.ctx());
+        assert!(sui.value() == 0);
+        sui::test_utils::destroy(sui);
+
+        let sui = staker.withdraw(0, &mut system_state, scenario.ctx());
+        assert!(sui.value() == 0);
+        sui::test_utils::destroy(sui);
+
         test_scenario::return_shared(system_state);
         sui::test_utils::destroy(staker);
         test_scenario::end(scenario);

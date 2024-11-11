@@ -178,7 +178,7 @@ module suilend::staker {
         ctx: &mut TxContext
     ) {
         if (sui_amount_out == 0) {
-            return;
+            return
         };
 
         let total_sui_supply = (staker.liquid_staking_info.total_sui_supply() as u128);
