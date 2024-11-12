@@ -20,6 +20,7 @@ module suilend::staker {
 
     // This is mostly so i don't hit the "zero lst coin mint" error.
     const MIN_DEPLOY_AMOUNT: u64 = 1_000_000; // 1 SUI
+    const MIST_PER_SUI: u64 = 1_000_000_000;
 
     public struct STAKER has drop {}
 
@@ -153,7 +154,13 @@ module suilend::staker {
         staker.liquid_staking_info.refresh(system_state, ctx);
 
         let total_sui_supply = staker.total_sui_supply();
-        let excess_sui = total_sui_supply - staker.liabilities;
+
+        // leave 1 SUI extra, just in case
+        let excess_sui = if (total_sui_supply > staker.liabilities + MIST_PER_SUI) {
+            total_sui_supply - staker.liabilities - MIST_PER_SUI
+        } else {
+            0
+        };
 
         if (excess_sui > staker.sui_balance.value()) {
             let unstake_amount = excess_sui - staker.sui_balance.value();
