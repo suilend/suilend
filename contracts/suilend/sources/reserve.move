@@ -151,6 +151,8 @@ module suilend::reserve {
 
     public struct ClaimStakingRewardsEvent has drop, copy {
         lending_market_id: address,
+        coin_type: TypeName,
+        reserve_id: address,
         amount: u64,
     }
 
@@ -761,6 +763,8 @@ module suilend::reserve {
         if (balance::value(&fees) > 0) {
             event::emit(ClaimStakingRewardsEvent {
                 lending_market_id: object::id_to_address(&reserve.lending_market_id),
+                coin_type: reserve.coin_type,
+                reserve_id: object::uid_to_address(&reserve.id),
                 amount: balance::value(&fees),
             });
 
