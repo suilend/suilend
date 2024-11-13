@@ -80,21 +80,31 @@ module suilend::staker_tests {
         assert!(staker.total_sui_supply() == 200 * MIST_PER_SUI, 0);
 
         let sui = staker.claim_fees(&mut system_state, scenario.ctx());
-        assert!(sui.value() == 100 * MIST_PER_SUI, 0);
+        assert!(sui.value() == 99 * MIST_PER_SUI, 0);
         assert!(staker.liabilities() == 100 * MIST_PER_SUI, 0);
         assert!(staker.sui_balance().value() == 0, 0);
-        assert!(staker.liquid_staking_info().total_sui_supply() == 100 * MIST_PER_SUI, 0);
-        assert!(staker.lst_balance().value() == 50 * MIST_PER_SUI, 0);
-        assert!(staker.total_sui_supply() == 100 * MIST_PER_SUI, 0);
+        assert!(staker.liquid_staking_info().total_sui_supply() == 101 * MIST_PER_SUI, 0);
+        assert!(staker.lst_balance().value() == 50 * MIST_PER_SUI + 500_000_000, 0);
+        assert!(staker.total_sui_supply() == 101 * MIST_PER_SUI, 0);
+        sui::test_utils::destroy(sui);
+
+        // should be no fees to claim
+        let sui = staker.claim_fees(&mut system_state, scenario.ctx());
+        assert!(sui.value() == 0, 0);
+        assert!(staker.liabilities() == 100 * MIST_PER_SUI, 0);
+        assert!(staker.sui_balance().value() == 0, 0);
+        assert!(staker.liquid_staking_info().total_sui_supply() == 101 * MIST_PER_SUI, 0);
+        assert!(staker.lst_balance().value() == 50 * MIST_PER_SUI + 500_000_000, 0);
+        assert!(staker.total_sui_supply() == 101 * MIST_PER_SUI, 0);
         sui::test_utils::destroy(sui);
 
         let sui = staker.withdraw(MIST_PER_SUI + 1, &mut system_state, scenario.ctx());
         assert!(sui.value() == MIST_PER_SUI + 1, 0);
         assert!(staker.liabilities() == 99 * MIST_PER_SUI - 1, 0);
         assert!(staker.sui_balance().value() == 1, 0);
-        assert!(staker.liquid_staking_info().total_sui_supply() == 99 * MIST_PER_SUI - 2, 0);
-        assert!(staker.lst_balance().value() == 49 * MIST_PER_SUI + 500_000_000 - 1, 0);
-        assert!(staker.total_sui_supply() == 99 * MIST_PER_SUI - 1, 0);
+        assert!(staker.liquid_staking_info().total_sui_supply() == 100 * MIST_PER_SUI - 2, 0);
+        assert!(staker.lst_balance().value() == 50 * MIST_PER_SUI - 1, 0);
+        assert!(staker.total_sui_supply() == 100 * MIST_PER_SUI - 1, 0);
         sui::test_utils::destroy(sui);
 
         let sui = staker.claim_fees(&mut system_state, scenario.ctx());

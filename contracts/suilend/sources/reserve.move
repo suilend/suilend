@@ -149,6 +149,12 @@ module suilend::reserve {
         price_last_update_timestamp_s: u64,
     }
 
+    public struct ClaimStakingRewardsEvent has drop, copy {
+        lending_market_id: address,
+        coin_type: TypeName,
+        reserve_id: address,
+        amount: u64,
+    }
 
     // === Conpublic structor ===
     public(package) fun create_reserve<P, T>(
@@ -752,6 +758,26 @@ module suilend::reserve {
 
         staker::deposit(staker, sui);
         staker::rebalance(staker, system_state, ctx);
+
+        let fees = staker::claim_fees(staker, system_state, ctx);
+        if (balance::value(&fees) > 0) {
+            event::emit(ClaimStakingRewardsEvent {
+                lending_market_id: object::id_to_address(&reserve.lending_market_id),
+                coin_type: reserve.coin_type,
+                reserve_id: object::uid_to_address(&reserve.id),
+                amount: balance::value(&fees),
+            });
+
+            let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+                &mut reserve.id,
+                BalanceKey {}
+            );
+
+            balance::join(&mut balances.fees, fees);
+        }
+        else {
+            balance::destroy_zero(fees);
+        };
     }
 
     public(package) fun unstake_sui_from_staker<P>(
