@@ -428,6 +428,8 @@ module suilend::lending_market {
         liquidity_request: LiquidityRequest<P, T>,
         ctx: &mut TxContext
     ): Coin<T> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
@@ -731,6 +733,8 @@ module suilend::lending_market {
         treasury_cap: TreasuryCap<STAKER>,
         ctx: &mut TxContext
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
 
@@ -743,6 +747,8 @@ module suilend::lending_market {
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
 
@@ -756,6 +762,8 @@ module suilend::lending_market {
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
         if (reserve::coin_type(reserve) != type_name::get<SUI>()) {
             return;
