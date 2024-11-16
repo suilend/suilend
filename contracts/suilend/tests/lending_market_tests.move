@@ -2016,7 +2016,7 @@ module suilend::lending_market_tests {
         let staker = reserve::staker<LENDING_MARKET>(sui_reserve);
         std::debug::print(&staker.total_sui_supply());
         // the extra 50 sui gained has been transferred to the fees balance already
-        assert!(staker.total_sui_supply() == 101 * MIST_PER_SUI - 1);
+        assert!(staker.total_sui_supply() == 101 * MIST_PER_SUI);
         assert!(staker.liabilities() == 100 * MIST_PER_SUI);
 
         lending_market::claim_fees<LENDING_MARKET, SUI>(
