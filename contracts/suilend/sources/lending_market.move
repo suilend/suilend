@@ -23,7 +23,6 @@ module suilend::lending_market {
     use suilend::liquidity_mining::{Self};
     use sui::package;
     use sui::sui::SUI;
-    use suilend::staker::{STAKER};
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -726,11 +725,11 @@ module suilend::lending_market {
     }
 
     /* Staker operations */
-    public fun init_staker<P>(
+    public fun init_staker<P, S: drop>(
         lending_market: &mut LendingMarket<P>,
         _: &LendingMarketOwnerCap<P>,
         sui_reserve_array_index: u64,
-        treasury_cap: TreasuryCap<STAKER>,
+        treasury_cap: TreasuryCap<S>,
         ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
@@ -738,10 +737,10 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
 
-        reserve::init_staker<P>(reserve, treasury_cap, ctx);
+        reserve::init_staker<P, S>(reserve, treasury_cap, ctx);
     }
 
-    public fun rebalance_staker<P>(
+    public fun rebalance_staker<P, S: drop>(
         lending_market: &mut LendingMarket<P>,
         sui_reserve_array_index: u64,
         system_state: &mut SuiSystemState,
@@ -752,10 +751,10 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
 
-        reserve::rebalance_staker<P>(reserve, system_state, ctx);
+        reserve::rebalance_staker<P, S>(reserve, system_state, ctx);
     }
 
-    public fun unstake_sui_from_staker<P>(
+    public fun unstake_sui_from_staker<P, S: drop>(
         lending_market: &mut LendingMarket<P>,
         sui_reserve_array_index: u64,
         liquidity_request: &LiquidityRequest<P, SUI>,
@@ -769,7 +768,7 @@ module suilend::lending_market {
             return;
         };
 
-        reserve::unstake_sui_from_staker<P>(reserve, liquidity_request, system_state, ctx);
+        reserve::unstake_sui_from_staker<P, S>(reserve, liquidity_request, system_state, ctx);
     }
 
     // === Public-View Functions ===

@@ -32,7 +32,7 @@ module suilend::reserve {
         liquidation_bonus
     };
     use suilend::liquidity_mining::{Self, PoolRewardManager};
-    use suilend::staker::{Self, Staker, STAKER};
+    use suilend::staker::{Self, Staker};
     use sui_system::sui_system::{SuiSystemState};
 
     // === Errors ===
@@ -497,7 +497,7 @@ module suilend::reserve {
         request.fee
     }
 
-    public fun staker<P>(reserve: &Reserve<P>): &Staker {
+    public fun staker<P, S>(reserve: &Reserve<P>): &Staker<S> {
         dynamic_field::borrow(&reserve.id, StakerKey {})
     }
 
@@ -731,9 +731,9 @@ module suilend::reserve {
         liquidity
     }
 
-    public(package) fun init_staker<P>(
+    public(package) fun init_staker<P, S: drop>(
         reserve: &mut Reserve<P>,
-        treasury_cap: TreasuryCap<STAKER>,
+        treasury_cap: TreasuryCap<S>,
         ctx: &mut TxContext
     ) {
         assert!(!dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerAlreadyInitialized);
@@ -742,7 +742,7 @@ module suilend::reserve {
         dynamic_field::add(&mut reserve.id, StakerKey {}, staker);
     }
 
-    public(package) fun rebalance_staker<P>(
+    public(package) fun rebalance_staker<P, S: drop>(
         reserve: &mut Reserve<P>,
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
@@ -754,7 +754,7 @@ module suilend::reserve {
         );
         let sui = balance::withdraw_all(&mut balances.available_amount);
 
-        let staker: &mut Staker = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+        let staker: &mut Staker<S> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
 
         staker::deposit(staker, sui);
         staker::rebalance(staker, system_state, ctx);
@@ -780,7 +780,7 @@ module suilend::reserve {
         };
     }
 
-    public(package) fun unstake_sui_from_staker<P>(
+    public(package) fun unstake_sui_from_staker<P, S: drop>(
         reserve: &mut Reserve<P>,
         liquidity_request: &LiquidityRequest<P, SUI>,
         system_state: &mut SuiSystemState,
@@ -797,7 +797,7 @@ module suilend::reserve {
         };
         let withdraw_amount = liquidity_request.amount - balance::value(&balances.available_amount);
 
-        let staker: &mut Staker = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+        let staker: &mut Staker<S> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
         let sui = staker::withdraw(
             staker,
             withdraw_amount, 

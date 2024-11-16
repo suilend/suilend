@@ -10,13 +10,15 @@ module suilend::staker_tests {
     };
     use sui::balance::{Self};
     use sui::coin::{Self};
-    use suilend::staker::{create_staker, STAKER};
+    use suilend::staker::{create_staker};
     use sui_system::sui_system::{SuiSystemState};
     use sui::sui::{SUI};
 
     /* Constants */
     const MIST_PER_SUI: u64 = 1_000_000_000;
     const SUILEND_VALIDATOR: address = @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
+
+    public struct STAKER has drop {}
 
     fun setup_sui_system(scenario: &mut Scenario) {
         test_scenario::next_tx(scenario, SUILEND_VALIDATOR);
