@@ -17,7 +17,7 @@ rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62"
 [dependencies.liquid_staking]
 git = "https://github.com/solendprotocol/liquid-staking.git"
 subdir = "contracts"
-rev = "11182f9f5a8240d018d0e7c885ecc211d8498de2"
+rev = "main"
 
 [dependencies.sprungsui]
 local = "../sprungsui"
