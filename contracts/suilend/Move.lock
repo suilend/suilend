@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "5B20C7CF1FABF3F6BD7D3CF1924ACB68BCF7EF392B3DA815E2626BA7D10B0F39"
+manifest_digest = "35F92FCDECB247F47BD4304AA29525DA91F7CF4EBCB8777527B825341BB52706"
 deps_digest = "060AD7E57DFB13104F21BE5F5C3759D03F0553FC3229247D9A7A6B45F50D03A3"
 dependencies = [
   { id = "Pyth", name = "Pyth" },
@@ -50,7 +50,7 @@ dependencies = [
 
 [[move.package]]
 id = "liquid_staking"
-source = { git = "https://github.com/solendprotocol/liquid-staking.git", rev = "11182f9f5a8240d018d0e7c885ecc211d8498de2", subdir = "contracts" }
+source = { git = "https://github.com/solendprotocol/liquid-staking.git", rev = "main", subdir = "contracts" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -61,9 +61,3 @@ dependencies = [
 compiler-version = "1.35.3"
 edition = "2024.beta"
 flavor = "sui"
-
-[env.mainnet]
-chain-id = "35834a8a"
-original-published-id = "0x49115e9c326f94f21987e1aa82e8e5526d31ca34908d10d334422e67843b49a7"
-latest-published-id = "0xb086cc15ff341284a159f91ad421e0ebd107a6747bd56469809e4db9d414c1be"
-published-version = "2"
