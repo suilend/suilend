@@ -2,6 +2,7 @@
 name = "suilend"
 version = "0.0.1"
 edition = "2024.beta"
+published-at = "0xa5239cfdb84856fa466b7cec4da42954fc9901b2a48dd5320d670a1b21028207"
 
 [dependencies.Sui]
 git = "https://github.com/MystenLabs/sui.git"
@@ -24,4 +25,5 @@ local = "../sprungsui"
 
 [addresses]
 sui = "0x2"
-suilend = "0x0"
+# suilend = "0x0"
+suilend = "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf"
