@@ -32,8 +32,9 @@ module suilend::reserve {
         liquidation_bonus
     };
     use suilend::liquidity_mining::{Self, PoolRewardManager};
-    use suilend::staker::{Self, Staker, STAKER};
+    use suilend::staker::{Self, Staker};
     use sui_system::sui_system::{SuiSystemState};
+    use sprungsui::sprungsui::SPRUNGSUI;
 
     // === Errors ===
     const EPriceStale: u64 = 0;
@@ -497,7 +498,7 @@ module suilend::reserve {
         request.fee
     }
 
-    public fun staker<P>(reserve: &Reserve<P>): &Staker {
+    public fun staker<P, S>(reserve: &Reserve<P>): &Staker<S> {
         dynamic_field::borrow(&reserve.id, StakerKey {})
     }
 
@@ -731,12 +732,13 @@ module suilend::reserve {
         liquidity
     }
 
-    public(package) fun init_staker<P>(
+    public(package) fun init_staker<P, S: drop>(
         reserve: &mut Reserve<P>,
-        treasury_cap: TreasuryCap<STAKER>,
+        treasury_cap: TreasuryCap<S>,
         ctx: &mut TxContext
     ) {
         assert!(!dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerAlreadyInitialized);
+        assert!(type_name::get<S>() == type_name::get<SPRUNGSUI>(), EWrongType);
 
         let staker = staker::create_staker(treasury_cap, ctx);
         dynamic_field::add(&mut reserve.id, StakerKey {}, staker);
@@ -754,7 +756,7 @@ module suilend::reserve {
         );
         let sui = balance::withdraw_all(&mut balances.available_amount);
 
-        let staker: &mut Staker = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+        let staker: &mut Staker<SPRUNGSUI> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
 
         staker::deposit(staker, sui);
         staker::rebalance(staker, system_state, ctx);
@@ -797,7 +799,7 @@ module suilend::reserve {
         };
         let withdraw_amount = liquidity_request.amount - balance::value(&balances.available_amount);
 
-        let staker: &mut Staker = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+        let staker: &mut Staker<SPRUNGSUI> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
         let sui = staker::withdraw(
             staker,
             withdraw_amount, 
