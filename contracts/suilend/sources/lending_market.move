@@ -754,6 +754,19 @@ module suilend::lending_market {
         reserve::rebalance_staker<P>(reserve, system_state, ctx);
     }
 
+    public fun unstake_sui_from_staker_generic<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        sui_reserve_array_index: u64,
+        liquidity_request: &LiquidityRequest<P, T>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
+        reserve::unstake_sui_from_staker<P, T>(reserve, liquidity_request, system_state, ctx);
+    }
+
     public fun unstake_sui_from_staker<P>(
         lending_market: &mut LendingMarket<P>,
         sui_reserve_array_index: u64,
@@ -764,11 +777,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
-        if (reserve::coin_type(reserve) != type_name::get<SUI>()) {
-            return;
-        };
-
-        reserve::unstake_sui_from_staker<P>(reserve, liquidity_request, system_state, ctx);
+        reserve::unstake_sui_from_staker<P, SUI>(reserve, liquidity_request, system_state, ctx);
     }
 
     // === Public-View Functions ===

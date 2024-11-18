@@ -782,13 +782,16 @@ module suilend::reserve {
         };
     }
 
-    public(package) fun unstake_sui_from_staker<P>(
+    public(package) fun unstake_sui_from_staker<P, T>(
         reserve: &mut Reserve<P>,
-        liquidity_request: &LiquidityRequest<P, SUI>,
+        liquidity_request: &LiquidityRequest<P, T>,
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ) {
-        assert!(reserve.coin_type == type_name::get<SUI>(), EWrongType);
+        if (!(reserve.coin_type == type_name::get<SUI>() && type_name::get<T>() == type_name::get<SUI>())) {
+            return
+        };
+
         if (!dynamic_field::exists_(&reserve.id, StakerKey {})) {
             return
         };
