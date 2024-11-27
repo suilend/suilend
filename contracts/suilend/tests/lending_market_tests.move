@@ -440,6 +440,7 @@ module suilend::lending_market_tests {
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
+        setup_sui_system(&mut scenario);
         let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
                 let mut bag = bag::new(test_scenario::ctx(&mut scenario));
                 bag::add(
@@ -601,16 +602,12 @@ module suilend::lending_market_tests {
         let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
         assert!(reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(0), 0);
 
-        let obligation = lending_market::obligation(
-            &lending_market,
-            lending_market::obligation_id(&obligation_owner_cap),
-        );
-        assert!(
-            obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation) == decimal::from(0),
-            0,
-        );
+        let obligation = lending_market::obligation(&lending_market, lending_market::obligation_id(&obligation_owner_cap));
+        assert!(obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation) == decimal::from(0), 0);
 
         test_scenario::next_tx(&mut scenario, owner);
+
+        let mut system_state = test_scenario::take_shared(&mut scenario);
 
         lending_market::set_fee_receivers<LENDING_MARKET>(
             &owner_cap,
@@ -622,8 +619,17 @@ module suilend::lending_market_tests {
         lending_market::claim_fees<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &mut system_state,
             test_scenario::ctx(&mut scenario),
         );
+        lending_market::claim_fees<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &mut system_state,
+            test_scenario::ctx(&mut scenario)
+        );
+
+        test_scenario::return_shared(system_state);
 
         test_scenario::next_tx(&mut scenario, owner);
 
@@ -793,6 +799,8 @@ module suilend::lending_market_tests {
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
+        setup_sui_system(&mut scenario);
+
         let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
                 let mut bag = bag::new(test_scenario::ctx(&mut scenario));
                 bag::add(
@@ -979,13 +987,16 @@ module suilend::lending_market_tests {
 
         // claim fees
         test_scenario::next_tx(&mut scenario, owner);
+        let mut system_state = test_scenario::take_shared<SuiSystemState>(&mut scenario);
         lending_market::claim_fees<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
-            test_scenario::ctx(&mut scenario),
+            &mut system_state,
+            test_scenario::ctx(&mut scenario)
         );
-
+        test_scenario::return_shared(system_state);
         test_scenario::next_tx(&mut scenario, owner);
+
         let ctoken_fees: Coin<CToken<LENDING_MARKET, TEST_USDC>> = test_scenario::take_from_address(
             &scenario,
             lending_market::fee_receiver(&lending_market),
@@ -2187,7 +2198,6 @@ module suilend::lending_market_tests {
             &mut system_state,
             test_scenario::ctx(&mut scenario),
         );
-        test_scenario::return_shared(system_state);
 
         let sui_reserve = lending_market::reserve<LENDING_MARKET, SUI>(&lending_market);
         let staker = reserve::staker<LENDING_MARKET, SPRUNGSUI>(sui_reserve);
@@ -2199,9 +2209,11 @@ module suilend::lending_market_tests {
         lending_market::claim_fees<LENDING_MARKET, SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<SUI>()),
-            test_scenario::ctx(&mut scenario),
+            &mut system_state,
+            test_scenario::ctx(&mut scenario)
         );
 
+        test_scenario::return_shared(system_state);
         test_scenario::next_tx(&mut scenario, owner);
 
         let fees: Coin<SUI> = test_scenario::take_from_address(

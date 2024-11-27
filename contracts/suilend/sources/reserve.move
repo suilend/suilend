@@ -622,7 +622,11 @@ module suilend::reserve {
         });
     }
 
-    public(package) fun claim_fees<P, T>(reserve: &mut Reserve<P>): (Balance<CToken<P, T>>, Balance<T>) {
+    public(package) fun claim_fees<P, T>(
+        reserve: &mut Reserve<P>, 
+        system_state: &mut SuiSystemState, 
+        ctx: &mut TxContext
+    ): (Balance<CToken<P, T>>, Balance<T>) {
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         let mut fees = balance::withdraw_all(&mut balances.fees);
         let ctoken_fees = balance::withdraw_all(&mut balances.ctoken_fees);
@@ -634,7 +638,15 @@ module suilend::reserve {
                 decimal::from(reserve.available_amount - MIN_AVAILABLE_AMOUNT)
             ));
 
-            let spread_fees = balance::split(&mut balances.available_amount, claimable_spread_fees);
+            let spread_fees = {
+                let liquidity_request = LiquidityRequest<P, T> { amount: claimable_spread_fees, fee: 0 };
+
+                if (type_name::get<T>() == type_name::get<SUI>()) {
+                    unstake_sui_from_staker(reserve, &liquidity_request, system_state, ctx);
+                };
+
+                fulfill_liquidity_request(reserve, liquidity_request)
+            };
 
             reserve.unclaimed_spread_fees = sub(
                 reserve.unclaimed_spread_fees, 
@@ -783,13 +795,13 @@ module suilend::reserve {
         };
     }
 
-    public(package) fun unstake_sui_from_staker<P>(
+    public(package) fun unstake_sui_from_staker<P, T>(
         reserve: &mut Reserve<P>,
-        liquidity_request: &LiquidityRequest<P, SUI>,
+        liquidity_request: &LiquidityRequest<P, T>,
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ) {
-        assert!(reserve.coin_type == type_name::get<SUI>(), EWrongType);
+        assert!(reserve.coin_type == type_name::get<SUI>() && type_name::get<T>() == type_name::get<SUI>(), EWrongType);
         if (!dynamic_field::exists_(&reserve.id, StakerKey {})) {
             return
         };
