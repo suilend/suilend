@@ -3,10 +3,7 @@
 /// Anyone can create a new LendingMarket via the registry.
 module suilend::lending_market_registry {
     use sui::table::{Self, Table};
-    use sui::object::{Self, ID, UID};
     use std::type_name::{Self, TypeName};
-    use sui::tx_context::{TxContext};
-    use sui::transfer::{Self};
     use sui::dynamic_field::{Self};
 
     use suilend::lending_market::{Self, LendingMarket, LendingMarketOwnerCap};

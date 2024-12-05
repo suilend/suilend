@@ -1,11 +1,8 @@
 module suilend::obligation {
     // === Imports ===
     use std::type_name::{TypeName, Self};
-    use sui::object::{Self, UID, ID};
     use sui::balance::{Balance};
-    use std::vector::{Self};
     use sui::event::{Self};
-    use sui::tx_context::{TxContext};
     use suilend::reserve::{Self, Reserve, config};
     use suilend::reserve_config::{
         open_ltv, 

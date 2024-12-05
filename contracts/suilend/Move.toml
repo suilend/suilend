@@ -15,6 +15,11 @@ git = "https://github.com/solendprotocol/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
 rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62"
 
+[dependencies.Switchboard]
+git = "https://github.com/switchboard-xyz/sui.git"
+subdir = "on_demand/"
+rev = "mainnet"
+
 [dependencies.liquid_staking]
 git = "https://github.com/solendprotocol/liquid-staking.git"
 subdir = "contracts"

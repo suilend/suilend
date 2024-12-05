@@ -2,11 +2,12 @@
 
 [move]
 version = 3
-manifest_digest = "AD56192FFF5ED5548BE6217C65D61F5064031E36DAD455951A91010E385F6E8D"
-deps_digest = "F9B494B64F0615AED0E98FC12A85B85ECD2BC5185C22D30E7F67786BB52E507C"
+manifest_digest = "CD5BC8F3FEF054CB0226CC7203B77AE02A30D7683612264263F50F43F43DE3B4"
+deps_digest = "397E6A9F7A624706DBDFEE056CE88391A15876868FD18A88504DA74EB458D697"
 dependencies = [
   { id = "Pyth", name = "Pyth" },
   { id = "Sui", name = "Sui" },
+  { id = "Switchboard", name = "Switchboard" },
   { id = "liquid_staking", name = "liquid_staking" },
   { id = "sprungsui", name = "sprungsui" },
 ]
@@ -42,6 +43,14 @@ dependencies = [
 ]
 
 [[move.package]]
+id = "Switchboard"
+source = { git = "https://github.com/switchboard-xyz/sui.git", rev = "mainnet", subdir = "on_demand/" }
+
+dependencies = [
+  { id = "Sui", name = "Sui" },
+]
+
+[[move.package]]
 id = "Wormhole"
 source = { git = "https://github.com/solendprotocol/wormhole.git", rev = "e1698d3c72b15cdddd7da98ad43e151f83b72a0a", subdir = "sui/wormhole" }
 
@@ -67,6 +76,6 @@ dependencies = [
 ]
 
 [move.toolchain-version]
-compiler-version = "1.36.2"
+compiler-version = "1.35.1"
 edition = "2024.beta"
 flavor = "sui"

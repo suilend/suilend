@@ -1,25 +1,20 @@
 module suilend::lending_market {
     // === Imports ===
-    use sui::object::{Self, ID, UID};
     use sui_system::sui_system::{SuiSystemState};
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use std::ascii::{Self};
     use sui::event::{Self};
     use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min, saturating_floor};
     use sui::object_table::{Self, ObjectTable};
-    use sui::bag::{Self, Bag};
     use sui::clock::{Self, Clock};
-    use sui::tx_context::{Self, TxContext};
-    use sui::transfer;
     use suilend::reserve::{Self, Reserve, CToken, LiquidityRequest};
     use suilend::reserve_config::{ReserveConfig, borrow_fee};
     use suilend::obligation::{Self, Obligation};
     use sui::coin::{Self, Coin, CoinMetadata, TreasuryCap};
     use sui::balance::{Self};
     use pyth::price_info::{PriceInfoObject};
+    use switchboard::aggregator::{Aggregator};
     use std::type_name::{Self, TypeName};
-    use std::vector::{Self};
-    use std::option::{Self, Option};
     use suilend::liquidity_mining::{Self};
     use sui::package;
     use sui::sui::SUI;
@@ -198,7 +193,21 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        reserve::update_price<P>(reserve, clock, price_info);
+        reserve::update_pyth_price<P>(reserve, clock, price_info);
+    }
+
+    /// Cache the price from switchboard onto the reserve object. this needs to be done for all
+    /// relevant reserves used by an Obligation before any borrow/withdraw/liquidate can be performed.
+    public fun refresh_reserve_switchboard_price<P>(
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        clock: &Clock,
+        switchboard_feed: &Aggregator,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        reserve::update_switchboard_price<P>(reserve, clock, switchboard_feed);
     }
 
     public fun create_obligation<P>(
@@ -257,7 +266,7 @@ module suilend::lending_market {
         reserve_array_index: u64,
         clock: &Clock,
         ctokens: Coin<CToken<P, T>>,
-        mut rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
+        rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
         ctx: &mut TxContext
     ): Coin<T> {
         let liquidity_request = redeem_ctokens_and_withdraw_liquidity_request(
@@ -272,6 +281,7 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
+    #[allow(unused_variable)]
     public fun redeem_ctokens_and_withdraw_liquidity_request<P, T>(
         lending_market: &mut LendingMarket<P>, 
         reserve_array_index: u64,
@@ -350,7 +360,7 @@ module suilend::lending_market {
         reserve_array_index: u64,
         obligation_owner_cap: &ObligationOwnerCap<P>,
         clock: &Clock,
-        mut amount: u64,
+        amount: u64,
         ctx: &mut TxContext
     ): Coin<T> {
         let liquidity_request = borrow_request<P, T>(
@@ -765,7 +775,7 @@ module suilend::lending_market {
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
         if (reserve::coin_type(reserve) != type_name::get<SUI>()) {
-            return;
+            return
         };
 
         reserve::unstake_sui_from_staker<P>(reserve, liquidity_request, system_state, ctx);
@@ -788,8 +798,8 @@ module suilend::lending_market {
             min(remaining_outflow_usd, decimal::from(1_000_000_000))
         ));
 
-        let max_borrow_amount_including_fees = sui::math::min(
-            sui::math::min(
+        let max_borrow_amount_including_fees = std::u64::min(
+            std::u64::min(
                 obligation::max_borrow_amount(obligation, reserve),
                 reserve::max_borrow_amount(reserve)
             ),
@@ -838,8 +848,8 @@ module suilend::lending_market {
             reserve::ctoken_ratio(reserve)
         ));
 
-        sui::math::min(
-            sui::math::min(
+        std::u64::min(
+            std::u64::min(
                 obligation::max_withdraw_amount(obligation, reserve),
                 rate_limiter_max_withdraw_ctoken_amount
             ),
@@ -905,12 +915,37 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves), EDuplicateReserve);
 
-        let reserve = reserve::create_reserve<P, T>(
+        let reserve = reserve::create_reserve_pyth<P, T>(
             object::id(lending_market),
             config, 
             vector::length(&lending_market.reserves),
             coin::get_decimals(coin_metadata),
             price_info, 
+            clock, 
+            ctx
+        );
+
+        vector::push_back(&mut lending_market.reserves, reserve);
+    }
+
+    public fun add_reserve_switchboard<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        switchboard_feed: &Aggregator,
+        config: ReserveConfig,
+        coin_metadata: &CoinMetadata<T>,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves), EDuplicateReserve);
+
+        let reserve = reserve::create_reserve_switchboard<P, T>(
+            object::id(lending_market),
+            config, 
+            vector::length(&lending_market.reserves),
+            coin::get_decimals(coin_metadata),
+            switchboard_feed, 
             clock, 
             ctx
         );
@@ -944,7 +979,22 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
-        reserve::change_price_feed<P>(reserve, price_info_obj, clock);
+        reserve::change_price_feed_pyth<P>(reserve, price_info_obj, clock);
+    }
+
+    public fun change_reserve_price_feed_switchboard<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        reserve_array_index: u64,
+        switchboard_feed: &Aggregator,
+        clock: &Clock,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve::change_price_feed_switchboard<P>(reserve, switchboard_feed, clock);
     }
 
     public fun add_pool_reward<P, RewardType>(
@@ -1200,7 +1250,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves), EDuplicateReserve);
 
-        let reserve = reserve::create_reserve<P, T>(
+        let reserve = reserve::create_reserve_pyth<P, T>(
             object::id(lending_market),
             config, 
             vector::length(&lending_market.reserves),
@@ -1212,4 +1262,31 @@ module suilend::lending_market {
 
         vector::push_back(&mut lending_market.reserves, reserve);
     }
+
+    #[test_only]
+    public fun add_switchboard_reserve_for_testing<P, T>(
+        _: &LendingMarketOwnerCap<P>, 
+        lending_market: &mut LendingMarket<P>, 
+        switchboard_feed: &Aggregator,
+        config: ReserveConfig,
+        mint_decimals: u8,
+        clock: &Clock,
+        ctx: &mut TxContext
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves), EDuplicateReserve);
+
+        let reserve = reserve::create_reserve_switchboard<P, T>(
+            object::id(lending_market),
+            config, 
+            vector::length(&lending_market.reserves),
+            mint_decimals,
+            switchboard_feed, 
+            clock, 
+            ctx
+        );
+
+        vector::push_back(&mut lending_market.reserves, reserve);
+    }
 }
+

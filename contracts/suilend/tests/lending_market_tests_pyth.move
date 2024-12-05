@@ -1552,7 +1552,7 @@ module suilend::lending_market_tests {
         // change the price feed as admin
         let new_price_info_obj = mock_pyth::new_price_info_obj(3_u8, ctx(&mut scenario));
 
-        let array_idx = *bag::borrow(&type_to_index, type_name::get<TEST_USDC>());
+        let array_idx: u64 = *bag::borrow(&type_to_index, type_name::get<TEST_USDC>());
 
         lending_market::change_reserve_price_feed<LENDING_MARKET, TEST_USDC>(
             &owner_cap,

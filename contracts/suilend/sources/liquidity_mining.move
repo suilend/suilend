@@ -1,15 +1,11 @@
 /// A user_reward_manager farms pool_rewards to receive rewards proportional to their stake in the pool.
 module suilend::liquidity_mining {
     use suilend::decimal::{Self, Decimal, add, sub, mul, div, floor};
-    use sui::object::{Self, ID, UID};
-    use sui::math::{Self};
     use sui::clock::{Self, Clock};
-    use sui::tx_context::{TxContext};
-    use std::vector::{Self};
     use sui::balance::{Self, Balance};
     use sui::bag::{Self, Bag};
+    use std::u64::{Self};
     use std::type_name::{Self, TypeName};
-    use std::option::{Self, Option};
 
     // === Errors ===
     const EIdMismatch: u64 = 0;
@@ -119,7 +115,7 @@ module suilend::liquidity_mining {
         clock: &Clock, 
         ctx: &mut TxContext
     ) {
-        let start_time_ms = math::max(start_time_ms, clock::timestamp_ms(clock));
+        let start_time_ms = u64::max(start_time_ms, clock::timestamp_ms(clock));
         assert!(end_time_ms - start_time_ms >= MIN_REWARD_PERIOD_MS, EInvalidTime);
 
         let pool_reward = PoolReward {
@@ -240,8 +236,8 @@ module suilend::liquidity_mining {
                 continue
             };
 
-            let time_passed_ms = math::min(cur_time_ms, pool_reward.end_time_ms) - 
-                math::max(pool_reward.start_time_ms, pool_reward_manager.last_update_time_ms);
+            let time_passed_ms = u64::min(cur_time_ms, pool_reward.end_time_ms) - 
+                u64::max(pool_reward.start_time_ms, pool_reward_manager.last_update_time_ms);
 
             let unlocked_rewards = div(
                 mul(
@@ -433,7 +429,6 @@ module suilend::liquidity_mining {
     #[test]
     fun test_pool_reward_manager_basic() {
         use sui::test_scenario::{Self};
-        use sui::balance::{Self};
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -497,7 +492,6 @@ module suilend::liquidity_mining {
     #[test]
     fun test_pool_reward_manager_multiple_rewards() {
         use sui::test_scenario::{Self};
-        use sui::balance::{Self};
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -554,7 +548,6 @@ module suilend::liquidity_mining {
     #[test]
     fun test_pool_reward_manager_cancel_and_close() {
         use sui::test_scenario::{Self};
-        use sui::balance::{Self};
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -594,7 +587,6 @@ module suilend::liquidity_mining {
     #[test]
     fun test_pool_reward_manager_zero_share() {
         use sui::test_scenario::{Self};
-        use sui::balance::{Self};
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -628,8 +620,6 @@ module suilend::liquidity_mining {
     #[test]
     fun test_pool_reward_manager_auto_farm() {
         use sui::test_scenario::{Self};
-        use sui::balance::{Self};
-
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
         let ctx = test_scenario::ctx(&mut scenario);
@@ -673,7 +663,6 @@ module suilend::liquidity_mining {
     #[expected_failure(abort_code = EMaxConcurrentPoolRewardsViolated)]
     fun test_add_too_many_pool_rewards() {
         use sui::test_scenario::{Self};
-        use sui::balance::{Self};
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -701,7 +690,6 @@ module suilend::liquidity_mining {
     #[test]
     fun test_pool_reward_manager_cancel_and_close_regression() {
         use sui::test_scenario::{Self};
-        use sui::balance::{Self};
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);

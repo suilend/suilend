@@ -1,8 +1,6 @@
 /// parameters for a Reserve.
 module suilend::reserve_config {
-    use std::vector::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, ge, le};
-    use sui::tx_context::{TxContext};
     use sui::bag::{Self, Bag};
 
     #[test_only]

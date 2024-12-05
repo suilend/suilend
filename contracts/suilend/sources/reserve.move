@@ -3,20 +3,18 @@ module suilend::reserve {
     // === Imports ===
     use sui::sui::SUI;
     use std::type_name::{Self, TypeName};
+    use std::u64::{Self};
     use sui::dynamic_field::{Self};
     use sui::balance::{Self, Balance, Supply};
-    use sui::tx_context::{TxContext};
-    use sui::object::{Self, UID, ID};
     use suilend::cell::{Self, Cell};
-    use std::option::{Self};
     use sui::event::{Self};
     use suilend::oracles::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max, saturating_sub};
     use sui::clock::{Self, Clock};
-    use sui::coin::{Self, CoinMetadata, TreasuryCap};
-    use sui::math::{Self};
+    use sui::coin::{TreasuryCap};
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
+    use switchboard::aggregator::{Aggregator};
     use suilend::reserve_config::{
         Self, 
         ReserveConfig, 
@@ -110,6 +108,15 @@ module suilend::reserve {
         deposited_ctokens: Balance<CToken<P, T>>
     }
 
+    // === Switchboard Dynamic Field Keys ===
+    public struct SwitchboardConfigKey has copy, drop, store {}
+
+    /// SwitchboardConfig are stored in a dynamic field to add more flexibility to the Reserve
+    /// and avoid creating a ReserveV2 or something similar.
+    public struct SwitchboardConfig has drop, store {
+        feed_id: ID,
+    }
+
     // === Events ===
     public struct InterestUpdateEvent has drop, copy {
         lending_market_id: address,
@@ -157,8 +164,9 @@ module suilend::reserve {
         amount: u64,
     }
 
-    // === Conpublic structor ===
-    public(package) fun create_reserve<P, T>(
+    // === public constructor ===
+
+    public(package) fun create_reserve_pyth<P, T>(
         lending_market_id: ID,
         config: ReserveConfig, 
         array_index: u64,
@@ -167,10 +175,78 @@ module suilend::reserve {
         clock: &Clock, 
         ctx: &mut TxContext
     ): Reserve<P> {
-
         let (mut price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         assert!(option::is_some(&price_decimal), EInvalidPrice);
+        let price_decimal = price_decimal.extract();
 
+        create_reserve<P,T>(
+            lending_market_id, 
+            config, 
+            array_index, 
+            mint_decimals, 
+            price_decimal, 
+            smoothed_price_decimal, 
+            price_identifier, 
+            clock, 
+            ctx
+        )
+    }
+
+    public(package) fun create_reserve_switchboard<P, T>(
+        lending_market_id: ID,
+        config: ReserveConfig, 
+        array_index: u64,
+        mint_decimals: u8,
+        switchboard_feed: &Aggregator, 
+        clock: &Clock, 
+        ctx: &mut TxContext
+    ): Reserve<P> {
+        let (mut price_decimal, feed_id) = oracles::get_switchboard_price_and_identifier(switchboard_feed, clock);
+
+        // shoehorn the feed id into a price identifier (also 32 bytes)
+        let price_identifier = pyth::price_identifier::from_byte_vec(feed_id.to_bytes());
+
+        // if the price is stale or invalid, we don't want to create the reserve
+        assert!(option::is_some(&price_decimal), EInvalidPrice);
+
+        let price_decimal = price_decimal.extract();
+        let smoothed_price_decimal = *&price_decimal;
+
+
+        let mut reserve = create_reserve<P,T>(
+            lending_market_id, 
+            config, 
+            array_index, 
+            mint_decimals, 
+            price_decimal, 
+            smoothed_price_decimal, 
+            price_identifier, 
+            clock, 
+            ctx
+        );
+
+        // add the switchboard config to the reserve
+        add_switchboard_config(
+            &mut reserve, 
+            feed_id
+        );
+
+        
+        // return the reserve
+        reserve
+    }
+    
+    fun create_reserve<P, T>(
+        lending_market_id: ID,
+        config: ReserveConfig, 
+        array_index: u64,
+        mint_decimals: u8,
+        price_decimal: Decimal,
+        smoothed_price_decimal: Decimal,
+        price_identifier: PriceIdentifier,
+        clock: &Clock, 
+        ctx: &mut TxContext
+    ): Reserve<P> {
         let mut reserve = Reserve {
             id: object::new(ctx),
             lending_market_id,
@@ -179,7 +255,7 @@ module suilend::reserve {
             config: cell::new(config),
             mint_decimals,
             price_identifier,
-            price: option::extract(&mut price_decimal),
+            price: price_decimal,
             smoothed_price: smoothed_price_decimal,
             price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
             available_amount: 0,
@@ -269,7 +345,7 @@ module suilend::reserve {
                 price(reserve),
                 liquidity_amount
             ),
-            decimal::from(math::pow(10, reserve.mint_decimals))
+            decimal::from(u64::pow(10, reserve.mint_decimals))
         )
     }
 
@@ -282,7 +358,7 @@ module suilend::reserve {
                 price_lower_bound(reserve),
                 liquidity_amount
             ),
-            decimal::from(math::pow(10, reserve.mint_decimals))
+            decimal::from(u64::pow(10, reserve.mint_decimals))
         )
     }
 
@@ -295,7 +371,7 @@ module suilend::reserve {
                 price_upper_bound(reserve),
                 liquidity_amount
             ),
-            decimal::from(math::pow(10, reserve.mint_decimals))
+            decimal::from(u64::pow(10, reserve.mint_decimals))
         )
     }
 
@@ -345,7 +421,7 @@ module suilend::reserve {
     ): Decimal {
         div(
             mul(
-                decimal::from(math::pow(10, reserve.mint_decimals)),
+                decimal::from(u64::pow(10, reserve.mint_decimals)),
                 usd_amount
             ),
             price_upper_bound(reserve)
@@ -358,7 +434,7 @@ module suilend::reserve {
     ): Decimal {
         div(
             mul(
-                decimal::from(math::pow(10, reserve.mint_decimals)),
+                decimal::from(u64::pow(10, reserve.mint_decimals)),
                 usd_amount
             ),
             price_lower_bound(reserve)
@@ -543,7 +619,7 @@ module suilend::reserve {
         reserve_config::destroy(old);
     }
 
-    public(package) fun update_price<P>(
+    public(package) fun update_pyth_price<P>(
         reserve: &mut Reserve<P>, 
         clock: &Clock,
         price_info_obj: &PriceInfoObject
@@ -551,9 +627,32 @@ module suilend::reserve {
         let (mut price_decimal, ema_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
         assert!(option::is_some(&price_decimal), EInvalidPrice);
-
         reserve.price = option::extract(&mut price_decimal);
         reserve.smoothed_price = ema_price_decimal;
+        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
+    }
+
+    public(package) fun update_switchboard_price<P>(
+        reserve: &mut Reserve<P>, 
+        clock: &Clock,
+        switchboard_feed: &Aggregator
+    ) {
+        let (mut price_decimal, feed_id) = oracles::get_switchboard_price_and_identifier(switchboard_feed, clock);
+
+        // if the price is stale or invalid, we don't want to create the reserve
+        assert!(option::is_some(&price_decimal), EInvalidPrice);
+
+        let price_decimal = price_decimal.extract();
+        let smoothed_price_decimal = *&price_decimal;
+
+
+        // get the switchboard config
+        let config: &SwitchboardConfig = dynamic_field::borrow(&reserve.id, SwitchboardConfigKey {});
+        assert!(feed_id == config.feed_id, EPriceIdentifierMismatch);
+
+        // update the reserve settings
+        reserve.price = price_decimal;
+        reserve.smoothed_price = smoothed_price_decimal;
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
 
@@ -731,6 +830,20 @@ module suilend::reserve {
 
         liquidity
     }
+    
+    public(package) fun add_switchboard_config<P>(
+        reserve: &mut Reserve<P>,
+        feed_id: ID,
+    ) {
+        dynamic_field::add(
+            &mut reserve.id,
+            SwitchboardConfigKey {},
+            SwitchboardConfig {
+                feed_id,
+            }
+        );
+    }
+    
 
     public(package) fun init_staker<P, S: drop>(
         reserve: &mut Reserve<P>,
@@ -900,12 +1013,40 @@ module suilend::reserve {
         balance::split(&mut balances.deposited_ctokens, amount)
     }
 
-    public(package) fun change_price_feed<P>(
+    public(package) fun change_price_feed_pyth<P>(
         reserve: &mut Reserve<P>,
         price_info_obj: &PriceInfoObject,
         clock: &Clock,
     ){
         let (_, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        reserve.price_identifier = price_identifier;
+
+        // if the reserve already has a switchboard config, remove it
+        dynamic_field::remove_if_exists<SwitchboardConfigKey, SwitchboardConfig>(&mut reserve.id, SwitchboardConfigKey {});
+    }
+
+    public(package) fun change_price_feed_switchboard<P>(
+        reserve: &mut Reserve<P>,
+        feed: &Aggregator,
+        clock: &Clock,
+    ){
+        let (_, feed_id) = oracles::get_switchboard_price_and_identifier(feed, clock);
+        let has_switchboard_config = dynamic_field::exists_(&reserve.id, SwitchboardConfigKey {});
+
+        // get the feed id as a pyth price identifier
+        let price_identifier = pyth::price_identifier::from_byte_vec(feed_id.to_bytes());
+
+        // if the reserve already has a switchboard config, update it
+        if (has_switchboard_config) {
+            let config: &mut SwitchboardConfig = dynamic_field::borrow_mut(&mut reserve.id, SwitchboardConfigKey {});
+            config.feed_id = feed_id;
+        }
+        // otherwise create one, and set it 
+        else {
+            add_switchboard_config(reserve, feed_id);
+        };
+        
+        // update the price identifier on the reserve
         reserve.price_identifier = price_identifier;
     }
 

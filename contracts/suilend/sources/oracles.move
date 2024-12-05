@@ -2,14 +2,14 @@
 module suilend::oracles {
     use pyth::price_info::{Self, PriceInfoObject};
     use pyth::price_feed::{Self};
-    use std::vector::{Self};
     use pyth::price_identifier::{PriceIdentifier, Self};
     use pyth::price::{Self, Price};
     use pyth::i64::{Self};
-    use suilend::decimal::{Decimal, Self, mul, div};
-    use sui::math::{Self};
-    use std::option::{Self, Option};
+    use suilend::decimal::{Self, Decimal};
+    use switchboard::aggregator::{Aggregator};
+    use switchboard::decimal::Decimal as SwitchboardDecimal;    
     use sui::clock::{Self, Clock};
+    use std::u64::{Self};
 
     // min confidence ratio of X means that the confidence interval must be less than (100/x)% of the price
     const MIN_CONFIDENCE_RATIO: u64 = 10;
@@ -55,18 +55,61 @@ module suilend::oracles {
         let expo = price::get_expo(&price);
 
         if (i64::get_is_negative(&expo)) {
-            div(
+            decimal::div(
                 decimal::from(price_mag),
-                decimal::from(math::pow(10, (i64::get_magnitude_if_negative(&expo) as u8)))
+                decimal::from(u64::pow(10, (i64::get_magnitude_if_negative(&expo) as u8)))
             )
         }
         else {
-            mul(
+            decimal::mul(
                 decimal::from(price_mag),
-                decimal::from(math::pow(10, (i64::get_magnitude_if_positive(&expo) as u8)))
+                decimal::from(u64::pow(10, (i64::get_magnitude_if_positive(&expo) as u8)))
             )
         }
     }
+
+    /// parse the switchboard price info object to get a price and identifier. This function returns an None if the
+    /// price is invalid due to staleness checks or invalid submitted price range. It returns None instead of aborting
+    /// so the caller can handle invalid prices gracefully by eg falling back to a different oracle
+    /// return type: (spot price, feed id)
+    public fun get_switchboard_price_and_identifier(switchboard_feed: &Aggregator, clock: &Clock): (Option<Decimal>, ID) {
+
+        // get the switchboard feed id as a price identifier - here it's just 32 bytes
+        let feed_id = switchboard_feed.id();
+
+        // extract the current values from the switchboard feed
+        let current_result = switchboard_feed.current_result();
+        let update_timestamp_ms = current_result.timestamp_ms();
+        let result: &SwitchboardDecimal = current_result.result();
+        let range: &SwitchboardDecimal = current_result.range();
+
+        // check current sui time against feed's update time to make sure the price is not stale
+        let cur_time_ms = clock::timestamp_ms(clock);
+        if (cur_time_ms > update_timestamp_ms &&
+            cur_time_ms - update_timestamp_ms > MAX_STALENESS_SECONDS * 1000) {
+            return (option::none(), feed_id)
+        };
+        
+        // check non-zero and range is less than 10x the price (sanity checks) 
+        // @TODO evaluate: maybe add result.value() == 0 though this would prevent uninitialized feeds from being added 
+        if (range.value() * 10u128 > result.value()) {  
+            return (option::none(), feed_id)
+        };
+
+        // get the spot price
+        let price = parse_switchboard_decimal_to_decimal(result);
+
+        // deliver the price and identifier
+        (option::some(price), feed_id)
+    }
+
+    /// parse a switchboard decimal to a decimal
+    fun parse_switchboard_decimal_to_decimal(price: &SwitchboardDecimal): Decimal {
+        
+        // switchboard values are scaled to 18 decimals (as are suilend decimals)
+        decimal::from_scaled_val(price.value() as u256)
+    }
+
 
     #[test_only]
     fun example_price_identifier(): PriceIdentifier {
@@ -121,6 +164,58 @@ module suilend::oracles {
     }
 
     #[test]
+    fun happy_switchboard() {
+        use sui::test_scenario::{Self};
+        use switchboard::decimal as switchboard_decimal;
+        use switchboard::aggregator;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        let mut aggregator = switchboard::aggregator::new_aggregator(
+            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            std::string::utf8(b"test"),
+            @0x26,
+            x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
+            1, // min samples
+            60, // max staleness for updates
+            1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
+            1, // min job responses
+            1337, // created at ms
+            sui::test_scenario::ctx(&mut scenario)
+        );
+
+        // scale the price to 18 decimals
+        let price = 800_000 * 10u128.pow(18);
+        let low_price = 799_900 * 10u128.pow(18);
+        let high_price = 800_100 * 10u128.pow(18);
+        let range = 200 * 10u128.pow(18);
+
+        // set the current value (scaled, of course)
+        aggregator::set_current_value(
+            &mut aggregator,
+            switchboard_decimal::new(price, true),
+            1337,
+            1337,
+            1337,
+            switchboard_decimal::new(low_price, true),
+            switchboard_decimal::new(high_price, true),
+            switchboard_decimal::new(range, false),
+            switchboard_decimal::new(0, false),
+            switchboard_decimal::new(price, true)
+        );
+
+        let (spot_price, price_identifier) = get_switchboard_price_and_identifier(&aggregator, &clock);
+        assert!(spot_price == option::some(decimal::from(800_000)), 0);
+        assert!(price_identifier == aggregator.id(), 0);
+
+        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
     fun confidence_interval_exceeded() {
         use sui::test_scenario::{Self};
         let owner = @0x26;
@@ -163,7 +258,61 @@ module suilend::oracles {
     }
 
     #[test]
-    fun price_is_stale() {
+    fun switchboard_range_exceeded() {
+        use sui::test_scenario::{Self};
+        use switchboard::decimal as switchboard_decimal;
+        use switchboard::aggregator;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        let mut aggregator = switchboard::aggregator::new_aggregator(
+            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            std::string::utf8(b"test"),
+            @0x26,
+            x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
+            1, // min samples
+            60, // max staleness for updates
+            1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
+            1, // min job responses
+            1337, // created at ms
+            sui::test_scenario::ctx(&mut scenario)
+        );
+
+        // scale the price to 18 decimals
+        let price = 800_000 * 10u128.pow(18);
+        let low_price = 799_900 * 10u128.pow(18);
+        let high_price = 800_100 * 10u128.pow(18);
+
+        // modify the range to be 1/10th 
+        let range = 80_001 * 10u128.pow(18);
+
+        // set the current value (scaled, of course)
+        aggregator::set_current_value(
+            &mut aggregator,
+            switchboard_decimal::new(price, true),
+            1337,
+            1337,
+            1337,
+            switchboard_decimal::new(low_price, true),
+            switchboard_decimal::new(high_price, true),
+            switchboard_decimal::new(0, false),
+            switchboard_decimal::new(range, false),
+            switchboard_decimal::new(price, true)
+        );
+
+        let (spot_price, price_identifier) = get_switchboard_price_and_identifier(&aggregator, &clock);
+        assert!(spot_price == option::none(), 0);
+        assert!(price_identifier == aggregator.id(), 0);
+
+        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun pyth_price_is_stale() {
         use sui::test_scenario::{Self};
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -204,5 +353,58 @@ module suilend::oracles {
         test_scenario::end(scenario);
     }
 
+    #[test]
+    fun switchboard_price_is_stale() {
+        use sui::test_scenario::{Self};
+        use switchboard::decimal as switchboard_decimal;
+        use switchboard::aggregator;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let mut clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        clock::set_for_testing(&mut clock, 610_000);
+
+        let mut aggregator = switchboard::aggregator::new_aggregator(
+            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            std::string::utf8(b"test"),
+            @0x26,
+            x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
+            1, // min samples
+            60, // max staleness for updates
+            1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
+            1, // min job responses
+            1337, // created at ms
+            sui::test_scenario::ctx(&mut scenario)
+        );
+
+        // scale the price to 18 decimals
+        let price = 800_000 * 10u128.pow(18);
+        let low_price = 799_900 * 10u128.pow(18);
+        let high_price = 800_100 * 10u128.pow(18);
+        let range = 200 * 10u128.pow(18);
+
+        // set the current value (scaled, of course)
+        aggregator::set_current_value(
+            &mut aggregator,
+            switchboard_decimal::new(price, true),
+            1337,
+            1337,
+            1337,
+            switchboard_decimal::new(low_price, true),
+            switchboard_decimal::new(high_price, true),
+            switchboard_decimal::new(range, false),
+            switchboard_decimal::new(0, false),
+            switchboard_decimal::new(price, true)
+        );
+
+        let (spot_price, price_identifier) = get_switchboard_price_and_identifier(&aggregator,  &clock);
+        assert!(spot_price == option::none(), 0);
+        assert!(price_identifier == aggregator.id(), 0);
+
+        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+
+    }
 }
 
