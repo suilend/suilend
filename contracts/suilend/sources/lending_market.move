@@ -34,7 +34,7 @@ module suilend::lending_market {
     const EInvalidObligationId: u64 = 7;
 
     // === Constants ===
-    const CURRENT_VERSION: u64 = 5;
+    const CURRENT_VERSION: u64 = 6;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
     // === One time Witness ===
@@ -1125,7 +1125,7 @@ module suilend::lending_market {
 
         assert!(
             type_name::borrow_string(&type_name::get<RewardType>()) != 
-            &ascii::string(b"34fe4f3c9e450fed4d0a3c587ed842eec5313c30c3cc3c0841247c49425e246b::suilend_point::SUILEND_POINT"),
+            &ascii::string(b"97d2a76efce8e7cdf55b781bd3d23382237fb1d095f9b9cad0bf1fd5f7176b62::suilend_point_2::SUILEND_POINT_2"),
             ECannotClaimReward
         );
 
