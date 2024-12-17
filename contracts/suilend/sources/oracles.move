@@ -70,9 +70,9 @@ module suilend::oracles {
 
     #[test_only]
     fun example_price_identifier(): PriceIdentifier {
-        let v = vector::empty<u8>();
+        let mut v = vector::empty<u8>();
 
-        let i = 0;
+        let mut i = 0;
         while (i < 32) {
             vector::push_back(&mut v, 0);
             i = i + 1;
@@ -85,7 +85,7 @@ module suilend::oracles {
     fun happy() {
         use sui::test_scenario::{Self};
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
 
         let price_info_object = price_info::new_price_info_object_for_testing(
@@ -124,7 +124,7 @@ module suilend::oracles {
     fun confidence_interval_exceeded() {
         use sui::test_scenario::{Self};
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
 
         let price_info_object = price_info::new_price_info_object_for_testing(
@@ -166,8 +166,8 @@ module suilend::oracles {
     fun price_is_stale() {
         use sui::test_scenario::{Self};
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        let mut scenario = test_scenario::begin(owner);
+        let mut clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 61_000);
 
         let price_info_object = price_info::new_price_info_object_for_testing(

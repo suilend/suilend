@@ -1,6 +1,7 @@
 /// The reserve module holds the coins of a certain type for a given lending market. 
 module suilend::reserve {
     // === Imports ===
+    use sui::sui::SUI;
     use std::type_name::{Self, TypeName};
     use sui::dynamic_field::{Self};
     use sui::balance::{Self, Balance, Supply};
@@ -12,7 +13,7 @@ module suilend::reserve {
     use suilend::oracles::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max, saturating_sub};
     use sui::clock::{Self, Clock};
-    use sui::coin::{Self, CoinMetadata};
+    use sui::coin::{Self, CoinMetadata, TreasuryCap};
     use sui::math::{Self};
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
@@ -31,16 +32,9 @@ module suilend::reserve {
         liquidation_bonus
     };
     use suilend::liquidity_mining::{Self, PoolRewardManager};
-
-    #[test_only]
-    use sui::test_scenario::{Self};
-
-    #[test_only]
-    use std::vector::{Self};
-
-    // === Friends ===
-    friend suilend::lending_market;
-    friend suilend::obligation;
+    use suilend::staker::{Self, Staker};
+    use sui_system::sui_system::{SuiSystemState};
+    use sprungsui::sprungsui::SPRUNGSUI;
 
     // === Errors ===
     const EPriceStale: u64 = 0;
@@ -50,15 +44,17 @@ module suilend::reserve {
     const EInvalidPrice: u64 = 4;
     const EMinAvailableAmountViolated: u64 = 5;
     const EInvalidRepayBalance: u64 = 6;
-
+    const EWrongType: u64 = 7;
+    const EStakerAlreadyInitialized: u64 = 8;
+    const EStakerNotInitialized: u64 = 9;
     // === Constants ===
     const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
     // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token amount
     // can never be withdrawn or borrowed.
     const MIN_AVAILABLE_AMOUNT: u64 = 100; 
 
-    // === Structs ===
-    struct Reserve<phantom P> has key, store {
+    // === public structs ===
+    public struct Reserve<phantom P> has key, store {
         id: UID,
         lending_market_id: ID,
         // array index in lending market's reserve array
@@ -93,13 +89,20 @@ module suilend::reserve {
 
     /// Interest bearing token on the underlying Coin<T>. The ctoken can be redeemed for 
     /// the underlying token + any interest earned.
-    struct CToken<phantom P, phantom T> has drop {}
+    public struct CToken<phantom P, phantom T> has drop {}
+
+    /// A request to withdraw liquidity from the reserve. This is a hot potato object.
+    public struct LiquidityRequest<phantom P, phantom T> {
+        amount: u64, // includes fee
+        fee: u64,
+    }
 
     // === Dynamic Field Keys ===
-    struct BalanceKey has copy, drop, store {}
+    public struct BalanceKey has copy, drop, store {}
+    public struct StakerKey has copy, drop, store {}
 
     /// Balances are stored in a dynamic field to avoid typing the Reserve with CoinType
-    struct Balances<phantom P, phantom T> has store {
+    public struct Balances<phantom P, phantom T> has store {
         available_amount: Balance<T>,
         ctoken_supply: Supply<CToken<P, T>>,
         fees: Balance<T>,
@@ -108,7 +111,7 @@ module suilend::reserve {
     }
 
     // === Events ===
-    struct InterestUpdateEvent has drop, copy {
+    public struct InterestUpdateEvent has drop, copy {
         lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
@@ -127,7 +130,7 @@ module suilend::reserve {
         supply_interest_earned_usd_estimate: Decimal,
     }
 
-    struct ReserveAssetDataEvent has drop, copy {
+    public struct ReserveAssetDataEvent has drop, copy {
         lending_market_id: address,
         coin_type: TypeName,
         reserve_id: address,
@@ -147,28 +150,34 @@ module suilend::reserve {
         price_last_update_timestamp_s: u64,
     }
 
+    public struct ClaimStakingRewardsEvent has drop, copy {
+        lending_market_id: address,
+        coin_type: TypeName,
+        reserve_id: address,
+        amount: u64,
+    }
 
-    // === Constructor ===
-    public(friend) fun create_reserve<P, T>(
+    // === Conpublic structor ===
+    public(package) fun create_reserve<P, T>(
         lending_market_id: ID,
         config: ReserveConfig, 
         array_index: u64,
-        coin_metadata: &CoinMetadata<T>,
+        mint_decimals: u8,
         price_info_obj: &PriceInfoObject, 
         clock: &Clock, 
         ctx: &mut TxContext
     ): Reserve<P> {
 
-        let (price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        let (mut price_decimal, smoothed_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         assert!(option::is_some(&price_decimal), EInvalidPrice);
 
-        let reserve = Reserve {
+        let mut reserve = Reserve {
             id: object::new(ctx),
             lending_market_id,
             array_index,
             coin_type: type_name::get<T>(),
             config: cell::new(config),
-            mint_decimals: coin::get_decimals(coin_metadata),
+            mint_decimals,
             price_identifier,
             price: option::extract(&mut price_decimal),
             smoothed_price: smoothed_price_decimal,
@@ -200,6 +209,11 @@ module suilend::reserve {
     }
 
     // === Public-View Functions ===
+
+    public fun price_identifier<P>(reserve: &Reserve<P>): &PriceIdentifier {
+        &reserve.price_identifier
+    }
+    
     public fun borrows_pool_reward_manager<P>(reserve: &Reserve<P>): &PoolRewardManager {
         &reserve.borrows_pool_reward_manager
     }
@@ -445,16 +459,59 @@ module suilend::reserve {
         ))
     }
 
+    public fun ctoken_supply<P>(reserve: &Reserve<P>): u64 {
+        reserve.ctoken_supply
+    }
+
+    public fun unclaimed_spread_fees<P>(reserve: &Reserve<P>): Decimal {
+        reserve.unclaimed_spread_fees
+    }
+
+    public fun balances<P, T>(reserve: &Reserve<P>): &Balances<P, T> {
+        dynamic_field::borrow(&reserve.id, BalanceKey {})
+    }
+
+    public use fun balances_available_amount as Balances.available_amount;
+    public fun balances_available_amount<P, T>(balances: &Balances<P, T>): &Balance<T> {
+        &balances.available_amount
+    }
+
+    public use fun balances_ctoken_supply as Balances.ctoken_supply;
+    public fun balances_ctoken_supply<P, T>(balances: &Balances<P, T>): &Supply<CToken<P, T>> {
+        &balances.ctoken_supply
+    }
+
+    public use fun balances_fees as Balances.fees;
+    public fun balances_fees<P, T>(balances: &Balances<P, T>): &Balance<T> {
+        &balances.fees
+    }
+
+    public use fun balances_ctoken_fees as Balances.ctoken_fees;
+    public fun balances_ctoken_fees<P, T>(balances: &Balances<P, T>): &Balance<CToken<P, T>> {
+        &balances.ctoken_fees
+    }
+
+    public(package) fun liquidity_request_amount<P, T>(request: &LiquidityRequest<P, T>): u64 {
+        request.amount
+    }
+    public(package) fun liquidity_request_fee<P, T>(request: &LiquidityRequest<P, T>): u64 {
+        request.fee
+    }
+
+    public fun staker<P, S>(reserve: &Reserve<P>): &Staker<S> {
+        dynamic_field::borrow(&reserve.id, StakerKey {})
+    }
+
     // === Public-Mutative Functions
-    public(friend) fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+    public(package) fun deposits_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.deposits_pool_reward_manager
     }
 
-    public(friend) fun borrows_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
+    public(package) fun borrows_pool_reward_manager_mut<P>(reserve: &mut Reserve<P>): &mut PoolRewardManager {
         &mut reserve.borrows_pool_reward_manager
     }
 
-    public(friend) fun deduct_liquidation_fee<P, T>(
+    public(package) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,
     ): (u64, u64) {
@@ -478,7 +535,7 @@ module suilend::reserve {
         (protocol_fee_amount, liquidator_bonus_amount)
     }
 
-    public(friend) fun update_reserve_config<P>(
+    public(package) fun update_reserve_config<P>(
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
     ) {
@@ -486,12 +543,12 @@ module suilend::reserve {
         reserve_config::destroy(old);
     }
 
-    public(friend) fun update_price<P>(
+    public(package) fun update_price<P>(
         reserve: &mut Reserve<P>, 
         clock: &Clock,
         price_info_obj: &PriceInfoObject
     ) {
-        let (price_decimal, ema_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        let (mut price_decimal, ema_price_decimal, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
         assert!(option::is_some(&price_decimal), EInvalidPrice);
 
@@ -501,7 +558,7 @@ module suilend::reserve {
     }
 
     /// Compound interest, debt. Interest is compounded every second.
-    public(friend) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
+    public(package) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         let time_elapsed_s = cur_time_s - reserve.interest_last_update_timestamp_s;
         if (time_elapsed_s == 0) {
@@ -564,9 +621,9 @@ module suilend::reserve {
         });
     }
 
-    public(friend) fun claim_fees<P, T>(reserve: &mut Reserve<P>): (Balance<CToken<P, T>>, Balance<T>) {
+    public(package) fun claim_fees<P, T>(reserve: &mut Reserve<P>): (Balance<CToken<P, T>>, Balance<T>) {
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
-        let fees = balance::withdraw_all(&mut balances.fees);
+        let mut fees = balance::withdraw_all(&mut balances.fees);
         let ctoken_fees = balance::withdraw_all(&mut balances.ctoken_fees);
 
         // spread fees
@@ -590,7 +647,7 @@ module suilend::reserve {
         (ctoken_fees, fees)
     }
 
-    public(friend) fun deposit_liquidity_and_mint_ctokens<P, T>(
+    public(package) fun deposit_liquidity_and_mint_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         liquidity: Balance<T>, 
     ): Balance<CToken<P, T>> {
@@ -626,10 +683,10 @@ module suilend::reserve {
         balance::increase_supply(&mut balances.ctoken_supply, new_ctokens)
     }
 
-    public(friend) fun redeem_ctokens<P, T>(
+    public(package) fun redeem_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         ctokens: Balance<CToken<P, T>>
-    ): Balance<T> {
+    ): LiquidityRequest<P, T> {
         let ctoken_ratio = ctoken_ratio(reserve);
         let liquidity_amount = floor(mul(
             decimal::from(balance::value(&ctokens)),
@@ -651,14 +708,117 @@ module suilend::reserve {
         );
 
         balance::decrease_supply(&mut balances.ctoken_supply, ctokens);
-        balance::split(&mut balances.available_amount, liquidity_amount)
+
+        LiquidityRequest<P, T> {
+            amount: liquidity_amount,
+            fee: 0
+        }
+    }
+
+    public(package) fun fulfill_liquidity_request<P, T>(
+        reserve: &mut Reserve<P>,
+        request: LiquidityRequest<P, T>,
+    ): Balance<T> {
+        let LiquidityRequest { amount, fee } = request;
+
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+
+        let mut liquidity = balance::split(&mut balances.available_amount, amount);
+        balance::join(&mut balances.fees, balance::split(&mut liquidity, fee));
+
+        liquidity
+    }
+
+    public(package) fun init_staker<P, S: drop>(
+        reserve: &mut Reserve<P>,
+        treasury_cap: TreasuryCap<S>,
+        ctx: &mut TxContext
+    ) {
+        assert!(!dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerAlreadyInitialized);
+        assert!(type_name::get<S>() == type_name::get<SPRUNGSUI>(), EWrongType);
+
+        let staker = staker::create_staker(treasury_cap, ctx);
+        dynamic_field::add(&mut reserve.id, StakerKey {}, staker);
+    }
+
+    public(package) fun rebalance_staker<P>(
+        reserve: &mut Reserve<P>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        assert!(dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerNotInitialized);
+        let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+        let sui = balance::withdraw_all(&mut balances.available_amount);
+
+        let staker: &mut Staker<SPRUNGSUI> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+
+        staker::deposit(staker, sui);
+        staker::rebalance(staker, system_state, ctx);
+
+        let fees = staker::claim_fees(staker, system_state, ctx);
+        if (balance::value(&fees) > 0) {
+            event::emit(ClaimStakingRewardsEvent {
+                lending_market_id: object::id_to_address(&reserve.lending_market_id),
+                coin_type: reserve.coin_type,
+                reserve_id: object::uid_to_address(&reserve.id),
+                amount: balance::value(&fees),
+            });
+
+            let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+                &mut reserve.id,
+                BalanceKey {}
+            );
+
+            balance::join(&mut balances.fees, fees);
+        }
+        else {
+            balance::destroy_zero(fees);
+        };
+    }
+
+    public(package) fun unstake_sui_from_staker<P>(
+        reserve: &mut Reserve<P>,
+        liquidity_request: &LiquidityRequest<P, SUI>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
+    ) {
+        assert!(reserve.coin_type == type_name::get<SUI>(), EWrongType);
+        if (!dynamic_field::exists_(&reserve.id, StakerKey {})) {
+            return
+        };
+
+        let balances: &Balances<P, SUI> = dynamic_field::borrow(&reserve.id, BalanceKey {});
+        if (liquidity_request.amount <= balance::value(&balances.available_amount)) {
+            return
+        };
+        let withdraw_amount = liquidity_request.amount - balance::value(&balances.available_amount);
+
+        let staker: &mut Staker<SPRUNGSUI> = dynamic_field::borrow_mut(&mut reserve.id, StakerKey {});
+        let sui = staker::withdraw(
+            staker,
+            withdraw_amount, 
+            system_state, 
+            ctx
+        );
+
+        let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+        balance::join(&mut balances.available_amount, sui);
     }
 
     /// Borrow tokens from the reserve. A fee is charged on the borrowed amount
-    public(friend) fun borrow_liquidity<P, T>(
+    public(package) fun borrow_liquidity<P, T>(
         reserve: &mut Reserve<P>, 
         amount: u64
-    ): (Balance<T>, u64) {
+    ): LiquidityRequest<P, T> {
         let borrow_fee = calculate_borrow_fee(reserve, amount);
         let borrow_amount_with_fees = amount + borrow_fee;
 
@@ -685,19 +845,14 @@ module suilend::reserve {
         );
 
         log_reserve_data(reserve);
-        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
 
-        let receive_balance = balance::split(&mut balances.available_amount, borrow_amount_with_fees);
-        let fee_balance = balance::split(&mut receive_balance, borrow_fee);
-        balance::join(&mut balances.fees, fee_balance);
-
-        (receive_balance, borrow_amount_with_fees)
+        LiquidityRequest<P, T> {
+            amount: borrow_amount_with_fees,
+            fee: borrow_fee
+        }
     }
 
-    public(friend) fun repay_liquidity<P, T>(
+    public(package) fun repay_liquidity<P, T>(
         reserve: &mut Reserve<P>, 
         liquidity: Balance<T>,
         settle_amount: Decimal
@@ -715,7 +870,7 @@ module suilend::reserve {
         balance::join(&mut balances.available_amount, liquidity);
     }
 
-    public(friend) fun forgive_debt<P>(
+    public(package) fun forgive_debt<P>(
         reserve: &mut Reserve<P>, 
         forgive_amount: Decimal
     ) {
@@ -727,7 +882,7 @@ module suilend::reserve {
         log_reserve_data(reserve);
     }
 
-    public(friend) fun deposit_ctokens<P, T>(
+    public(package) fun deposit_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         ctokens: Balance<CToken<P, T>>
     ) {
@@ -736,13 +891,22 @@ module suilend::reserve {
         balance::join(&mut balances.deposited_ctokens, ctokens);
     }
 
-    public(friend) fun withdraw_ctokens<P, T>(
+    public(package) fun withdraw_ctokens<P, T>(
         reserve: &mut Reserve<P>, 
         amount: u64
     ): Balance<CToken<P, T>> {
         log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::split(&mut balances.deposited_ctokens, amount)
+    }
+
+    public(package) fun change_price_feed<P>(
+        reserve: &mut Reserve<P>,
+        price_info_obj: &PriceInfoObject,
+        clock: &Clock,
+    ){
+        let (_, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
+        reserve.price_identifier = price_identifier;
     }
 
     // === Private Functions ===
@@ -792,8 +956,8 @@ module suilend::reserve {
 
     #[test_only]
     fun example_price_identifier(): PriceIdentifier {
-        let v = vector::empty();
-        let i = 0;
+        let mut v = vector::empty();
+        let mut i = 0;
         while (i < 32) {
             vector::push_back(&mut v, i);
             i = i + 1;
@@ -819,11 +983,12 @@ module suilend::reserve {
 
     #[test]
     fun test_accessors() {
+        use sui::test_scenario::{Self};
         use suilend::test_usdc::{TEST_USDC};
         use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
 
         let id = object::new(test_scenario::ctx(&mut scenario));
 
@@ -868,26 +1033,26 @@ module suilend::reserve {
         use suilend::reserve_config::{default_reserve_config};
 
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
         let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
 
-        let reserve = Reserve<TEST_USDC> {
+        let mut reserve = Reserve<TEST_USDC> {
             id: object::new(test_scenario::ctx(&mut scenario)),
             lending_market_id: object::uid_to_inner(&lending_market_id),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new({
                 let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
+                let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_spread_fee_bps(&mut builder, 2_000);
                 reserve_config::set_interest_rate_utils(&mut builder, {
-                    let v = vector::empty();
+                    let mut v = vector::empty();
                     vector::push_back(&mut v, 0);
                     vector::push_back(&mut v, 100);
                     v
                 });
                 reserve_config::set_interest_rate_aprs(&mut builder, {
-                    let v = vector::empty();
+                    let mut v = vector::empty();
                     vector::push_back(&mut v, 0);
                     vector::push_back(&mut v, 3153600000);
                     v
@@ -912,7 +1077,7 @@ module suilend::reserve {
             borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(test_scenario::ctx(&mut scenario))
         };
 
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        let mut clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
         clock::set_for_testing(&mut clock, 1000); 
 
         compound_interest(&mut reserve, &clock);
@@ -940,480 +1105,6 @@ module suilend::reserve {
         test_scenario::end(scenario);
     }
 
-    #[test_only]
-    struct TEST_LM {}
-
-    #[test]
-    fun test_deposit_happy() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            default_reserve_config(),
-            0,
-            6,
-            decimal::from(1),
-            0,
-            500,
-            200,
-            decimal::from(500),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
-            &mut reserve, 
-            balance::create_for_testing(1000)
-        );
-
-        assert!(balance::value(&ctokens) == 200, 0);
-        assert!(reserve.available_amount == 1500, 0);
-        assert!(reserve.ctoken_supply == 400, 0);
-
-        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
-
-        assert!(balance::value(&balances.available_amount) == 1500, 0);
-        assert!(balance::supply_value(&balances.ctoken_supply) == 400, 0);
-
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
-
-        test_scenario::end(scenario);
-    }
-
-    #[test]
-    #[expected_failure(abort_code = EDepositLimitExceeded)]
-    fun test_deposit_fail() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            {
-                let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                reserve_config::set_deposit_limit(&mut builder, 1000);
-                sui::test_utils::destroy(config);
-
-                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-            },
-            0,
-            6,
-            decimal::from(1),
-            0,
-            500,
-            200,
-            decimal::from(500),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let coins = balance::create_for_testing<TEST_USDC>(1);
-        let ctokens = deposit_liquidity_and_mint_ctokens(&mut reserve, coins);
-
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
-        test_scenario::end(scenario);
-    }
-
-    #[test]
-    #[expected_failure(abort_code = EDepositLimitExceeded)]
-    fun test_deposit_fail_usd_limit() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            {
-                let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                reserve_config::set_deposit_limit(&mut builder, 18_446_744_073_709_551_615);
-                reserve_config::set_deposit_limit_usd(&mut builder, 1);
-                sui::test_utils::destroy(config);
-
-                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-            },
-            0,
-            6,
-            decimal::from(1),
-            0,
-            500_000,
-            1_000_000,
-            decimal::from(500_000),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let coins = balance::create_for_testing<TEST_USDC>(1);
-        let ctokens = deposit_liquidity_and_mint_ctokens(&mut reserve, coins);
-
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
-        test_scenario::end(scenario);
-    }
-
-    #[test]
-    fun test_redeem_happy() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            default_reserve_config(),
-            0,
-            6,
-            decimal::from(1),
-            0,
-            500,
-            200,
-            decimal::from(500),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let available_amount_old = reserve.available_amount;
-        let ctoken_supply_old = reserve.ctoken_supply;
-
-        let ctokens = balance::create_for_testing(10);
-        let tokens = redeem_ctokens<TEST_LM, TEST_USDC>(&mut reserve, ctokens);
-
-        assert!(balance::value(&tokens) == 50, 0);
-        assert!(reserve.available_amount == available_amount_old - 50, 0);
-        assert!(reserve.ctoken_supply == ctoken_supply_old - 10, 0);
-
-        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
-
-        assert!(balance::value(&balances.available_amount) == available_amount_old - 50, 0);
-        assert!(balance::supply_value(&balances.ctoken_supply) == ctoken_supply_old - 10, 0);
-
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-
-        test_scenario::end(scenario);
-    }
-
-    #[test]
-    fun test_borrow_happy() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            {
-                let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                reserve_config::set_borrow_fee_bps(&mut builder, 100);
-                sui::test_utils::destroy(config);
-
-                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-            },
-            0,
-            6,
-            decimal::from(1),
-            0,
-            0,
-            0,
-            decimal::from(0),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
-            &mut reserve, 
-            balance::create_for_testing(1000)
-        );
-
-        let available_amount_old = reserve.available_amount;
-        let borrowed_amount_old = reserve.borrowed_amount;
-
-        let (tokens, borrowed_amount_with_fee) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 400);
-        assert!(balance::value(&tokens) == 400, 0);
-        assert!(borrowed_amount_with_fee == 404, 0);
-
-        assert!(reserve.available_amount == available_amount_old - 404, 0);
-        assert!(reserve.borrowed_amount == add(borrowed_amount_old, decimal::from(404)), 0);
-
-        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
-
-        assert!(balance::value(&balances.available_amount) == available_amount_old - 404, 0);
-        assert!(balance::value(&balances.fees) == 4, 0);
-
-        let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(&mut reserve);
-        assert!(balance::value(&fees) == 4, 0);
-        assert!(balance::value(&ctoken_fees) == 0, 0);
-
-        sui::test_utils::destroy(fees);
-        sui::test_utils::destroy(ctoken_fees);
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-        sui::test_utils::destroy(ctokens);
-
-        test_scenario::end(scenario);
-    }
-
-    #[test]
-    #[expected_failure(abort_code = EBorrowLimitExceeded)]
-    fun test_borrow_fail() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            {
-                let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                reserve_config::set_borrow_limit(&mut builder, 0);
-                sui::test_utils::destroy(config);
-
-                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-            },
-            0,
-            6,
-            decimal::from(1),
-            0,
-            0,
-            0,
-            decimal::from(0),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
-            &mut reserve, 
-            balance::create_for_testing(1000)
-        );
-
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1);
-
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-        sui::test_utils::destroy(ctokens);
-
-        test_scenario::end(scenario);
-    }
-
-    #[test]
-    #[expected_failure(abort_code = EBorrowLimitExceeded)]
-    fun test_borrow_fail_usd_limit() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            {
-                let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                reserve_config::set_borrow_limit_usd(&mut builder, 1);
-                sui::test_utils::destroy(config);
-
-                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-            },
-            0,
-            6,
-            decimal::from(1),
-            0,
-            0,
-            0,
-            decimal::from(0),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
-            &mut reserve, 
-            balance::create_for_testing(10_000_000)
-        );
-
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1_000_000 + 1);
-
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-        sui::test_utils::destroy(ctokens);
-
-        test_scenario::end(scenario);
-    }
-
-
-    #[test]
-    fun test_claim_fees() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            {
-                let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                reserve_config::set_deposit_limit(&mut builder, 1000 * 1_000_000);
-                reserve_config::set_borrow_limit(&mut builder, 1000 * 1_000_000);
-                reserve_config::set_borrow_fee_bps(&mut builder, 0);
-                reserve_config::set_spread_fee_bps(&mut builder, 5000);
-                reserve_config::set_interest_rate_utils(&mut builder, {
-                    let v = vector::empty();
-                    vector::push_back(&mut v, 0);
-                    vector::push_back(&mut v, 100);
-                    v
-                });
-                reserve_config::set_interest_rate_aprs(&mut builder, {
-                    let v = vector::empty();
-                    vector::push_back(&mut v, 0);
-                    vector::push_back(&mut v, 3153600000);
-                    v
-                });
-
-                sui::test_utils::destroy(config);
-
-                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-            },
-            0,
-            6,
-            decimal::from(1),
-            0,
-            0,
-            0,
-            decimal::from(0),
-            decimal::from(1),
-            0,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
-            &mut reserve, 
-            balance::create_for_testing(100 * 1_000_000)
-        );
-
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 50 * 1_000_000);
-
-        clock::set_for_testing(&mut clock, 1000);
-        compound_interest(&mut reserve, &clock);
-
-        let old_available_amount = reserve.available_amount;
-        let old_unclaimed_spread_fees = reserve.unclaimed_spread_fees;
-
-        let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(&mut reserve);
-
-        // 0.5% interest a second with 50% take rate => 0.25% fee on 50 USDC = 0.125 USDC
-        assert!(balance::value(&fees) == 125_000, 0);
-        assert!(balance::value(&ctoken_fees) == 0, 0);
-
-        assert!(reserve.available_amount == old_available_amount - 125_000, 0);
-        assert!(reserve.unclaimed_spread_fees == sub(old_unclaimed_spread_fees, decimal::from(125_000)), 0);
-
-        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
-        assert!(balance::value(&balances.available_amount) == old_available_amount - 125_000, 0);
-
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(ctoken_fees);
-        sui::test_utils::destroy(fees);
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-        sui::test_utils::destroy(ctokens);
-
-        test_scenario::end(scenario);
-    }
-
-    #[test]
-    fun test_repay_happy() {
-        use suilend::test_usdc::{TEST_USDC};
-        use sui::test_scenario::{Self};
-        use suilend::reserve_config::{default_reserve_config};
-
-        let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
-
-        let reserve = create_for_testing<TEST_LM, TEST_USDC>(
-            {
-                let config = default_reserve_config();
-                let builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
-                reserve_config::set_borrow_fee_bps(&mut builder, 100);
-                sui::test_utils::destroy(config);
-
-                reserve_config::build(builder, test_scenario::ctx(&mut scenario))
-            },
-            0,
-            6,
-            decimal::from(1),
-            0,
-            0,
-            0,
-            decimal::from(0),
-            decimal::from(1),
-            1,
-            test_scenario::ctx(&mut scenario)
-        );
-
-        let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, TEST_USDC>(
-            &mut reserve, 
-            balance::create_for_testing(1000)
-        );
-
-        let (tokens, _) = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 400);
-
-        let available_amount_old = reserve.available_amount;
-        let borrowed_amount_old = reserve.borrowed_amount;
-
-        repay_liquidity(&mut reserve, tokens, decimal::from_percent_u64(39_901));
-
-        assert!(reserve.available_amount == available_amount_old + 400, 0);
-        assert!(reserve.borrowed_amount == sub(borrowed_amount_old, decimal::from_percent_u64(39_901)), 0);
-
-        let balances: &mut Balances<TEST_LM, TEST_USDC> = dynamic_field::borrow_mut(
-            &mut reserve.id, 
-            BalanceKey {}
-        );
-        assert!(balance::value(&balances.available_amount) == available_amount_old + 400, 0);
-
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
-
-        test_scenario::end(scenario);
-    }
 
     #[test_only]
     public fun create_for_testing<P, T>(
@@ -1431,7 +1122,7 @@ module suilend::reserve {
     ): Reserve<P> {
         let lending_market_id = object::new(ctx);
 
-        let reserve = Reserve<P> {
+        let mut reserve = Reserve<P> {
             id: object::new(ctx),
             lending_market_id: object::uid_to_inner(&lending_market_id),
             array_index,
@@ -1439,8 +1130,8 @@ module suilend::reserve {
             config: cell::new(config),
             mint_decimals,
             price_identifier: {
-                let v = vector::empty();
-                let i = 0;
+                let mut v = vector::empty();
+                let mut i = 0;
                 while (i < 32) {
                     vector::push_back(&mut v, 0);
                     i = i + 1;
@@ -1468,7 +1159,7 @@ module suilend::reserve {
             Balances<P, T> {
                 available_amount: balance::create_for_testing(available_amount),
                 ctoken_supply: {
-                    let supply = balance::create_supply(CToken<P, T> {});
+                    let mut supply = balance::create_supply(CToken<P, T> {});
                     let tokens = balance::increase_supply(&mut supply, ctoken_supply);
                     sui::test_utils::destroy(tokens);
                     supply

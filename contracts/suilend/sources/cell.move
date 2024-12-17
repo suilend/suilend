@@ -1,7 +1,7 @@
 module suilend::cell {
     use std::option::{Self, Option};
 
-    struct Cell<Element> has store {
+    public struct Cell<Element> has store {
         element: Option<Element>
     }
 

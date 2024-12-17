@@ -17,7 +17,7 @@ module suilend::lending_market_registry {
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
 
-    struct Registry has key {
+    public struct Registry has key {
         id: UID,
         version: u64,
         lending_markets: Table<TypeName, ID>
@@ -45,8 +45,8 @@ module suilend::lending_market_registry {
     }
 
     #[test_only]
-    struct LENDING_MARKET_1 {}
-    struct LENDING_MARKET_2 {}
+    public struct LENDING_MARKET_1 {}
+    public struct LENDING_MARKET_2 {}
 
     #[test]
     fun test_happy() {
@@ -54,12 +54,12 @@ module suilend::lending_market_registry {
         use sui::test_scenario::{Self};
 
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
 
         init(test_scenario::ctx(&mut scenario));
         test_scenario::next_tx(&mut scenario, owner);
 
-        let registry = test_scenario::take_shared<Registry>(&scenario);
+        let mut registry = test_scenario::take_shared<Registry>(&scenario);
 
         let (owner_cap_1, lending_market_1) = create_lending_market<LENDING_MARKET_1>(
             &mut registry, 
@@ -86,12 +86,12 @@ module suilend::lending_market_registry {
         use sui::test_scenario::{Self};
 
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
 
         init(test_scenario::ctx(&mut scenario));
         test_scenario::next_tx(&mut scenario, owner);
 
-        let registry = test_scenario::take_shared<Registry>(&scenario);
+        let mut registry = test_scenario::take_shared<Registry>(&scenario);
 
         let (owner_cap_1, lending_market_1) = create_lending_market<LENDING_MARKET_1>(
             &mut registry, 

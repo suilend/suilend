@@ -1,4 +1,4 @@
 module suilend::suilend {
-    struct MAIN_POOL has drop {}
+    public struct MAIN_POOL has drop {}
 
 }

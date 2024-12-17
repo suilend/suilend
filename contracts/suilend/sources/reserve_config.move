@@ -11,7 +11,7 @@ module suilend::reserve_config {
     const EInvalidReserveConfig: u64 = 0;
     const EInvalidUtil: u64 = 1;
 
-    struct ReserveConfig has store {
+    public struct ReserveConfig has store {
         // risk params
         open_ltv_pct: u8,
         close_ltv_pct: u8,
@@ -53,7 +53,7 @@ module suilend::reserve_config {
         additional_fields: Bag
     }
 
-    struct ReserveConfigBuilder has store {
+    public struct ReserveConfigBuilder has store {
         fields: Bag
     }
 
@@ -148,7 +148,7 @@ module suilend::reserve_config {
         // check that:
         // - utils is strictly increasing
         // - aprs is monotonically increasing
-        let i = 1;
+        let mut i = 1;
         while (i < length) {
             assert!(*vector::borrow(utils, i - 1) < *vector::borrow(utils, i), EInvalidReserveConfig);
             assert!(*vector::borrow(aprs, i - 1) <= *vector::borrow(aprs, i), EInvalidReserveConfig);
@@ -210,7 +210,7 @@ module suilend::reserve_config {
 
         let length = vector::length(&config.interest_rate_utils);
 
-        let i = 1;
+        let mut i = 1;
         while (i < length) {
             let left_util = decimal::from_percent(*vector::borrow(&config.interest_rate_utils, i - 1));
             let right_util = decimal::from_percent(*vector::borrow(&config.interest_rate_utils, i));
@@ -271,7 +271,7 @@ module suilend::reserve_config {
     }
 
     public fun from(config: &ReserveConfig, ctx: &mut TxContext): ReserveConfigBuilder {
-        let builder = ReserveConfigBuilder { fields: bag::new(ctx) };
+        let mut builder = ReserveConfigBuilder { fields: bag::new(ctx) };
         set_open_ltv_pct(&mut builder, config.open_ltv_pct);
         set_close_ltv_pct(&mut builder, config.close_ltv_pct);
         set_max_close_ltv_pct(&mut builder, config.max_close_ltv_pct);
@@ -377,7 +377,7 @@ module suilend::reserve_config {
         set(builder, b"close_attributed_borrow_limit_usd", close_attributed_borrow_limit_usd);
     }
 
-    public fun build(builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
+    public fun build(mut builder: ReserveConfigBuilder, tx_context: &mut TxContext): ReserveConfig {
         let config = create_reserve_config(
             bag::remove(&mut builder.fields, b"open_ltv_pct"),
             bag::remove(&mut builder.fields, b"close_ltv_pct"),
@@ -409,16 +409,16 @@ module suilend::reserve_config {
     // === Tests ==
     #[test]
     fun test_calculate_apr() {
-        let config = default_reserve_config();
+        let mut config = default_reserve_config();
         config.interest_rate_utils = {
-            let v = vector::empty();
+            let mut v = vector::empty();
             vector::push_back(&mut v, 0);
             vector::push_back(&mut v, 10);
             vector::push_back(&mut v, 100);
             v
         };
         config.interest_rate_aprs = {
-            let v = vector::empty();
+            let mut v = vector::empty();
             vector::push_back(&mut v, 0);
             vector::push_back(&mut v, 10000);
             vector::push_back(&mut v, 100000);
@@ -438,13 +438,13 @@ module suilend::reserve_config {
     fun test_valid_reserve_config() {
 
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
 
-        let utils = vector::empty();
+        let mut utils = vector::empty();
         vector::push_back(&mut utils, 0);
         vector::push_back(&mut utils, 100);
 
-        let aprs = vector::empty();
+        let mut aprs = vector::empty();
         vector::push_back(&mut aprs, 0);
         vector::push_back(&mut aprs, 100);
 
@@ -480,7 +480,7 @@ module suilend::reserve_config {
     #[expected_failure(abort_code = EInvalidReserveConfig)]
     fun test_invalid_reserve_config() {
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
 
         let config = create_reserve_config(
             // open ltv pct
@@ -509,14 +509,14 @@ module suilend::reserve_config {
             3000,
             // utils
             {
-                let v = vector::empty();
+                let mut v = vector::empty();
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 100);
                 v
             },
             // aprs
             {
-                let v = vector::empty();
+                let mut v = vector::empty();
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 100);
                 v
@@ -534,7 +534,7 @@ module suilend::reserve_config {
     #[test_only]
     public fun default_reserve_config(): ReserveConfig {
         let owner = @0x26;
-        let scenario = test_scenario::begin(owner);
+        let mut scenario = test_scenario::begin(owner);
 
         let config = create_reserve_config(
             // open ltv pct
@@ -565,14 +565,14 @@ module suilend::reserve_config {
             0,
             // utils
             {
-                let v = vector::empty();
+                let mut v = vector::empty();
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 100);
                 v
             },
             // aprs
             {
-                let v = vector::empty();
+                let mut v = vector::empty();
                 vector::push_back(&mut v, 0);
                 vector::push_back(&mut v, 0);
                 v

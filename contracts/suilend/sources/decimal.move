@@ -2,8 +2,9 @@
 module suilend::decimal {
     // 1e18
     const WAD: u256 = 1000000000000000000;
+    const U64_MAX: u256 = 18446744073709551615;
 
-    struct Decimal has copy, store, drop {
+    public struct Decimal has copy, store, drop {
         value: u256
     }
 
@@ -73,9 +74,9 @@ module suilend::decimal {
         }
     }
 
-    public fun pow(b: Decimal, e: u64): Decimal {
-        let cur_base = b;
-        let result = from(1);
+    public fun pow(b: Decimal, mut e: u64): Decimal {
+        let mut cur_base = b;
+        let mut result = from(1);
 
         while (e > 0) {
             if (e % 2 == 1) {
@@ -90,6 +91,14 @@ module suilend::decimal {
 
     public fun floor(a: Decimal): u64 {
         ((a.value / WAD) as u64)
+    }
+
+    public fun saturating_floor(a: Decimal): u64 {
+        if (a.value > U64_MAX * WAD) {
+            (U64_MAX as u64)
+        } else {
+            floor(a)
+        }
     }
 
     public fun ceil(a: Decimal): u64 {
@@ -135,7 +144,7 @@ module suilend::decimal {
 
 #[test_only]
 module suilend::decimal_tests {
-    use suilend::decimal::{add, sub, mul, div, floor, ceil, pow, lt, gt, le, ge, from, from_percent, saturating_sub};
+    use suilend::decimal::{add, sub, mul, div, floor, ceil, pow, lt, gt, le, ge, from, from_percent, saturating_sub, saturating_floor};
 
     #[test]
     fun test_basic() {
@@ -154,6 +163,8 @@ module suilend::decimal_tests {
         assert!(ge(b, a), 0);
         assert!(saturating_sub(a, b) == from(0), 0);
         assert!(saturating_sub(b, a) == from(1), 0);
+        assert!(saturating_floor(from(18446744073709551615)) == 18446744073709551615, 0);
+        assert!(saturating_floor(add(from(18446744073709551615), from(1))) == 18446744073709551615, 0);
     }
 
     #[test]

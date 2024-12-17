@@ -5,7 +5,7 @@ module suilend::rate_limiter {
     const EInvalidTime: u64 = 1;
     const ERateLimitExceeded: u64 = 2;
 
-    struct RateLimiter has store, drop, copy {
+    public struct RateLimiter has store, drop, copy {
         /// configuration parameters
         config: RateLimiterConfig,
 
@@ -18,7 +18,7 @@ module suilend::rate_limiter {
         cur_qty: Decimal,
     }
 
-    struct RateLimiterConfig has store, drop, copy {
+    public struct RateLimiterConfig has store, drop, copy {
         /// Rate limiter window duration
         window_duration: u64,
         /// Rate limiter param. Max outflow in a window
@@ -105,7 +105,7 @@ module suilend::rate_limiter {
 
     #[test]
     fun test_rate_limiter() {
-        let rate_limiter = new(
+        let mut rate_limiter = new(
             RateLimiterConfig{
                 window_duration: 10, 
                 max_outflow: 100
@@ -115,7 +115,7 @@ module suilend::rate_limiter {
 
         process_qty(&mut rate_limiter, 0, decimal::from(100));
 
-        let i = 0;
+        let mut i = 0;
         while (i < 10) {
             assert!(current_outflow(&rate_limiter, i) == decimal::from(100), 0);
             i = i + 1;

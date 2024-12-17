@@ -5,7 +5,7 @@ module suilend::test_usdc {
     use std::option::{Self};
     use sui::tx_context::{TxContext};
 
-    struct TEST_USDC has drop {}
+    public struct TEST_USDC has drop {}
 
     #[test_only]
     public fun create_currency(ctx: &mut TxContext): (
@@ -31,7 +31,7 @@ module suilend::test_sui {
     use std::option::{Self};
     use sui::tx_context::{TxContext};
 
-    struct TEST_SUI has drop {}
+    public struct TEST_SUI has drop {}
 
     #[test_only]
     public fun create_currency(ctx: &mut TxContext): (
@@ -61,12 +61,12 @@ module suilend::mock_metadata {
     use sui::coin::{CoinMetadata};
     use sui::test_utils::{Self};
 
-    struct Metadata {
+    public struct Metadata {
         metadata: Bag
     }
 
     public fun init_metadata(ctx: &mut TxContext): Metadata {
-        let bag = bag::new(ctx);
+        let mut bag = bag::new(ctx);
 
         let (test_usdc_cap, test_usdc_metadata) = test_usdc::create_currency(ctx);
         let (test_sui_cap, test_sui_metadata) = test_sui::create_currency(ctx);
