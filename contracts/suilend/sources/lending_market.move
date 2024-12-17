@@ -364,6 +364,18 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
+    // Compount interest for reserve of type T
+    public fun compound_interest<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+    ) {
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve.compound_interest(clock);
+    }
+
     /// Borrow tokens of type T. A fee is charged.
     public fun borrow_request<P, T>(
         lending_market: &mut LendingMarket<P>,
