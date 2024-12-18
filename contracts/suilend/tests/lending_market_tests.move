@@ -115,7 +115,7 @@ module suilend::lending_market_tests {
     }
 
     #[test_only]
-    fun setup(mut reserve_args: Bag, scenario: &mut Scenario): State {
+    public fun setup(mut reserve_args: Bag, scenario: &mut Scenario): State {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::reserve_config::{Self};
