@@ -267,6 +267,14 @@ module suilend::lending_market_tests {
     }
 
     #[test_only]
+    public fun new_args(initial_deposit: u64, config: ReserveConfig): ReserveArgs {
+        ReserveArgs {
+            config,
+            initial_deposit,
+        }
+    }
+
+    #[test_only]
     public fun destruct_state(state: State): (
         Clock,
         LendingMarketOwnerCap<LENDING_MARKET>,
