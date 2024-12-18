@@ -266,6 +266,25 @@ module suilend::lending_market_tests {
         }
     }
 
+    #[test_only]
+    public fun destruct_state(state: State): (
+        Clock,
+        LendingMarketOwnerCap<LENDING_MARKET>,
+        LendingMarket<LENDING_MARKET>,
+        PriceState,
+        Bag
+    ) {
+        let State {
+            clock,
+            owner_cap,
+            lending_market,
+            prices,
+            type_to_index,
+        } = state;
+
+        (clock, owner_cap, lending_market, prices, type_to_index)
+    }
+
 
     #[test]
     public fun test_deposit() {
