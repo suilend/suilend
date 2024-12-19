@@ -909,6 +909,12 @@ module suilend::reserve {
         reserve.price_identifier = price_identifier;
     }
 
+    // === View Functions ===
+
+    public fun interest_last_update_timestamp_s<P>(reserve: &Reserve<P>): u64 {
+        reserve.interest_last_update_timestamp_s
+    }
+    
     // === Private Functions ===
     fun log_reserve_data<P>(reserve: &Reserve<P>){
         let available_amount_decimal = decimal::from(reserve.available_amount);
