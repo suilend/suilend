@@ -37,6 +37,10 @@ module suilend::lending_market {
     const CURRENT_VERSION: u64 = 6;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
+    const FEE_RECEIVER_DAO: address = @0xd52680ae4a2fc9920cd9b102203ea4ee5334fc36bdac0ebd111fdc8f42069129;
+    const FEE_RECEIVER_LABS: address = @0x7d68adb758c18d0f1e6cbbfe07c4c12bce92de37ce61b27b51245a568381b83e;
+    const DAO_FEE_TAKE_RATE_PCT: u64 = 70;
+
     // === One time Witness ===
     public struct LENDING_MARKET has drop {}
 
@@ -1047,10 +1051,19 @@ module suilend::lending_market {
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
-        let (ctoken_fees, fees) = reserve::claim_fees<P, T>(reserve);
+        let (mut ctoken_fees, mut fees) = reserve::claim_fees<P, T>(reserve);
 
-        transfer::public_transfer(coin::from_balance(ctoken_fees, ctx), lending_market.fee_receiver);
-        transfer::public_transfer(coin::from_balance(fees, ctx), lending_market.fee_receiver);
+        let dao_fee_amount = fees.value() * DAO_FEE_TAKE_RATE_PCT / 100;
+        let dao_fees = fees.split(dao_fee_amount);
+
+        transfer::public_transfer(coin::from_balance(dao_fees, ctx), FEE_RECEIVER_DAO);
+        transfer::public_transfer(coin::from_balance(fees, ctx), FEE_RECEIVER_LABS);
+
+        let dao_ctoken_fee_amount = ctoken_fees.value() * DAO_FEE_TAKE_RATE_PCT / 100;
+        let dao_ctoken_fees = ctoken_fees.split(dao_ctoken_fee_amount);
+
+        transfer::public_transfer(coin::from_balance(dao_ctoken_fees, ctx), FEE_RECEIVER_DAO);
+        transfer::public_transfer(coin::from_balance(ctoken_fees, ctx), FEE_RECEIVER_LABS);
     }
 
     public fun new_obligation_owner_cap<P>(

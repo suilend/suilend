@@ -32,6 +32,9 @@ module suilend::lending_market_tests {
     const U64_MAX: u64 = 18446744073709551615;
     const MIST_PER_SUI: u64 = 1_000_000_000;
 
+    const FEE_RECEIVER_DAO: address = @0xd52680ae4a2fc9920cd9b102203ea4ee5334fc36bdac0ebd111fdc8f42069129;
+    const FEE_RECEIVER_LABS: address = @0x7d68adb758c18d0f1e6cbbfe07c4c12bce92de37ce61b27b51245a568381b83e;
+
     #[test]
     fun test_create_lending_market() {
         use sui::test_scenario::{Self};
@@ -548,10 +551,14 @@ module suilend::lending_market_tests {
 
         test_scenario::next_tx(&mut scenario, owner);
 
-        let fees: Coin<TEST_SUI> = test_scenario::take_from_address(&scenario, lending_market::fee_receiver(&lending_market));
-        assert!(coin::value(&fees) == 1_000_000, 0);
+        let fees_dao: Coin<TEST_SUI> = test_scenario::take_from_address(&scenario, FEE_RECEIVER_DAO);
+        let fees_labs: Coin<TEST_SUI> = test_scenario::take_from_address(&scenario, FEE_RECEIVER_LABS);
 
-        test_utils::destroy(fees);
+        assert!(coin::value(&fees_dao) == 700_000, 0);
+        assert!(coin::value(&fees_labs) == 300_000, 0);
+
+        test_utils::destroy(fees_dao);
+        test_utils::destroy(fees_labs);
 
         test_utils::destroy(sui);
         test_utils::destroy(obligation_owner_cap);
@@ -868,13 +875,22 @@ module suilend::lending_market_tests {
         );
 
         test_scenario::next_tx(&mut scenario, owner);
-        let ctoken_fees: Coin<CToken<LENDING_MARKET, TEST_USDC>> = test_scenario::take_from_address(
+        let ctoken_fees_dao: Coin<CToken<LENDING_MARKET, TEST_USDC>> = test_scenario::take_from_address(
             &scenario, 
-            lending_market::fee_receiver(&lending_market)
+            FEE_RECEIVER_DAO
         );
-        assert!(coin::value(&ctoken_fees) == 600_000, 0);
 
-        test_utils::destroy(ctoken_fees);
+        let ctoken_fees_labs: Coin<CToken<LENDING_MARKET, TEST_USDC>> = test_scenario::take_from_address(
+            &scenario, 
+            FEE_RECEIVER_LABS
+        );
+
+        assert!(coin::value(&ctoken_fees_dao) + coin::value(&ctoken_fees_labs) == 600_000, 0);
+        assert!(coin::value(&ctoken_fees_dao) == 420_000, 0); // 600_000 * 70%
+        assert!(coin::value(&ctoken_fees_labs) == 180_000, 0);
+
+        test_utils::destroy(ctoken_fees_dao);
+        test_utils::destroy(ctoken_fees_labs);
         test_utils::destroy(sui);
         test_utils::destroy(tokens);
         test_utils::destroy(obligation_owner_cap);
@@ -2027,10 +2043,14 @@ module suilend::lending_market_tests {
 
         test_scenario::next_tx(&mut scenario, owner);
 
-        let fees: Coin<SUI> = test_scenario::take_from_address(&scenario, lending_market::fee_receiver(&lending_market));
-        assert!(coin::value(&fees) == 49 * MIST_PER_SUI, 0);
+        let fees_dao: Coin<SUI> = test_scenario::take_from_address(&scenario, FEE_RECEIVER_DAO);
+        let fees_labs: Coin<SUI> = test_scenario::take_from_address(&scenario, FEE_RECEIVER_LABS);
 
-        test_utils::destroy(fees);
+        assert!(coin::value(&fees_dao) == 34 * MIST_PER_SUI + 300_000_000, 0);
+        assert!(coin::value(&fees_labs) == 14 * MIST_PER_SUI + 700_000_000, 0);
+
+        test_utils::destroy(fees_dao);
+        test_utils::destroy(fees_labs);
 
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);
