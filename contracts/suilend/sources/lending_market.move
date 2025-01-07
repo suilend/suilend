@@ -706,7 +706,12 @@ module suilend::lending_market {
         };
 
         if (expected_ctokens == 0) {
-            transfer::public_transfer(rewards, lending_market.fee_receiver);
+            if (coin::value(&rewards) > 0) {
+                transfer::public_transfer(rewards, FEE_RECEIVER_DAO);
+            }
+            else {
+                coin::destroy_zero(rewards);
+            };
         }
         else {
             let ctokens = deposit_liquidity_and_mint_ctokens<P, RewardType>(
