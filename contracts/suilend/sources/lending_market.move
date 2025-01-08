@@ -1102,23 +1102,31 @@ module suilend::lending_market {
         let num_fee_receivers = vector::length(&fee_receivers.weights);
 
         num_fee_receivers.do!(|i| {
-            let fee_amount = total_fees * fee_receivers.weights[i] / fee_receivers.total_weight;
+            let fee_amount = (total_fees as u128) * (fee_receivers.weights[i] as u128) / (fee_receivers.total_weight as u128);
             let fee = if (i == num_fee_receivers - 1) {
                 balance::withdraw_all(&mut fees)
             } else {
-                balance::split(&mut fees, fee_amount)
+                balance::split(&mut fees, fee_amount as u64)
             };
 
-            transfer::public_transfer(coin::from_balance(fee, ctx), fee_receivers.receivers[i]);
+            if (balance::value(&fee) > 0) {
+                transfer::public_transfer(coin::from_balance(fee, ctx), fee_receivers.receivers[i]);
+            } else {
+                balance::destroy_zero(fee);
+            };
 
-            let ctoken_fee_amount = total_ctoken_fees * fee_receivers.weights[i] / fee_receivers.total_weight;
+            let ctoken_fee_amount = (total_ctoken_fees as u128) * (fee_receivers.weights[i] as u128) / (fee_receivers.total_weight as u128);
             let ctoken_fee = if (i == num_fee_receivers - 1) {
                 balance::withdraw_all(&mut ctoken_fees)
             } else {
-                balance::split(&mut ctoken_fees, ctoken_fee_amount)
+                balance::split(&mut ctoken_fees, ctoken_fee_amount as u64)
             };
 
-            transfer::public_transfer(coin::from_balance(ctoken_fee, ctx), fee_receivers.receivers[i]); 
+            if (balance::value(&ctoken_fee) > 0) {
+                transfer::public_transfer(coin::from_balance(ctoken_fee, ctx), fee_receivers.receivers[i]); 
+            } else {
+                balance::destroy_zero(ctoken_fee);
+            };
         });
 
         balance::destroy_zero(fees);

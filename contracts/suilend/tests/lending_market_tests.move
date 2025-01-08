@@ -540,6 +540,13 @@ module suilend::lending_market_tests {
 
         test_scenario::next_tx(&mut scenario, owner);
 
+        lending_market::set_fee_receivers<LENDING_MARKET>(
+            &owner_cap,
+            &mut lending_market,
+            vector[tx_context::sender(test_scenario::ctx(&mut scenario)), @0x27],
+            vector[1, 2]
+        );
+
         lending_market::claim_fees<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
@@ -548,9 +555,12 @@ module suilend::lending_market_tests {
 
         test_scenario::next_tx(&mut scenario, owner);
 
-        let fees: Coin<TEST_SUI> = test_scenario::take_from_address(&scenario, lending_market::fee_receiver(&lending_market));
-        assert!(coin::value(&fees) == 1_000_000, 0);
+        let fees: Coin<TEST_SUI> = test_scenario::take_from_address(&scenario, @0x26);
+        assert!(coin::value(&fees) == 1_000_000 / 3, 0);
+        test_utils::destroy(fees);
 
+        let fees: Coin<TEST_SUI> = test_scenario::take_from_address(&scenario, @0x27);
+        assert!(coin::value(&fees) == 2 * 1_000_000 / 3 + 1, 0);
         test_utils::destroy(fees);
 
         test_utils::destroy(sui);

@@ -915,7 +915,7 @@ module suilend::reserve {
     }
 
     // === Private Functions ===
-    fun log_reserve_data<P>(reserve: &Reserve<P>){
+    fun log_reserve_data<P>(reserve: &Reserve<P>) {
         let available_amount_decimal = decimal::from(reserve.available_amount);
         let supply_amount = total_supply(reserve);
         let cur_util = calculate_utilization_rate(reserve);
