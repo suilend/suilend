@@ -23,6 +23,7 @@ module suilend::lending_market {
     use suilend::liquidity_mining::{Self};
     use sui::package;
     use sui::sui::SUI;
+    use sui::dynamic_field::{Self};
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -32,14 +33,11 @@ module suilend::lending_market {
     const ERewardPeriodNotOver: u64 = 5;
     const ECannotClaimReward: u64 = 6;
     const EInvalidObligationId: u64 = 7;
+    const EInvalidFeeReceivers: u64 = 8;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 6;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
-
-    const FEE_RECEIVER_DAO: address = @0xd52680ae4a2fc9920cd9b102203ea4ee5334fc36bdac0ebd111fdc8f42069129;
-    const FEE_RECEIVER_LABS: address = @0x7d68adb758c18d0f1e6cbbfe07c4c12bce92de37ce61b27b51245a568381b83e;
-    const DAO_FEE_TAKE_RATE_PCT: u64 = 70;
 
     // === One time Witness ===
     public struct LENDING_MARKET has drop {}
@@ -58,7 +56,7 @@ module suilend::lending_market {
 
         // window duration is in seconds
         rate_limiter: RateLimiter,
-        fee_receiver: address,
+        fee_receiver: address, // deprecated
 
         /// unused
         bad_debt_usd: Decimal,
@@ -74,6 +72,15 @@ module suilend::lending_market {
     public struct ObligationOwnerCap<phantom P> has key, store {
         id: UID,
         obligation_id: ID
+    }
+
+    // === Dynamic Fields ===
+    public struct FeeReceiversKey has copy, drop, store { }
+
+    public struct FeeReceivers has store {
+        receivers: vector<address>,
+        weights: vector<u64>,
+        total_weight: u64,
     }
 
     // cTokens redemptions and borrows are rate limited to mitigate exploits. however, 
@@ -172,7 +179,7 @@ module suilend::lending_market {
         LendingMarketOwnerCap<P>, 
         LendingMarket<P>
     ) {
-        let lending_market = LendingMarket<P> {
+        let mut lending_market = LendingMarket<P> {
             id: object::new(ctx),
             version: CURRENT_VERSION,
             reserves: vector::empty(),
@@ -182,11 +189,18 @@ module suilend::lending_market {
             bad_debt_usd: decimal::from(0),
             bad_debt_limit_usd: decimal::from(0),
         };
-        
+
         let owner_cap = LendingMarketOwnerCap<P> { 
             id: object::new(ctx), 
             lending_market_id: object::id(&lending_market) 
         };
+
+        set_fee_receivers(
+            &owner_cap,
+            &mut lending_market, 
+            vector[tx_context::sender(ctx)], 
+            vector[100]
+        );
 
         (owner_cap, lending_market)
     }
@@ -693,8 +707,8 @@ module suilend::lending_market {
             );
         };
 
+        let deposit_reserve = vector::borrow_mut(&mut lending_market.reserves, deposit_reserve_id);
         let expected_ctokens = {
-            let deposit_reserve = vector::borrow(&lending_market.reserves, deposit_reserve_id);
             assert!(reserve::coin_type(deposit_reserve) == type_name::get<RewardType>(), EWrongType);
 
             floor(
@@ -706,12 +720,7 @@ module suilend::lending_market {
         };
 
         if (expected_ctokens == 0) {
-            if (coin::value(&rewards) > 0) {
-                transfer::public_transfer(rewards, FEE_RECEIVER_DAO);
-            }
-            else {
-                coin::destroy_zero(rewards);
-            };
+            reserve::join_fees<P, RewardType>(deposit_reserve, coin::into_balance(rewards));
         }
         else {
             let ctokens = deposit_liquidity_and_mint_ctokens<P, RewardType>(
@@ -1047,6 +1056,34 @@ module suilend::lending_market {
         lending_market.rate_limiter = rate_limiter::new(config, clock::timestamp_ms(clock) / 1000);
     }
 
+    public fun set_fee_receivers<P>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        receivers: vector<address>,
+        weights: vector<u64>,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        assert!(vector::length(&receivers) == vector::length(&weights), EInvalidFeeReceivers);
+        assert!(vector::length(&receivers) > 0, EInvalidFeeReceivers);
+
+        let total_weight = vector::fold!(weights, 0, |acc, weight| acc + weight);
+        assert!(total_weight > 0, EInvalidFeeReceivers);
+
+        if (dynamic_field::exists_(&lending_market.id, FeeReceiversKey {})) {
+            let FeeReceivers { .. } = dynamic_field::remove<FeeReceiversKey, FeeReceivers>(
+                &mut lending_market.id, 
+                FeeReceiversKey {}
+            );
+        };
+
+        dynamic_field::add(
+            &mut lending_market.id, 
+            FeeReceiversKey {}, 
+            FeeReceivers { receivers, weights, total_weight }
+        );
+    }
+
     entry fun claim_fees<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -1056,19 +1093,36 @@ module suilend::lending_market {
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
         let (mut ctoken_fees, mut fees) = reserve::claim_fees<P, T>(reserve);
+        let total_ctoken_fees = balance::value(&ctoken_fees);
+        let total_fees = balance::value(&fees);
 
-        let dao_fee_amount = fees.value() * DAO_FEE_TAKE_RATE_PCT / 100;
-        let dao_fees = fees.split(dao_fee_amount);
+        let fee_receivers: &FeeReceivers = dynamic_field::borrow(&lending_market.id, FeeReceiversKey {});
+        let num_fee_receivers = vector::length(&fee_receivers.weights);
 
-        transfer::public_transfer(coin::from_balance(dao_fees, ctx), FEE_RECEIVER_DAO);
-        transfer::public_transfer(coin::from_balance(fees, ctx), FEE_RECEIVER_LABS);
+        num_fee_receivers.do!(|i| {
+            let fee_amount = total_fees * fee_receivers.weights[i] / fee_receivers.total_weight;
+            let fee = if (i == num_fee_receivers - 1) {
+                balance::withdraw_all(&mut fees)
+            } else {
+                balance::split(&mut fees, fee_amount)
+            };
 
-        let dao_ctoken_fee_amount = ctoken_fees.value() * DAO_FEE_TAKE_RATE_PCT / 100;
-        let dao_ctoken_fees = ctoken_fees.split(dao_ctoken_fee_amount);
+            transfer::public_transfer(coin::from_balance(fee, ctx), fee_receivers.receivers[i]);
 
-        transfer::public_transfer(coin::from_balance(dao_ctoken_fees, ctx), FEE_RECEIVER_DAO);
-        transfer::public_transfer(coin::from_balance(ctoken_fees, ctx), FEE_RECEIVER_LABS);
+            let ctoken_fee_amount = total_ctoken_fees * fee_receivers.weights[i] / fee_receivers.total_weight;
+            let ctoken_fee = if (i == num_fee_receivers - 1) {
+                balance::withdraw_all(&mut ctoken_fees)
+            } else {
+                balance::split(&mut ctoken_fees, ctoken_fee_amount)
+            };
+
+            transfer::public_transfer(coin::from_balance(ctoken_fee, ctx), fee_receivers.receivers[i]); 
+        });
+
+        balance::destroy_zero(fees);
+        balance::destroy_zero(ctoken_fees);
     }
 
     public fun new_obligation_owner_cap<P>(

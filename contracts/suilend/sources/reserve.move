@@ -535,6 +535,11 @@ module suilend::reserve {
         (protocol_fee_amount, liquidator_bonus_amount)
     }
 
+    public(package) fun join_fees<P, T>(reserve: &mut Reserve<P>, fees: Balance<T>) {
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+        balance::join(&mut balances.fees, fees);
+    }
+
     public(package) fun update_reserve_config<P>(
         reserve: &mut Reserve<P>, 
         config: ReserveConfig, 
