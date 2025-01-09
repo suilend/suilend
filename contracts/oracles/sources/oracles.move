@@ -7,8 +7,11 @@ module oracles::oracles {
     use pyth::price_info::{PriceInfoObject};
     use oracles::version::{Version, Self};
     use pyth::price::{Self, Price};
-    use oracles::pyth::{get_prices};
+    use oracles::pyth::{Self};
     use pyth::i64::{I64};
+    use switchboard::aggregator::{Aggregator};
+    use oracles::switchboard::{Self};
+    use oracles::oracle_decimal::{OracleDecimal, Self};
 
     /* Constants */
     const CURRENT_VERSION: u16 = 1;
@@ -59,9 +62,17 @@ module oracles::oracles {
     // hot potato ensures that price is fresh
     public struct OraclePriceUpdate<phantom CoinType> has drop {
         oracle_registry_id: ID,
+        price: OracleDecimal,
+        ema_price: Option<OracleDecimal>,
+    }
 
-        base: I64,
-        expo: I64,
+    // == Public Getters ==
+    public fun price<CoinType>(price_update: &OraclePriceUpdate<CoinType>): OracleDecimal {
+        price_update.price
+    }
+
+    public fun ema_price<CoinType>(price_update: &OraclePriceUpdate<CoinType>): Option<OracleDecimal> {
+        price_update.ema_price
     }
 
     // TODO: do we want people to have the ability to create new registries? or should we just have a global one. 
@@ -117,6 +128,20 @@ module oracles::oracles {
         );
     }
 
+    public fun set_switchboard_oracle<CoinType>(
+        registry: &mut OracleRegistry,
+        admin_cap: &AdminCap,
+        aggregator: &Aggregator,
+        ctx: &mut TxContext
+    ) {
+        set_oracle<CoinType>(
+            registry, 
+            admin_cap, 
+            OracleType::Switchboard { feed_id: aggregator.id() }, 
+            ctx
+        );
+    }
+
     public fun get_pyth_price<CoinType>(
         registry: &OracleRegistry,
         price_info_obj: &PriceInfoObject,
@@ -130,7 +155,7 @@ module oracles::oracles {
 
         match (oracle.oracle_type) {
             OracleType::Pyth { price_identifier } => {
-                let (price, _) = get_prices(
+                let (price, ema_price) = pyth::get_prices(
                     price_info_obj, 
                     clock, 
                     registry.config.pyth_max_staleness_threshold_s, 
@@ -140,8 +165,8 @@ module oracles::oracles {
 
                 OraclePriceUpdate<CoinType> {
                     oracle_registry_id: object::id(registry),
-                    base: price.get_price(),
-                    expo: price.get_expo(),
+                    price,
+                    ema_price: option::some(ema_price)
                 }
             },
             _ => abort EInvalidOracleType
@@ -149,13 +174,35 @@ module oracles::oracles {
 
     }
 
-    /* Public Getters */
-    public fun base<CoinType>(price: &OraclePriceUpdate<CoinType>): I64 {
-        price.base
-    }
+    public fun get_switchboard_price<CoinType>(
+        registry: &OracleRegistry,
+        aggregator: &Aggregator,
+        oracle_index: u64,
+        clock: &Clock,
+    ): OraclePriceUpdate<CoinType> {
+        registry.version.assert_version(CURRENT_VERSION);
 
-    public fun expo<CoinType>(price: &OraclePriceUpdate<CoinType>): I64 {
-        price.expo
+        let oracle = &registry.oracles[oracle_index];
+        assert!(oracle.type_name == type_name::get<CoinType>(), EWrongCoinType);
+
+        match (oracle.oracle_type) {
+            OracleType::Switchboard { feed_id } => {
+                let price = switchboard::get_price(
+                    aggregator, 
+                    clock, 
+                    registry.config.switchboard_max_staleness_threshold_s, 
+                    registry.config.switchboard_max_confidence_interval_pct,
+                    feed_id
+                );
+
+                OraclePriceUpdate<CoinType> {
+                    oracle_registry_id: object::id(registry),
+                    price,
+                    ema_price: option::none()
+                }
+            },
+            _ => abort EInvalidOracleType
+        }
     }
 
     /* Private Functions */

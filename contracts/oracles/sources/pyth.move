@@ -2,13 +2,12 @@
 module oracles::pyth {
     use pyth::price_info::{Self, PriceInfoObject};
     use pyth::price_feed::{Self};
-    use std::vector::{Self};
     use pyth::price_identifier::{PriceIdentifier, Self};
     use pyth::price::{Self, Price};
     use pyth::i64::{Self};
     use sui::math::{Self};
-    use std::option::{Self, Option};
     use sui::clock::{Self, Clock};
+    use oracles::oracle_decimal::{OracleDecimal, Self};
 
     // Errors
     const EConfidenceIntervalExceeded: u64 = 0;
@@ -21,7 +20,7 @@ module oracles::pyth {
         max_staleness_threshold_s: u64,
         max_confidence_interval_pct: u64,
         expected_price_identifier: PriceIdentifier,
-    ): (Price, Price) {
+    ): (OracleDecimal, OracleDecimal) {
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
         let price_feed = price_info::get_price_feed(&price_info);
 
@@ -47,8 +46,21 @@ module oracles::pyth {
             abort EPriceIsStale
         };
 
-        (price, ema_price)
+        (from_pyth_price(&price), from_pyth_price(&ema_price))
     }
+
+    fun from_pyth_price(price: &Price): OracleDecimal {
+        oracle_decimal::new(
+            price.get_price().get_magnitude_if_positive() as u128,
+            if (price.get_expo().get_is_negative()) {
+                price.get_expo().get_magnitude_if_negative()
+            } else {
+                price.get_expo().get_magnitude_if_positive()
+            },
+            price.get_expo().get_is_negative()
+        )
+    }
+
 
     #[test_only]
     fun example_price_identifier(): PriceIdentifier {
@@ -105,8 +117,8 @@ module oracles::pyth {
             example_price_identifier(),
         );
 
-        assert!(actual_spot_price == spot_price, 0);
-        assert!(actual_ema_price == ema_price, 0);
+        assert!(actual_spot_price == from_pyth_price(&spot_price), 0);
+        assert!(actual_ema_price == from_pyth_price(&ema_price), 0);
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);
@@ -148,16 +160,13 @@ module oracles::pyth {
             test_scenario::ctx(&mut scenario)
         );
 
-        let (actual_spot_price, actual_ema_price) = get_prices(
+        get_prices(
             &price_info_object,
             &clock,
             100,
             10,
             example_price_identifier(),
         );
-
-        assert!(actual_spot_price == spot_price, 0);
-        assert!(actual_ema_price == ema_price, 0);
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);
@@ -201,16 +210,13 @@ module oracles::pyth {
             test_scenario::ctx(&mut scenario)
         );
 
-        let (actual_spot_price, actual_ema_price) = get_prices(
+        get_prices(
             &price_info_object,
             &clock,
             3,
             10,
             example_price_identifier(),
         );
-
-        assert!(actual_spot_price == spot_price, 0);
-        assert!(actual_ema_price == ema_price, 0);
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);
