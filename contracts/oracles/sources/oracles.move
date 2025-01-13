@@ -18,8 +18,7 @@ module oracles::oracles {
 
     /* Errors */
     const EInvalidAdminCap: u64 = 0;
-    const EWrongCoinType: u64 = 1;
-    const EInvalidOracleType: u64 = 2;
+    const EInvalidOracleType: u64 = 1;
 
     public struct OracleRegistry has key, store {
         id: UID,
@@ -60,18 +59,18 @@ module oracles::oracles {
     }
 
     // hot potato ensures that price is fresh
-    public struct OraclePriceUpdate<phantom CoinType> has drop {
+    public struct OraclePriceUpdate has drop {
         oracle_registry_id: ID,
         price: OracleDecimal,
         ema_price: Option<OracleDecimal>,
     }
 
     // == Public Getters ==
-    public fun price<CoinType>(price_update: &OraclePriceUpdate<CoinType>): OracleDecimal {
+    public fun price(price_update: &OraclePriceUpdate): OracleDecimal {
         price_update.price
     }
 
-    public fun ema_price<CoinType>(price_update: &OraclePriceUpdate<CoinType>): Option<OracleDecimal> {
+    public fun ema_price(price_update: &OraclePriceUpdate): Option<OracleDecimal> {
         price_update.ema_price
     }
 
@@ -110,49 +109,75 @@ module oracles::oracles {
         }
     }
 
-    /// Set a pyth oracle for CoinType
-    public fun set_pyth_oracle<CoinType>(
+    public fun add_pyth_oracle(
         registry: &mut OracleRegistry,
         admin_cap: &AdminCap,
         price_info_obj: &PriceInfoObject,
         ctx: &mut TxContext
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
+        assert!(admin_cap.oracle_registry_id == object::id(registry));
 
-        set_oracle<CoinType>(
-            registry, 
-            admin_cap, 
-            OracleType::Pyth { 
-                price_identifier: price_info_obj.get_price_info_from_price_info_object().get_price_identifier()
-            }, 
-            ctx
-        );
+        registry.oracles.push_back(Oracle {
+            id: object::new(ctx),
+            oracle_type: OracleType::Pyth { 
+                price_identifier: price_info_obj.get_price_info_from_price_info_object().get_price_identifier() 
+            },
+            extra_fields: bag::new(ctx)
+        });
     }
 
-    public fun set_switchboard_oracle<CoinType>(
+    public fun set_pyth_oracle(
+        registry: &mut OracleRegistry,
+        admin_cap: &AdminCap,
+        price_info_obj: &PriceInfoObject,
+        oracle_index: u64
+    ) {
+        registry.version.assert_version_and_upgrade(CURRENT_VERSION);
+        assert!(admin_cap.oracle_registry_id == object::id(registry));
+
+        registry.oracles[oracle_index].oracle_type = OracleType::Pyth { 
+            price_identifier: price_info_obj.get_price_info_from_price_info_object().get_price_identifier() 
+        };
+    }
+
+    public fun add_switchboard_oracle(
         registry: &mut OracleRegistry,
         admin_cap: &AdminCap,
         aggregator: &Aggregator,
         ctx: &mut TxContext
     ) {
-        set_oracle<CoinType>(
-            registry, 
-            admin_cap, 
-            OracleType::Switchboard { feed_id: aggregator.id() }, 
-            ctx
-        );
+        registry.version.assert_version_and_upgrade(CURRENT_VERSION);
+        assert!(admin_cap.oracle_registry_id == object::id(registry));
+
+        registry.oracles.push_back(Oracle {
+            id: object::new(ctx),
+            oracle_type: OracleType::Switchboard { feed_id: aggregator.id() },
+            extra_fields: bag::new(ctx)
+        });
     }
 
-    public fun get_pyth_price<CoinType>(
+    public fun set_switchboard_oracle(
+        registry: &mut OracleRegistry,
+        admin_cap: &AdminCap,
+        aggregator: &Aggregator,
+        oracle_index: u64
+    ) {
+        registry.version.assert_version_and_upgrade(CURRENT_VERSION);
+        assert!(admin_cap.oracle_registry_id == object::id(registry));
+
+        registry.oracles[oracle_index].oracle_type = OracleType::Switchboard { feed_id: aggregator.id() };
+    }
+
+    public fun get_pyth_price(
         registry: &OracleRegistry,
         price_info_obj: &PriceInfoObject,
         oracle_index: u64,
         clock: &Clock,
-    ): OraclePriceUpdate<CoinType> {
+    ): OraclePriceUpdate {
         registry.version.assert_version(CURRENT_VERSION);
 
         let oracle = &registry.oracles[oracle_index];
-        assert!(oracle.type_name == type_name::get<CoinType>(), EWrongCoinType);
 
         match (oracle.oracle_type) {
             OracleType::Pyth { price_identifier } => {
@@ -164,7 +189,7 @@ module oracles::oracles {
                     price_identifier
                 );
 
-                OraclePriceUpdate<CoinType> {
+                OraclePriceUpdate {
                     oracle_registry_id: object::id(registry),
                     price,
                     ema_price: option::some(ema_price)
@@ -175,16 +200,15 @@ module oracles::oracles {
 
     }
 
-    public fun get_switchboard_price<CoinType>(
+    public fun get_switchboard_price(
         registry: &OracleRegistry,
         aggregator: &Aggregator,
         oracle_index: u64,
         clock: &Clock,
-    ): OraclePriceUpdate<CoinType> {
+    ): OraclePriceUpdate {
         registry.version.assert_version(CURRENT_VERSION);
 
         let oracle = &registry.oracles[oracle_index];
-        assert!(oracle.type_name == type_name::get<CoinType>(), EWrongCoinType);
 
         match (oracle.oracle_type) {
             OracleType::Switchboard { feed_id } => {
@@ -196,7 +220,7 @@ module oracles::oracles {
                     feed_id
                 );
 
-                OraclePriceUpdate<CoinType> {
+                OraclePriceUpdate {
                     oracle_registry_id: object::id(registry),
                     price,
                     ema_price: option::none()
@@ -204,31 +228,6 @@ module oracles::oracles {
             },
             _ => abort EInvalidOracleType
         }
-    }
-
-    /* Private Functions */
-    fun set_oracle<CoinType>(
-        registry: &mut OracleRegistry,
-        admin_cap: &AdminCap,
-        oracle_type: OracleType,
-        ctx: &mut TxContext
-    ) {
-        registry.version.assert_version_and_upgrade(CURRENT_VERSION);
-
-        assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
-
-        let mut index = registry.oracles.find_index!(|oracle| oracle.type_name == type_name::get<CoinType>());
-        if (index.is_some()) {
-            registry.oracles[index.extract()].oracle_type = oracle_type;
-        } else {
-            let oracle = Oracle {
-                type_name: type_name::get<CoinType>(),
-                oracle_type,
-                extra_fields: bag::new(ctx)
-            };
-
-            registry.oracles.push_back(oracle);
-        };
     }
 
     #[test_only]

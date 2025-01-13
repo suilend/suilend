@@ -181,4 +181,65 @@ module oracles::switchboard_tests {
         test_scenario::end(scenario);
     }
 
+    #[test]
+    #[expected_failure(abort_code = oracles::switchboard::EWrongFeedId)]
+    fun switchboard_fail_wrong_feed_id() {
+        use sui::test_scenario::{Self};
+        use switchboard::decimal as switchboard_decimal;
+        use switchboard::aggregator;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        let mut aggregator = switchboard::aggregator::new_aggregator(
+            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            std::string::utf8(b"test"),
+            @0x26,
+            x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
+            1, // min samples
+            60, // max staleness for updates
+            1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
+            1, // min job responses
+            1337, // created at ms
+            sui::test_scenario::ctx(&mut scenario)
+        );
+
+        // scale the price to 18 decimals
+        let price = 200 * 10u128.pow(18);
+        let low_price = 190 * 10u128.pow(18);
+        let high_price = 210* 10u128.pow(18);
+        let stddev = 21 * 10u128.pow(18);
+
+        // set the current value (scaled, of course)
+        aggregator::set_current_value(
+            &mut aggregator,
+            switchboard_decimal::new(price, false),
+            1337,
+            1337,
+            1337,
+            switchboard_decimal::new(low_price, false),
+            switchboard_decimal::new(high_price, false),
+            switchboard_decimal::new(stddev, false),
+            switchboard_decimal::new(0, false),
+            switchboard_decimal::new(price, false)
+        );
+
+        let random_id = object::new(scenario.ctx());
+        let spot_price = get_price(
+            &aggregator, 
+            &clock,
+            60,
+            10,
+            random_id.to_inner()
+        );
+
+        assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)), 0);
+
+        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        clock::destroy_for_testing(clock);
+        sui::test_utils::destroy(random_id);
+
+        test_scenario::end(scenario);
+    }
 }

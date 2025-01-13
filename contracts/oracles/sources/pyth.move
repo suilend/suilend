@@ -36,7 +36,10 @@ module oracles::pyth {
         // confidence interval check
         // we want to make sure conf / price <= x%
         // -> conf * (100 / x )<= price
-        assert!(conf * (100 / max_confidence_interval_pct) <= price_mag, EConfidenceIntervalExceeded);
+        assert!(
+            (conf as u128) * 100u128 <= (price_mag as u128) * (max_confidence_interval_pct as u128),
+            EConfidenceIntervalExceeded
+        );
 
         // check current sui time against pythnet publish time. there can be some issues that arise because the
         // timestamps are from different sources and may get out of sync, but that's why we have a fallback oracle

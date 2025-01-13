@@ -42,7 +42,7 @@ module oracles::switchboard {
         // stddev / result <= x/100
         // stddev * 100 <= result * x
         assert!(
-            stdev.value() * 100u128 <= result.value() * (max_confidence_interval_pct as u128), 
+            (stdev.value() as u256) * 100u256 <= (result.value() as u256) * (max_confidence_interval_pct as u256), 
             EPriceRangeIsTooLarge
         );
 
