@@ -26,16 +26,14 @@ module oracles::oracles_tests {
         let owner = @0x26;
         let (mut scenario, clock, mut prices) = setup(owner);
 
-        let config = oracles::new_oracle_registry_config(
-            60,
-            10,
-            60,
-            10,
-            scenario.ctx()
-        );
-
-        let (mut registry, admin_cap) = oracles::new_oracle_registry(
-            config,
+        let (mut registry, admin_cap) = oracles::new_oracle_registry_for_testing(
+            oracles::new_oracle_registry_config(
+                60,
+                10,
+                60,
+                10,
+                scenario.ctx()
+            ),
             scenario.ctx()
         );
 
@@ -119,16 +117,15 @@ module oracles::oracles_tests {
         let owner = @0x26;
         let (mut scenario, clock, mut prices) = setup(owner);
 
-        let config = oracles::new_oracle_registry_config(
-            60,
-            10,
-            60,
-            10,
-            scenario.ctx()
-        );
 
-        let (mut registry, admin_cap) = oracles::new_oracle_registry(
-            config,
+        let (mut registry, admin_cap) = oracles::new_oracle_registry_for_testing(
+            oracles::new_oracle_registry_config(
+                60,
+                10,
+                60,
+                10,
+                scenario.ctx()
+            ),
             scenario.ctx()
         );
 

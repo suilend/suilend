@@ -45,7 +45,7 @@ module oracles::oracles {
     }
 
     public struct Oracle has store {
-        type_name: TypeName,
+        id: UID,
         oracle_type: OracleType,
         extra_fields: Bag
     }
@@ -76,10 +76,10 @@ module oracles::oracles {
     }
 
     // TODO: do we want people to have the ability to create new registries? or should we just have a global one. 
-    public fun new_oracle_registry(config: OracleRegistryConfig, ctx: &mut TxContext): (OracleRegistry, AdminCap) {
+    fun init(ctx: &mut TxContext) {
         let registry = OracleRegistry {
             id: object::new(ctx),
-            config,
+            config: new_oracle_registry_config(60, 10, 60, 10, ctx),
             oracles: vector::empty(),
             version: version::new(CURRENT_VERSION),
             extra_fields: bag::new(ctx)
@@ -90,7 +90,8 @@ module oracles::oracles {
             oracle_registry_id: object::id(&registry)
         };
 
-        (registry, admin_cap)
+        sui::transfer::share_object(registry);
+        sui::transfer::transfer(admin_cap, ctx.sender());
     }
 
     public fun new_oracle_registry_config(
@@ -230,5 +231,23 @@ module oracles::oracles {
         };
     }
 
+    #[test_only]
+    public fun new_oracle_registry_for_testing(config: OracleRegistryConfig, ctx: &mut TxContext): (OracleRegistry, AdminCap) {
+        let registry = OracleRegistry {
+            id: object::new(ctx),
+            config,
+            oracles: vector::empty(),
+            version: version::new(CURRENT_VERSION),
+            extra_fields: bag::new(ctx)
+        };
+
+        let admin_cap = AdminCap {
+            id: object::new(ctx),
+            oracle_registry_id: object::id(&registry)
+        };
+
+
+        (registry, admin_cap)
+    }
 }
 
