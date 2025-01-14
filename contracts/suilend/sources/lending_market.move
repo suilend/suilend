@@ -261,13 +261,12 @@ module suilend::lending_market {
         coin::from_balance(ctokens, ctx)
     }
 
-    #[allow(unused_let_mut)]
     public fun redeem_ctokens_and_withdraw_liquidity<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
         clock: &Clock,
         ctokens: Coin<CToken<P, T>>,
-        mut rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
+        rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
         ctx: &mut TxContext,
     ): Coin<T> {
         let liquidity_request = redeem_ctokens_and_withdraw_liquidity_request(
