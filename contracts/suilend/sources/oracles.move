@@ -1,15 +1,12 @@
 /// This module contains logic for parsing pyth prices (and eventually switchboard prices)
 module suilend::oracles {
-    use pyth::price_info::{Self, PriceInfoObject};
-    use pyth::price_feed::{Self};
-    use std::vector::{Self};
-    use pyth::price_identifier::{PriceIdentifier, Self};
+    use pyth::i64;
     use pyth::price::{Self, Price};
-    use pyth::i64::{Self};
-    use suilend::decimal::{Decimal, Self, mul, div};
-    use sui::math::{Self};
-    use std::option::{Self, Option};
+    use pyth::price_feed;
+    use pyth::price_identifier::{PriceIdentifier};
+    use pyth::price_info::{Self, PriceInfoObject};
     use sui::clock::{Self, Clock};
+    use suilend::decimal::{Self, Decimal, mul, div};
 
     // min confidence ratio of X means that the confidence interval must be less than (100/x)% of the price
     const MIN_CONFIDENCE_RATIO: u64 = 10;
@@ -19,7 +16,10 @@ module suilend::oracles {
     /// price is invalid due to confidence interval checks or staleness checks. It returns None instead of aborting
     /// so the caller can handle invalid prices gracefully by eg falling back to a different oracle
     /// return type: (spot price, ema price, price identifier)
-    public fun get_pyth_price_and_identifier(price_info_obj: &PriceInfoObject, clock: &Clock): (Option<Decimal>, Decimal, PriceIdentifier) {
+    public fun get_pyth_price_and_identifier(
+        price_info_obj: &PriceInfoObject,
+        clock: &Clock,
+    ): (Option<Decimal>, Decimal, PriceIdentifier) {
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
         let price_feed = price_info::get_price_feed(&price_info);
         let price_identifier = price_feed::get_price_identifier(price_feed);
@@ -40,8 +40,10 @@ module suilend::oracles {
         // check current sui time against pythnet publish time. there can be some issues that arise because the
         // timestamps are from different sources and may get out of sync, but that's why we have a fallback oracle
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
-        if (cur_time_s > price::get_timestamp(&price) && // this is technically possible!
-            cur_time_s - price::get_timestamp(&price) > MAX_STALENESS_SECONDS) {
+        if (
+            cur_time_s > price::get_timestamp(&price) && // this is technically possible!
+            cur_time_s - price::get_timestamp(&price) > MAX_STALENESS_SECONDS
+        ) {
             return (option::none(), ema_price, price_identifier)
         };
 
@@ -57,19 +59,19 @@ module suilend::oracles {
         if (i64::get_is_negative(&expo)) {
             div(
                 decimal::from(price_mag),
-                decimal::from(math::pow(10, (i64::get_magnitude_if_negative(&expo) as u8)))
+                decimal::from(std::u64::pow(10, (i64::get_magnitude_if_negative(&expo) as u8))),
             )
-        }
-        else {
+        } else {
             mul(
                 decimal::from(price_mag),
-                decimal::from(math::pow(10, (i64::get_magnitude_if_positive(&expo) as u8)))
+                decimal::from(std::u64::pow(10, (i64::get_magnitude_if_positive(&expo) as u8))),
             )
         }
     }
 
     #[test_only]
     fun example_price_identifier(): PriceIdentifier {
+        use pyth::price_identifier::{Self};
         let mut v = vector::empty<u8>();
 
         let mut i = 0;
@@ -98,19 +100,22 @@ module suilend::oracles {
                         i64::new(8, false),
                         0,
                         i64::new(5, false),
-                        0
+                        0,
                     ),
                     price::new(
                         i64::new(8, false),
                         0,
                         i64::new(4, true),
-                        0
-                    )
-                )
+                        0,
+                    ),
+                ),
             ),
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
-        let (spot_price, ema_price, price_identifier) = get_pyth_price_and_identifier(&price_info_object, &clock);
+        let (spot_price, ema_price, price_identifier) = get_pyth_price_and_identifier(
+            &price_info_object,
+            &clock,
+        );
         assert!(spot_price == option::some(decimal::from(800_000)), 0);
         assert!(ema_price == decimal::from_bps(8), 0);
         assert!(price_identifier == example_price_identifier(), 0);
@@ -137,20 +142,23 @@ module suilend::oracles {
                         i64::new(100, false),
                         11,
                         i64::new(5, false),
-                        0
+                        0,
                     ),
                     price::new(
                         i64::new(8, false),
                         0,
                         i64::new(4, true),
-                        0
-                    )
-                )
+                        0,
+                    ),
+                ),
             ),
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
 
-        let (spot_price, ema_price, price_identifier) = get_pyth_price_and_identifier(&price_info_object, &clock);
+        let (spot_price, ema_price, price_identifier) = get_pyth_price_and_identifier(
+            &price_info_object,
+            &clock,
+        );
 
         // condience interval higher than 10% of the price
         assert!(spot_price == option::none(), 0);
@@ -180,20 +188,23 @@ module suilend::oracles {
                         i64::new(100, false),
                         0,
                         i64::new(5, false),
-                        0
+                        0,
                     ),
                     price::new(
                         i64::new(8, false),
                         0,
                         i64::new(4, true),
-                        0
-                    )
-                )
+                        0,
+                    ),
+                ),
             ),
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
 
-        let (spot_price, ema_price, price_identifier) = get_pyth_price_and_identifier(&price_info_object, &clock);
+        let (spot_price, ema_price, price_identifier) = get_pyth_price_and_identifier(
+            &price_info_object,
+            &clock,
+        );
 
         assert!(spot_price == option::none(), 0);
         assert!(ema_price == decimal::from_bps(8), 0);
@@ -203,6 +214,4 @@ module suilend::oracles {
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
-
 }
-

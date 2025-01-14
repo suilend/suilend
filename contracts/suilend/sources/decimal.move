@@ -4,37 +4,37 @@ module suilend::decimal {
     const WAD: u256 = 1000000000000000000;
     const U64_MAX: u256 = 18446744073709551615;
 
-    public struct Decimal has copy, store, drop {
-        value: u256
+    public struct Decimal has copy, drop, store {
+        value: u256,
     }
 
     public fun from(v: u64): Decimal {
         Decimal {
-            value: (v as u256) * WAD
+            value: (v as u256) * WAD,
         }
     }
 
     public fun from_percent(v: u8): Decimal {
         Decimal {
-            value: (v as u256) * WAD / 100
+            value: (v as u256) * WAD / 100,
         }
     }
 
     public fun from_percent_u64(v: u64): Decimal {
         Decimal {
-            value: (v as u256) * WAD / 100
+            value: (v as u256) * WAD / 100,
         }
     }
 
     public fun from_bps(v: u64): Decimal {
         Decimal {
-            value: (v as u256) * WAD / 10_000
+            value: (v as u256) * WAD / 10_000,
         }
     }
 
     public fun from_scaled_val(v: u256): Decimal {
         Decimal {
-            value: v
+            value: v,
         }
     }
 
@@ -44,13 +44,13 @@ module suilend::decimal {
 
     public fun add(a: Decimal, b: Decimal): Decimal {
         Decimal {
-            value: a.value + b.value
+            value: a.value + b.value,
         }
     }
 
     public fun sub(a: Decimal, b: Decimal): Decimal {
         Decimal {
-            value: a.value - b.value
+            value: a.value - b.value,
         }
     }
 
@@ -64,13 +64,13 @@ module suilend::decimal {
 
     public fun mul(a: Decimal, b: Decimal): Decimal {
         Decimal {
-            value: (a.value * b.value) / WAD
+            value: (a.value * b.value) / WAD,
         }
     }
 
     public fun div(a: Decimal, b: Decimal): Decimal {
         Decimal {
-            value: (a.value * WAD) / b.value
+            value: (a.value * WAD) / b.value,
         }
     }
 
@@ -144,7 +144,23 @@ module suilend::decimal {
 
 #[test_only]
 module suilend::decimal_tests {
-    use suilend::decimal::{add, sub, mul, div, floor, ceil, pow, lt, gt, le, ge, from, from_percent, saturating_sub, saturating_floor};
+    use suilend::decimal::{
+        add,
+        sub,
+        mul,
+        div,
+        floor,
+        ceil,
+        pow,
+        lt,
+        gt,
+        le,
+        ge,
+        from,
+        from_percent,
+        saturating_sub,
+        saturating_floor
+    };
 
     #[test]
     fun test_basic() {
@@ -164,7 +180,10 @@ module suilend::decimal_tests {
         assert!(saturating_sub(a, b) == from(0), 0);
         assert!(saturating_sub(b, a) == from(1), 0);
         assert!(saturating_floor(from(18446744073709551615)) == 18446744073709551615, 0);
-        assert!(saturating_floor(add(from(18446744073709551615), from(1))) == 18446744073709551615, 0);
+        assert!(
+            saturating_floor(add(from(18446744073709551615), from(1))) == 18446744073709551615,
+            0,
+        );
     }
 
     #[test]
