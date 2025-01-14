@@ -39,6 +39,7 @@ module suilend::obligation {
     const ETooManyBorrows: u64 = 6;
     const EObligationIsNotForgivable: u64 = 7;
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
+    const EOraclesAreStale: u64 = 9;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -99,6 +100,9 @@ module suilend::obligation {
         market_value: Decimal,
         user_reward_manager_index: u64,
     }
+
+    // hot potato. used by obligation::refresh to indicate that prices are stale.
+    public struct ExistStaleOracles {}
 
     // === Events ===
     public struct ObligationDataEvent has copy, drop {
@@ -167,7 +171,9 @@ module suilend::obligation {
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
         clock: &Clock,
-    ) {
+    ): Option<ExistStaleOracles> {
+        let mut exist_stale_oracles = false;
+
         let mut i = 0;
         let mut deposited_value_usd = decimal::from(0);
         let mut allowed_borrow_value_usd = decimal::from(0);
@@ -179,7 +185,10 @@ module suilend::obligation {
             let deposit_reserve = vector::borrow_mut(reserves, deposit.reserve_array_index);
 
             reserve::compound_interest(deposit_reserve, clock);
-            reserve::assert_price_is_fresh(deposit_reserve, clock);
+
+            if (!reserve::is_price_fresh(deposit_reserve, clock)) {
+                exist_stale_oracles = true;
+            };
 
             let market_value = reserve::ctoken_market_value(
                 deposit_reserve,
@@ -227,7 +236,9 @@ module suilend::obligation {
 
             let borrow_reserve = vector::borrow_mut(reserves, borrow.reserve_array_index);
             reserve::compound_interest(borrow_reserve, clock);
-            reserve::assert_price_is_fresh(borrow_reserve, clock);
+            if (!reserve::is_price_fresh(borrow_reserve, clock)) {
+                exist_stale_oracles = true;
+            };
 
             compound_debt(borrow, borrow_reserve);
 
@@ -269,6 +280,12 @@ module suilend::obligation {
             weighted_borrowed_value_upper_bound_usd;
 
         obligation.borrowing_isolated_asset = borrowing_isolated_asset;
+
+        if (exist_stale_oracles) {
+            return option::some(ExistStaleOracles {})
+        };
+
+        option::none()
     }
 
     /// Process a deposit action
@@ -492,7 +509,14 @@ module suilend::obligation {
         reserve: &mut Reserve<P>,
         clock: &Clock,
         ctoken_amount: u64,
+        stale_oracles: Option<ExistStaleOracles>,
     ) {
+        if (stale_oracles.is_some() && vector::is_empty(&obligation.borrows)) {
+            let ExistStaleOracles {} = option::destroy_some(stale_oracles);
+        } else {
+            assert_no_stale_oracles(stale_oracles);
+        };
+
         withdraw_unchecked(obligation, reserve, clock, ctoken_amount);
 
         assert!(is_healthy(obligation), EObligationIsNotHealthy);
@@ -832,6 +856,11 @@ module suilend::obligation {
                 ),
             ),
         )
+    }
+
+    public(package) fun assert_no_stale_oracles(exist_stale_oracles: Option<ExistStaleOracles>) {
+        assert!(option::is_none(&exist_stale_oracles), EOraclesAreStale);
+        option::destroy_none(exist_stale_oracles);
     }
 
     public(package) fun zero_out_rewards_if_looped<P>(

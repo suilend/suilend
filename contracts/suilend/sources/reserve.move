@@ -236,11 +236,13 @@ module suilend::reserve {
 
     // make sure we are using the latest published price on sui
     public fun assert_price_is_fresh<P>(reserve: &Reserve<P>, clock: &Clock) {
+        assert!(is_price_fresh(reserve, clock), EPriceStale);
+    }
+
+    public(package) fun is_price_fresh<P>(reserve: &Reserve<P>, clock: &Clock): bool {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
-        assert!(
-            cur_time_s - reserve.price_last_update_timestamp_s <= PRICE_STALENESS_THRESHOLD_S, 
-            EPriceStale
-        );
+
+        cur_time_s - reserve.price_last_update_timestamp_s <= PRICE_STALENESS_THRESHOLD_S
     }
 
     // if SUI = $1, this returns decimal::from(1).
