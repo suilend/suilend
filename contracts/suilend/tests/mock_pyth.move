@@ -1,26 +1,22 @@
 #[test_only]
 module suilend::mock_pyth {
+    use pyth::i64;
+    use pyth::price;
+    use pyth::price_feed;
+    use pyth::price_identifier;
     use pyth::price_info::{Self, PriceInfoObject};
-    use pyth::price_feed::{Self};
-    use pyth::price::{Self};
-    use pyth::price_identifier::{Self};
-    use pyth::i64::{Self};
-    use sui::tx_context::{TxContext};
-    use std::vector::{Self};
-    use sui::object::{Self, UID};
     use sui::bag::{Self, Bag};
-    use sui::clock::{Clock, Self, create_for_testing};
-
+    use sui::clock::{Self, Clock};
 
     public struct PriceState has key {
         id: UID,
-        price_objs: Bag
+        price_objs: Bag,
     }
 
     public fun init_state(ctx: &mut TxContext): PriceState {
         PriceState {
             id: object::new(ctx),
-            price_objs: bag::new(ctx)
+            price_objs: bag::new(ctx),
         }
     }
 
@@ -50,17 +46,17 @@ module suilend::mock_pyth {
                         i64::new(0, false),
                         0,
                         i64::new(0, false),
-                        0
+                        0,
                     ),
                     price::new(
                         i64::new(0, false),
                         0,
                         i64::new(0, false),
-                        0
-                    )
-                )
+                        0,
+                    ),
+                ),
             ),
-            ctx
+            ctx,
         )
     }
 
@@ -76,7 +72,7 @@ module suilend::mock_pyth {
             i64::new(price, false),
             0,
             i64::new((expo as u64), false),
-            clock::timestamp_ms(clock) / 1000
+            clock::timestamp_ms(clock) / 1000,
         );
 
         price_info::update_price_info_object_for_testing(
@@ -87,10 +83,9 @@ module suilend::mock_pyth {
                 price_feed::new(
                     price_info::get_price_identifier(&price_info),
                     price,
-                    price
-                )
-            )
+                    price,
+                ),
+            ),
         );
-        
     }
 }
