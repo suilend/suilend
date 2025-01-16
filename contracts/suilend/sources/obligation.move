@@ -782,19 +782,21 @@ module suilend::obligation {
     // === Private Functions ===
     public(package) fun is_looped<P>(obligation: &Obligation<P>): bool {
         let target_reserve_array_indices = vector[
-            1, 2, 5, 7, 3, 9
+            1, 2, 5, 7, 19, 20, 3, 9
         ];
 
         // The vector target_reserve_array_indices maps to disabled_pairings_map
         // by corresponding indices of each element
         // target_reserve_index --> pairings disabled
         let disabled_pairings_map = vector[
-            vector[2, 5, 7], // 1 --> [2, 5, 7]
-            vector[1, 5, 7], // 2 --> [1, 5, 7]
-            vector[1, 2, 7], // 5 --> [1, 2, 7]
-            vector[1, 2, 5], // 7 --> [1, 2, 5]
-            vector[9],
-            vector[3]
+            vector[2, 5, 7, 19, 20], // 1 --> [2, 5, 7, 19, 20]
+            vector[1, 5, 7, 19, 20], // 2 --> [1, 5, 7, 19, 20]
+            vector[1, 2, 7, 19, 20], // 5 --> [1, 2, 7, 19, 20]
+            vector[1, 2, 5, 19, 20], // 7 --> [1, 2, 5, 19, 20]
+            vector[1, 2, 5, 7, 20], // 19 --> [1, 2, 5, 7, 20]
+            vector[1, 2, 5, 7, 19], // 20 --> [1, 2, 5, 7, 19]
+            vector[9], // 3 --> [9]
+            vector[3] // 9 --> [3]
         ];
 
         let mut i = 0;
