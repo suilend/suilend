@@ -940,8 +940,11 @@ module suilend::lending_market {
     }
 
     // === Admin Functions ===
-    entry fun migrate<P>(_: &LendingMarketOwnerCap<P>, lending_market: &mut LendingMarket<P>) {
-        assert!(lending_market.version == CURRENT_VERSION - 1, EIncorrectVersion);
+    entry fun migrate<P>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+    ) {
+        assert!(lending_market.version <= CURRENT_VERSION - 1, EIncorrectVersion);
         lending_market.version = CURRENT_VERSION;
     }
 
