@@ -382,14 +382,14 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
-    // Compount interest for reserve of type T
-    public fun compound_interest<P, T>(
+    // Compound interest for reserve of type T
+    public fun compound_interest<P>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
         clock: &Clock,
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve.compound_interest(clock);
     }
@@ -753,7 +753,7 @@ module suilend::lending_market {
             );
         }
     }
-    
+
     /* Staker operations */
     public fun init_staker<P, S: drop>(
         lending_market: &mut LendingMarket<P>,
