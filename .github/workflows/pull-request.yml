@@ -21,7 +21,7 @@ jobs:
         run: apt-get install -y git
 
       - name: build
-        run: cd contracts/suilend && sui move build --warnings-are-errors
+        run: cd contracts/suilend && sui move build
 
       - name: test
         run: cd contracts/suilend && sui move test --warnings-are-errors
