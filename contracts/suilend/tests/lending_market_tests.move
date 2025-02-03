@@ -115,7 +115,7 @@ module suilend::lending_market_tests {
     }
 
     #[test_only]
-    fun setup(mut reserve_args: Bag, scenario: &mut Scenario): State {
+    public fun setup(mut reserve_args: Bag, scenario: &mut Scenario): State {
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
         use suilend::reserve_config::{Self};
@@ -264,6 +264,33 @@ module suilend::lending_market_tests {
             prices,
             type_to_index
         }
+    }
+
+    #[test_only]
+    public fun new_args(initial_deposit: u64, config: ReserveConfig): ReserveArgs {
+        ReserveArgs {
+            config,
+            initial_deposit,
+        }
+    }
+
+    #[test_only]
+    public fun destruct_state(state: State): (
+        Clock,
+        LendingMarketOwnerCap<LENDING_MARKET>,
+        LendingMarket<LENDING_MARKET>,
+        PriceState,
+        Bag
+    ) {
+        let State {
+            clock,
+            owner_cap,
+            lending_market,
+            prices,
+            type_to_index,
+        } = state;
+
+        (clock, owner_cap, lending_market, prices, type_to_index)
     }
 
 

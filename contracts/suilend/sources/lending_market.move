@@ -382,6 +382,18 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
+    // Compound interest for reserve of type T
+    public fun compound_interest<P>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+
+        reserve.compound_interest(clock);
+    }
+
     /// Borrow tokens of type T. A fee is charged.
     public fun borrow_request<P, T>(
         lending_market: &mut LendingMarket<P>,
@@ -790,6 +802,11 @@ module suilend::lending_market {
     }
 
     // === Public-View Functions ===
+
+    public fun reserves<P>(lending_market: &LendingMarket<P>): &vector<Reserve<P>> {
+        &lending_market.reserves
+    }
+
     fun max_borrow_amount<P>(
         mut rate_limiter: RateLimiter,
         obligation: &Obligation<P>, 
@@ -870,7 +887,7 @@ module suilend::lending_market {
     }
 
     // slow function. use sparingly.
-    fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
+    public fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
         let mut i = 0;
         while (i < vector::length(&lending_market.reserves)) {
             let reserve = vector::borrow(&lending_market.reserves, i);
@@ -1265,6 +1282,11 @@ module suilend::lending_market {
     public fun destroy_lending_market_owner_cap_for_testing<P>(lending_market_owner_cap: LendingMarketOwnerCap<P>) {
         let LendingMarketOwnerCap { id, lending_market_id: _ } = lending_market_owner_cap;
         object::delete(id);
+    }
+
+    #[test_only]
+    public fun reserves_mut_for_testing<P>(lending_market: &mut LendingMarket<P>): &mut vector<Reserve<P>> {
+        &mut lending_market.reserves
     }
 
     #[test_only]
