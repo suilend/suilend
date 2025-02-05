@@ -940,10 +940,7 @@ module suilend::lending_market {
     }
 
     // === Admin Functions ===
-    entry fun migrate<P>(
-        _: &LendingMarketOwnerCap<P>,
-        lending_market: &mut LendingMarket<P>,
-    ) {
+    entry fun migrate<P>(_: &LendingMarketOwnerCap<P>, lending_market: &mut LendingMarket<P>) {
         assert!(lending_market.version <= CURRENT_VERSION - 1, EIncorrectVersion);
         lending_market.version = CURRENT_VERSION;
     }
@@ -1325,7 +1322,9 @@ module suilend::lending_market {
     }
 
     #[test_only]
-    public fun reserves_mut_for_testing<P>(lending_market: &mut LendingMarket<P>): &mut vector<Reserve<P>> {
+    public fun reserves_mut_for_testing<P>(
+        lending_market: &mut LendingMarket<P>,
+    ): &mut vector<Reserve<P>> {
         &mut lending_market.reserves
     }
 
