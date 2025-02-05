@@ -1,25 +1,21 @@
 #[test_only]
 module suilend::test_usdc {
     use sui::coin::{Self, TreasuryCap, CoinMetadata};
-    use std::vector::{Self};
-    use std::option::{Self};
-    use sui::tx_context::{TxContext};
 
     public struct TEST_USDC has drop {}
 
     #[test_only]
-    public fun create_currency(ctx: &mut TxContext): (
-        TreasuryCap<TEST_USDC>, 
-        CoinMetadata<TEST_USDC>, 
-    ) {
+    public fun create_currency(
+        ctx: &mut TxContext,
+    ): (TreasuryCap<TEST_USDC>, CoinMetadata<TEST_USDC>) {
         coin::create_currency(
-            TEST_USDC {}, 
-            6, 
+            TEST_USDC {},
+            6,
             vector::empty(),
             vector::empty(),
             vector::empty(),
             option::none(),
-            ctx
+            ctx,
         )
     }
 }
@@ -27,42 +23,36 @@ module suilend::test_usdc {
 #[test_only]
 module suilend::test_sui {
     use sui::coin::{Self, TreasuryCap, CoinMetadata};
-    use std::vector::{Self};
-    use std::option::{Self};
-    use sui::tx_context::{TxContext};
 
     public struct TEST_SUI has drop {}
 
     #[test_only]
-    public fun create_currency(ctx: &mut TxContext): (
-        TreasuryCap<TEST_SUI>, 
-        CoinMetadata<TEST_SUI>, 
-    ) {
+    public fun create_currency(
+        ctx: &mut TxContext,
+    ): (TreasuryCap<TEST_SUI>, CoinMetadata<TEST_SUI>) {
         coin::create_currency(
-            TEST_SUI {}, 
-            9, 
+            TEST_SUI {},
+            9,
             vector::empty(),
             vector::empty(),
             vector::empty(),
             option::none(),
-            ctx
+            ctx,
         )
     }
 }
 
-
 #[test_only]
 module suilend::mock_metadata {
-    use sui::bag::{Bag, Self};
-    use sui::tx_context::{TxContext};
-    use suilend::test_usdc::{TEST_USDC, Self};
-    use suilend::test_sui::{TEST_SUI, Self};
-    use std::type_name::{Self};
-    use sui::coin::{CoinMetadata};
-    use sui::test_utils::{Self};
+    use std::type_name;
+    use sui::bag::{Self, Bag};
+    use sui::coin::CoinMetadata;
+    use sui::test_utils;
+    use suilend::test_sui::{Self, TEST_SUI};
+    use suilend::test_usdc::{Self, TEST_USDC};
 
     public struct Metadata {
-        metadata: Bag
+        metadata: Bag,
     }
 
     public fun init_metadata(ctx: &mut TxContext): Metadata {
@@ -78,7 +68,7 @@ module suilend::mock_metadata {
         bag::add(&mut bag, type_name::get<TEST_SUI>(), test_sui_metadata);
 
         Metadata {
-            metadata: bag
+            metadata: bag,
         }
     }
 

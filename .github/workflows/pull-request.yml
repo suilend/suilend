@@ -20,5 +20,8 @@ jobs:
       - name: install git
         run: apt-get install -y git
 
+      - name: build
+        run: cd contracts/suilend && sui move build
+
       - name: test
         run: cd contracts/suilend && sui move test

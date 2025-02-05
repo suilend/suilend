@@ -1,8 +1,6 @@
 module suilend::cell {
-    use std::option::{Self, Option};
-
     public struct Cell<Element> has store {
-        element: Option<Element>
+        element: Option<Element>,
     }
 
     public fun new<Element>(element: Element): Cell<Element> {

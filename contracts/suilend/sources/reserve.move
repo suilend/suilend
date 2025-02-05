@@ -5,16 +5,12 @@ module suilend::reserve {
     use std::type_name::{Self, TypeName};
     use sui::dynamic_field::{Self};
     use sui::balance::{Self, Balance, Supply};
-    use sui::tx_context::{TxContext};
-    use sui::object::{Self, UID, ID};
     use suilend::cell::{Self, Cell};
-    use std::option::{Self};
     use sui::event::{Self};
     use suilend::oracles::{Self};
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max, saturating_sub};
     use sui::clock::{Self, Clock};
-    use sui::coin::{Self, CoinMetadata, TreasuryCap};
-    use sui::math::{Self};
+    use sui::coin::{TreasuryCap};
     use pyth::price_identifier::{PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
     use suilend::reserve_config::{
@@ -269,7 +265,7 @@ module suilend::reserve {
                 price(reserve),
                 liquidity_amount
             ),
-            decimal::from(math::pow(10, reserve.mint_decimals))
+            decimal::from(std::u64::pow(10, reserve.mint_decimals))
         )
     }
 
@@ -282,7 +278,7 @@ module suilend::reserve {
                 price_lower_bound(reserve),
                 liquidity_amount
             ),
-            decimal::from(math::pow(10, reserve.mint_decimals))
+            decimal::from(std::u64::pow(10, reserve.mint_decimals))
         )
     }
 
@@ -295,7 +291,7 @@ module suilend::reserve {
                 price_upper_bound(reserve),
                 liquidity_amount
             ),
-            decimal::from(math::pow(10, reserve.mint_decimals))
+            decimal::from(std::u64::pow(10, reserve.mint_decimals))
         )
     }
 
@@ -345,7 +341,7 @@ module suilend::reserve {
     ): Decimal {
         div(
             mul(
-                decimal::from(math::pow(10, reserve.mint_decimals)),
+                decimal::from(std::u64::pow(10, reserve.mint_decimals)),
                 usd_amount
             ),
             price_upper_bound(reserve)
@@ -358,7 +354,7 @@ module suilend::reserve {
     ): Decimal {
         div(
             mul(
-                decimal::from(math::pow(10, reserve.mint_decimals)),
+                decimal::from(std::u64::pow(10, reserve.mint_decimals)),
                 usd_amount
             ),
             price_lower_bound(reserve)

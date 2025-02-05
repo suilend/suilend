@@ -1,28 +1,32 @@
 module suilend::staker_tests {
-
-    public struct STAKER_TESTS has drop {}
-
+    use sui::balance;
+    use sui::coin;
+    use sui::sui::SUI;
     use sui::test_scenario::{Self, Scenario};
     use sui_system::governance_test_utils::{
         advance_epoch_with_reward_amounts,
         create_validator_for_testing,
-        create_sui_system_state_for_testing,
+        create_sui_system_state_for_testing
     };
-    use sui::balance::{Self};
-    use sui::coin::{Self};
-    use suilend::staker::{create_staker};
-    use sui_system::sui_system::{SuiSystemState};
-    use sui::sui::{SUI};
+    use sui_system::sui_system::SuiSystemState;
+    use suilend::staker::create_staker;
+
+    public struct STAKER_TESTS has drop {}
 
     /* Constants */
     const MIST_PER_SUI: u64 = 1_000_000_000;
-    const SUILEND_VALIDATOR: address = @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
+    const SUILEND_VALIDATOR: address =
+        @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
 
     public struct STAKER has drop {}
 
     fun setup_sui_system(scenario: &mut Scenario) {
         test_scenario::next_tx(scenario, SUILEND_VALIDATOR);
-        let validator = create_validator_for_testing(SUILEND_VALIDATOR, 100, test_scenario::ctx(scenario));
+        let validator = create_validator_for_testing(
+            SUILEND_VALIDATOR,
+            100,
+            test_scenario::ctx(scenario),
+        );
         create_sui_system_state_for_testing(vector[validator], 0, 0, test_scenario::ctx(scenario));
 
         advance_epoch_with_reward_amounts(0, 0, scenario);
@@ -34,7 +38,9 @@ module suilend::staker_tests {
         let mut scenario = test_scenario::begin(owner);
         setup_sui_system(&mut scenario);
 
-        let treasury_cap = coin::create_treasury_cap_for_testing<STAKER>(test_scenario::ctx(&mut scenario));
+        let treasury_cap = coin::create_treasury_cap_for_testing<STAKER>(
+            test_scenario::ctx(&mut scenario),
+        );
 
         let mut staker = create_staker(treasury_cap, test_scenario::ctx(&mut scenario));
         assert!(staker.sui_balance().value() == 0, 0);
@@ -121,5 +127,4 @@ module suilend::staker_tests {
         sui::test_utils::destroy(staker);
         test_scenario::end(scenario);
     }
-
 }
