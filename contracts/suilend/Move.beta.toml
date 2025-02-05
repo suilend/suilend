@@ -1,7 +1,7 @@
 [package]
 name = "suilend"
 version = "0.0.1"
-published-at = "0x465174d80d10d33917d16721d20e6a4e08c50e9d3ff9115ee8c36cf9fb7bcd6e"
+published-at = "0xbfc6127da72073545b271e2eee0e554ef34b10ba602cc7a287f28a465bd3483d"
 edition = "2024.beta"
 
 [dependencies.Sui]
