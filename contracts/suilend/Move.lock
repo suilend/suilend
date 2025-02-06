@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "E25F888B3CC57B28D0C772334DD30911CD5A1F9E4F24D8EC7733F5B434BF5012"
+manifest_digest = "9E8660E667A354B63448AF5B5D0F68EE43B6C09C20DC42E7B51305E3C0BDA57B"
 deps_digest = "F9B494B64F0615AED0E98FC12A85B85ECD2BC5185C22D30E7F67786BB52E507C"
 dependencies = [
   { id = "Pyth", name = "Pyth" },
@@ -67,6 +67,6 @@ dependencies = [
 ]
 
 [move.toolchain-version]
-compiler-version = "1.35.3"
+compiler-version = "1.41.2"
 edition = "2024.beta"
 flavor = "sui"
