@@ -816,7 +816,7 @@ module suilend::lending_market {
             return
         };
 
-        reserve::unstake_sui_from_staker<P>(reserve, liquidity_request, system_state, ctx);
+        reserve::unstake_sui_from_staker<P, SUI>(reserve, liquidity_request, system_state, ctx);
     }
 
     // === Public-View Functions ===
@@ -1131,14 +1131,15 @@ module suilend::lending_market {
     entry fun claim_fees<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
-        ctx: &mut TxContext,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
-        let (mut ctoken_fees, mut fees) = reserve::claim_fees<P, T>(reserve);
+        let (mut ctoken_fees, mut fees) = reserve::claim_fees<P, T>(reserve, system_state, ctx);
         let total_ctoken_fees = balance::value(&ctoken_fees);
         let total_fees = balance::value(&fees);
 
