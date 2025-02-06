@@ -401,7 +401,9 @@ module suilend::lending_market {
             &mut lending_market.obligations,
             obligation_owner_cap.obligation_id,
         );
-        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+
+        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
@@ -478,7 +480,8 @@ module suilend::lending_market {
             &mut lending_market.obligations,
             obligation_owner_cap.obligation_id,
         );
-        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+
+        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
@@ -488,7 +491,7 @@ module suilend::lending_market {
                 max_withdraw_amount<P>(lending_market.rate_limiter, obligation, reserve, clock);
         };
 
-        obligation::withdraw<P>(obligation, reserve, clock, amount);
+        obligation::withdraw<P>(obligation, reserve, clock, amount, exist_stale_oracles);
 
         event::emit(WithdrawEvent {
             lending_market_id,
@@ -522,7 +525,9 @@ module suilend::lending_market {
             &mut lending_market.obligations,
             obligation_id,
         );
-        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+
+        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
             obligation,
@@ -644,7 +649,9 @@ module suilend::lending_market {
             &mut lending_market.obligations,
             obligation_id,
         );
-        obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+
+        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);

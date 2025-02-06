@@ -6,6 +6,7 @@ module suilend::obligation_tests {
     use suilend::decimal::{Self, add};
     use suilend::liquidity_mining;
     use suilend::obligation::{
+        Self,
         create_obligation,
         deposit,
         borrow,
@@ -448,7 +449,8 @@ module suilend::obligation_tests {
             1,
         );
 
-        refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+        let exist_stale_oracles = refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         // this fails
         borrow<TEST_MARKET>(
@@ -509,7 +511,8 @@ module suilend::obligation_tests {
             1,
         );
 
-        refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+        let exist_stale_oracles = refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         // this fails
         borrow<TEST_MARKET>(
@@ -570,7 +573,8 @@ module suilend::obligation_tests {
             1,
         );
 
-        refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+        let exist_stale_oracles = refresh<TEST_MARKET>(&mut obligation, &mut reserves, &clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         // this fails
         borrow<TEST_MARKET>(
@@ -715,7 +719,13 @@ module suilend::obligation_tests {
         deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
         borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 50 * 1_000_000);
 
-        withdraw<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 50 * 1_000_000_000 + 1);
+        withdraw<TEST_MARKET>(
+            &mut obligation,
+            &mut sui_reserve,
+            &clock,
+            50 * 1_000_000_000 + 1,
+            option::none(),
+        );
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -744,7 +754,7 @@ module suilend::obligation_tests {
         deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
         borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 50 * 1_000_000);
 
-        withdraw<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 1);
+        withdraw<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 1, option::none());
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -847,7 +857,13 @@ module suilend::obligation_tests {
 
         deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
         borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 20 * 1_000_000);
-        withdraw<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 20 * 1_000_000_000);
+        withdraw<TEST_MARKET>(
+            &mut obligation,
+            &mut sui_reserve,
+            &clock,
+            20 * 1_000_000_000,
+            option::none(),
+        );
 
         assert!(obligation.deposits().length() == 1, 0);
 
@@ -1132,7 +1148,7 @@ module suilend::obligation_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 0, location = reserve)] // price stale
+    #[expected_failure(abort_code = suilend::obligation::EOraclesAreStale)]
     public fun test_refresh_fail_deposit_price_stale() {
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -1155,11 +1171,12 @@ module suilend::obligation_tests {
 
         clock::set_for_testing(&mut clock, 1000);
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         sui::test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1169,7 +1186,7 @@ module suilend::obligation_tests {
     }
 
     #[test]
-    #[expected_failure(abort_code = 0, location = reserve)] // price stale
+    #[expected_failure(abort_code = suilend::obligation::EOraclesAreStale)]
     public fun test_refresh_fail_borrow_price_stale() {
         use sui::test_utils::{Self};
 
@@ -1206,11 +1223,12 @@ module suilend::obligation_tests {
             decimal::from(10),
         );
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1274,11 +1292,12 @@ module suilend::obligation_tests {
             decimal::from(2),
         );
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         assert!(obligation.deposits().length() == 2, 0);
 
@@ -1341,11 +1360,13 @@ module suilend::obligation_tests {
             100 * 1_000_000,
         );
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
+
         liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
@@ -1413,11 +1434,13 @@ module suilend::obligation_tests {
             config,
         );
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
+
         let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
@@ -1537,11 +1560,12 @@ module suilend::obligation_tests {
         };
         reserve::update_reserve_config(sui_reserve, config);
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
@@ -1640,11 +1664,13 @@ module suilend::obligation_tests {
             config,
         );
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
+
         let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
@@ -1765,11 +1791,12 @@ module suilend::obligation_tests {
         };
         reserve::update_reserve_config(sui_reserve, config);
 
-        refresh<TEST_MARKET>(
+        let exist_stale_oracles = refresh<TEST_MARKET>(
             &mut obligation,
             &mut reserves,
             &clock,
         );
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let (withdraw_amount, repay_amount) = liquidate<TEST_MARKET>(
             &mut obligation,
