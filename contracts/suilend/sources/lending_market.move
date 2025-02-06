@@ -481,7 +481,7 @@ module suilend::lending_market {
             obligation_owner_cap.obligation_id,
         );
 
-        let stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
@@ -491,7 +491,7 @@ module suilend::lending_market {
                 max_withdraw_amount<P>(lending_market.rate_limiter, obligation, reserve, clock);
         };
 
-        obligation::withdraw<P>(obligation, reserve, clock, amount, stale_oracles);
+        obligation::withdraw<P>(obligation, reserve, clock, amount, exist_stale_oracles);
 
         event::emit(WithdrawEvent {
             lending_market_id,
