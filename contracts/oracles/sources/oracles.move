@@ -44,7 +44,6 @@ module oracles::oracles {
     }
 
     public struct Oracle has store {
-        id: UID,
         oracle_type: OracleType,
         extra_fields: Bag
     }
@@ -61,6 +60,7 @@ module oracles::oracles {
     // hot potato ensures that price is fresh
     public struct OraclePriceUpdate has drop {
         oracle_registry_id: ID,
+        oracle_index: u64,
         price: OracleDecimal,
         ema_price: Option<OracleDecimal>,
     }
@@ -119,7 +119,6 @@ module oracles::oracles {
         assert!(admin_cap.oracle_registry_id == object::id(registry));
 
         registry.oracles.push_back(Oracle {
-            id: object::new(ctx),
             oracle_type: OracleType::Pyth { 
                 price_identifier: price_info_obj.get_price_info_from_price_info_object().get_price_identifier() 
             },
@@ -151,7 +150,6 @@ module oracles::oracles {
         assert!(admin_cap.oracle_registry_id == object::id(registry));
 
         registry.oracles.push_back(Oracle {
-            id: object::new(ctx),
             oracle_type: OracleType::Switchboard { feed_id: aggregator.id() },
             extra_fields: bag::new(ctx)
         });
@@ -191,6 +189,7 @@ module oracles::oracles {
 
                 OraclePriceUpdate {
                     oracle_registry_id: object::id(registry),
+                    oracle_index,
                     price,
                     ema_price: option::some(ema_price)
                 }
@@ -222,6 +221,7 @@ module oracles::oracles {
 
                 OraclePriceUpdate {
                     oracle_registry_id: object::id(registry),
+                    oracle_index,
                     price,
                     ema_price: option::none()
                 }
