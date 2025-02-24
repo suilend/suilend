@@ -380,14 +380,13 @@ module suilend::reserve {
     
     fun total_supply_updated<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
         let (
-            available_amount,
             borrowed_amount,
             unclaimed_spread_fees,
-        ) = reserve.compound_interest_imut(clock);
+        ) = reserve.simulated_compound_interest(clock);
 
         sub(
             add(
-                decimal::from(available_amount),
+                decimal::from(reserve.available_amount),
                 borrowed_amount
             ),
             unclaimed_spread_fees
@@ -658,12 +657,11 @@ module suilend::reserve {
     }
     
     /// Compound interest, debt. Interest is compounded every second.
-    fun compound_interest_imut<P>(reserve: &Reserve<P>, clock: &Clock): (u64, Decimal, Decimal) {
+    fun simulated_compound_interest<P>(reserve: &Reserve<P>, clock: &Clock): (Decimal, Decimal) {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
         let time_elapsed_s = cur_time_s - reserve.interest_last_update_timestamp_s;
         if (time_elapsed_s == 0) {
             return (
-                reserve.available_amount,
                 reserve.borrowed_amount,
                 reserve.unclaimed_spread_fees
             )
@@ -690,7 +688,6 @@ module suilend::reserve {
         let spread_fee = mul(net_new_debt, spread_fee(config(reserve)));
 
         return (
-            reserve.available_amount,
             reserve.borrowed_amount.add(net_new_debt),
             reserve.unclaimed_spread_fees.add(spread_fee)
         )
