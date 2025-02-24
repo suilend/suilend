@@ -378,7 +378,7 @@ module suilend::reserve {
         )
     }
     
-    fun total_supply_updated<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
+    fun simulated_total_supply<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
         let (
             borrowed_amount,
             unclaimed_spread_fees,
@@ -425,8 +425,8 @@ module suilend::reserve {
         }
     }
     
-    public fun ctoken_ratio_updated<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
-        let total_supply = total_supply_updated(reserve, clock);
+    public fun simulated_ctoken_ratio<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
+        let total_supply = simulated_total_supply(reserve, clock);
 
         // this branch is only used once -- when the reserve is first initialized and has 
         // zero deposits. after that, borrows and redemptions won't let the ctoken supply fall 
