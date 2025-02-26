@@ -377,6 +377,21 @@ module suilend::reserve {
             reserve.unclaimed_spread_fees
         )
     }
+    
+    fun simulated_total_supply<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
+        let (
+            borrowed_amount,
+            unclaimed_spread_fees,
+        ) = reserve.simulated_compound_interest(clock);
+
+        sub(
+            add(
+                decimal::from(reserve.available_amount),
+                borrowed_amount
+            ),
+            unclaimed_spread_fees
+        )
+    }
 
     public fun calculate_utilization_rate<P>(reserve: &Reserve<P>): Decimal {
         let total_supply_excluding_fees = add(
@@ -395,6 +410,23 @@ module suilend::reserve {
     // always greater than or equal to one
     public fun ctoken_ratio<P>(reserve: &Reserve<P>): Decimal {
         let total_supply = total_supply(reserve);
+
+        // this branch is only used once -- when the reserve is first initialized and has 
+        // zero deposits. after that, borrows and redemptions won't let the ctoken supply fall 
+        // below MIN_AVAILABLE_AMOUNT
+        if (reserve.ctoken_supply == 0) {
+            decimal::from(1)
+        }
+        else {
+            div(
+                total_supply,
+                decimal::from(reserve.ctoken_supply)
+            )
+        }
+    }
+    
+    public fun simulated_ctoken_ratio<P>(reserve: &Reserve<P>, clock: &Clock): Decimal {
+        let total_supply = simulated_total_supply(reserve, clock);
 
         // this branch is only used once -- when the reserve is first initialized and has 
         // zero deposits. after that, borrows and redemptions won't let the ctoken supply fall 
@@ -622,6 +654,43 @@ module suilend::reserve {
             protocol_fee_usd_estimate: market_value(reserve, spread_fee),
             supply_interest_earned_usd_estimate: market_value(reserve, sub(net_new_debt, spread_fee)),
         });
+    }
+    
+    /// Compound interest, debt. Interest is compounded every second.
+    fun simulated_compound_interest<P>(reserve: &Reserve<P>, clock: &Clock): (Decimal, Decimal) {
+        let cur_time_s = clock::timestamp_ms(clock) / 1000;
+        let time_elapsed_s = cur_time_s - reserve.interest_last_update_timestamp_s;
+        if (time_elapsed_s == 0) {
+            return (
+                reserve.borrowed_amount,
+                reserve.unclaimed_spread_fees
+            )
+        };
+
+        // I(t + n) = I(t) * (1 + apr()/SECONDS_IN_YEAR) ^ n
+        let utilization_rate = calculate_utilization_rate(reserve);
+        let compounded_borrow_rate = pow(
+            add(
+                decimal::from(1),
+                div(
+                    calculate_apr(config(reserve), utilization_rate),
+                    decimal::from(365 * 24 * 60 * 60)
+                )
+            ),
+            time_elapsed_s
+        );
+
+        let net_new_debt = mul(
+            reserve.borrowed_amount,
+            sub(compounded_borrow_rate, decimal::from(1))
+        );
+
+        let spread_fee = mul(net_new_debt, spread_fee(config(reserve)));
+
+        return (
+            reserve.borrowed_amount.add(net_new_debt),
+            reserve.unclaimed_spread_fees.add(spread_fee)
+        )
     }
 
     public(package) fun claim_fees<P, T>(
