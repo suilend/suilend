@@ -147,7 +147,7 @@ module oracles::oracles {
         ctx: &mut TxContext
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
-        assert!(admin_cap.oracle_registry_id == object::id(registry));
+        assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
 
         registry.oracles.push_back(Oracle {
             oracle_type: OracleType::Switchboard { feed_id: aggregator.id() },
