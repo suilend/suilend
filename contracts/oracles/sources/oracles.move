@@ -1,17 +1,13 @@
 module oracles::oracles {
-    use sui::clock::{Self, Clock};
-    use sui::object::{Self};
+    use sui::clock::Clock;
     use sui::bag::{Self, Bag};
-    use std::type_name::{Self, TypeName};
-    use pyth::price_identifier::{PriceIdentifier, Self};
+    use pyth::price_identifier::PriceIdentifier;
     use pyth::price_info::{PriceInfoObject};
     use oracles::version::{Version, Self};
-    use pyth::price::{Self, Price};
-    use oracles::pyth::{Self};
-    use pyth::i64::{I64};
+    use oracles::pyth;
     use switchboard::aggregator::{Aggregator};
-    use oracles::switchboard::{Self};
-    use oracles::oracle_decimal::{OracleDecimal, Self};
+    use oracles::switchboard;
+    use oracles::oracle_decimal::OracleDecimal;
 
     /* Constants */
     const CURRENT_VERSION: u16 = 1;
@@ -133,7 +129,7 @@ module oracles::oracles {
         oracle_index: u64
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
-        assert!(admin_cap.oracle_registry_id == object::id(registry));
+        assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
 
         registry.oracles[oracle_index].oracle_type = OracleType::Pyth { 
             price_identifier: price_info_obj.get_price_info_from_price_info_object().get_price_identifier() 
@@ -162,7 +158,7 @@ module oracles::oracles {
         oracle_index: u64
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
-        assert!(admin_cap.oracle_registry_id == object::id(registry));
+        assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
 
         registry.oracles[oracle_index].oracle_type = OracleType::Switchboard { feed_id: aggregator.id() };
     }

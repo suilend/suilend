@@ -2,10 +2,9 @@
 module oracles::pyth {
     use pyth::price_info::{Self, PriceInfoObject};
     use pyth::price_feed::{Self};
-    use pyth::price_identifier::{PriceIdentifier, Self};
+    use pyth::price_identifier::PriceIdentifier;
     use pyth::price::{Self, Price};
     use pyth::i64::{Self};
-    use sui::math::{Self};
     use sui::clock::{Self, Clock};
     use oracles::oracle_decimal::{OracleDecimal, Self};
 
