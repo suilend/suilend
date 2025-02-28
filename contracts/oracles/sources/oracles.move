@@ -74,6 +74,10 @@ module oracles::oracles {
         price_update.oracle_registry_id
     }
 
+    public fun oracle_index(price_update: &OraclePriceUpdate): u64 {
+        price_update.oracle_index
+    }
+
     // TODO: do we want people to have the ability to create new registries? or should we just have a global one. 
     fun init(ctx: &mut TxContext) {
         let registry = OracleRegistry {
