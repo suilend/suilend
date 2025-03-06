@@ -14,12 +14,6 @@ module suilend::decimal {
         }
     }
 
-    public fun from_u128(v: u128): Decimal {
-        Decimal {
-            value: (v as u256) * WAD
-        }
-    }
-
     public fun from_percent(v: u8): Decimal {
         Decimal {
             value: (v as u256) * WAD / 100,
@@ -165,8 +159,7 @@ module suilend::decimal_tests {
         from,
         from_percent,
         saturating_sub,
-        saturating_floor,
-        from_u128
+        saturating_floor
     };
 
     #[test]
@@ -187,8 +180,10 @@ module suilend::decimal_tests {
         assert!(saturating_sub(a, b) == from(0), 0);
         assert!(saturating_sub(b, a) == from(1), 0);
         assert!(saturating_floor(from(18446744073709551615)) == 18446744073709551615, 0);
-        assert!(saturating_floor(add(from(18446744073709551615), from(1))) == 18446744073709551615, 0);
-        assert!(from_u128(340282366920938463463374607431768211455).add(from(1)).to_scaled_val() == 340282366920938463463374607431768211456 * 1000000000000000000, 0);
+        assert!(
+            saturating_floor(add(from(18446744073709551615), from(1))) == 18446744073709551615,
+            0,
+        );
     }
 
     #[test]
