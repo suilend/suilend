@@ -58,7 +58,7 @@ module oracles::pyth_tests {
             test_scenario::ctx(&mut scenario)
         );
 
-        let (actual_spot_price, actual_ema_price) = get_prices(
+        let (actual_spot_price, actual_ema_price, price_feed) = get_prices(
             &price_info_object,
             &clock,
             100,
@@ -68,6 +68,7 @@ module oracles::pyth_tests {
 
         assert!(actual_spot_price == from_pyth_price(&spot_price), 0);
         assert!(actual_ema_price == from_pyth_price(&ema_price), 0);
+        assert!(price_feed == price_info_object.get_price_info_from_price_info_object().get_price_feed(), 0);
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);

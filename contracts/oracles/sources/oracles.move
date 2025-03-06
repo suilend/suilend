@@ -3,9 +3,10 @@ module oracles::oracles {
     use sui::bag::{Self, Bag};
     use pyth::price_identifier::PriceIdentifier;
     use pyth::price_info::{PriceInfoObject};
+    use pyth::price_feed::{PriceFeed};
     use oracles::version::{Version, Self};
     use oracles::pyth;
-    use switchboard::aggregator::{Aggregator};
+    use switchboard::aggregator::{Aggregator, CurrentResult};
     use oracles::switchboard;
     use oracles::oracle_decimal::OracleDecimal;
 
@@ -59,6 +60,16 @@ module oracles::oracles {
         oracle_index: u64,
         price: OracleDecimal,
         ema_price: Option<OracleDecimal>,
+        metadata: OracleMetadata,
+    }
+
+    public enum OracleMetadata has store, drop, copy {
+        Pyth {
+            price_feed: PriceFeed,
+        },
+        Switchboard {
+            current_result: CurrentResult,
+        }
     }
 
     // == Public Getters ==
@@ -78,7 +89,28 @@ module oracles::oracles {
         price_update.oracle_index
     }
 
-    // TODO: do we want people to have the ability to create new registries? or should we just have a global one. 
+    public fun metadata(price_update: &OraclePriceUpdate): OracleMetadata {
+        price_update.metadata
+    }
+
+    public use fun metadata_pyth as OracleMetadata.pyth;
+
+    public fun metadata_pyth(oracle_metadata: &OracleMetadata): &PriceFeed {
+        match (oracle_metadata) {
+            OracleMetadata::Pyth { price_feed } => price_feed,
+            _ => abort EInvalidOracleType
+        }
+    }
+
+    public use fun metadata_switchboard as OracleMetadata.switchboard;
+
+    public fun metadata_switchboard(oracle_metadata: &OracleMetadata): &CurrentResult {
+        match (oracle_metadata) {
+            OracleMetadata::Switchboard { current_result } => current_result,
+            _ => abort EInvalidOracleType
+        }
+    }
+
     fun init(ctx: &mut TxContext) {
         let registry = OracleRegistry {
             id: object::new(ctx),
@@ -183,7 +215,7 @@ module oracles::oracles {
 
         match (oracle.oracle_type) {
             OracleType::Pyth { price_identifier } => {
-                let (price, ema_price) = pyth::get_prices(
+                let (price, ema_price, price_feed) = pyth::get_prices(
                     price_info_obj, 
                     clock, 
                     registry.config.pyth_max_staleness_threshold_s, 
@@ -195,7 +227,8 @@ module oracles::oracles {
                     oracle_registry_id: object::id(registry),
                     oracle_index,
                     price,
-                    ema_price: option::some(ema_price)
+                    ema_price: option::some(ema_price),
+                    metadata: OracleMetadata::Pyth { price_feed }
                 }
             },
             _ => abort EInvalidOracleType
@@ -215,7 +248,7 @@ module oracles::oracles {
 
         match (oracle.oracle_type) {
             OracleType::Switchboard { feed_id } => {
-                let price = switchboard::get_price(
+                let (price, current_result) = switchboard::get_price(
                     aggregator, 
                     clock, 
                     registry.config.switchboard_max_staleness_threshold_s, 
@@ -227,7 +260,8 @@ module oracles::oracles {
                     oracle_registry_id: object::id(registry),
                     oracle_index,
                     price,
-                    ema_price: option::none()
+                    ema_price: option::none(),
+                    metadata: OracleMetadata::Switchboard { current_result }
                 }
             },
             _ => abort EInvalidOracleType
@@ -248,7 +282,6 @@ module oracles::oracles {
             id: object::new(ctx),
             oracle_registry_id: object::id(&registry)
         };
-
 
         (registry, admin_cap)
     }

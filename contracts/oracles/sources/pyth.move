@@ -1,7 +1,7 @@
 /// This module contains logic for parsing pyth prices
 module oracles::pyth {
     use pyth::price_info::{Self, PriceInfoObject};
-    use pyth::price_feed::{Self};
+    use pyth::price_feed::{Self, PriceFeed};
     use pyth::price_identifier::PriceIdentifier;
     use pyth::price::{Self, Price};
     use pyth::i64::{Self};
@@ -19,7 +19,7 @@ module oracles::pyth {
         max_staleness_threshold_s: u64,
         max_confidence_interval_pct: u64,
         expected_price_identifier: PriceIdentifier,
-    ): (OracleDecimal, OracleDecimal) {
+    ): (OracleDecimal, OracleDecimal, PriceFeed) {
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
         let price_feed = price_info::get_price_feed(&price_info);
 
@@ -48,7 +48,7 @@ module oracles::pyth {
             abort EPriceIsStale
         };
 
-        (from_pyth_price(&price), from_pyth_price(&ema_price))
+        (from_pyth_price(&price), from_pyth_price(&ema_price), *price_feed)
     }
 
     public(package) fun from_pyth_price(price: &Price): OracleDecimal {

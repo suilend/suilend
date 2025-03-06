@@ -46,7 +46,7 @@ module oracles::switchboard_tests {
             switchboard_decimal::new(price, false)
         );
 
-        let spot_price = get_price(
+        let (spot_price, current_result) = get_price(
             &aggregator, 
             &clock,
             60,
@@ -55,6 +55,7 @@ module oracles::switchboard_tests {
         );
 
         assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)), 0);
+        assert!(current_result == aggregator.current_result());
 
         switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
         clock::destroy_for_testing(clock);
@@ -107,15 +108,13 @@ module oracles::switchboard_tests {
 
         clock.set_for_testing(62_000);
 
-        let spot_price = get_price(
+        get_price(
             &aggregator, 
             &clock,
             60,
             10,
             aggregator.id()
         );
-
-        assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)), 0);
 
         switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
         clock::destroy_for_testing(clock);
@@ -166,15 +165,13 @@ module oracles::switchboard_tests {
             switchboard_decimal::new(price, false)
         );
 
-        let spot_price = get_price(
+        get_price(
             &aggregator, 
             &clock,
             60,
             10,
             aggregator.id()
         );
-
-        assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)), 0);
 
         switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
         clock::destroy_for_testing(clock);
@@ -226,15 +223,13 @@ module oracles::switchboard_tests {
         );
 
         let random_id = object::new(scenario.ctx());
-        let spot_price = get_price(
+        get_price(
             &aggregator, 
             &clock,
             60,
             10,
             random_id.to_inner()
         );
-
-        assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)), 0);
 
         switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
         clock::destroy_for_testing(clock);

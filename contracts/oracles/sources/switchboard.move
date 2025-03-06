@@ -1,5 +1,5 @@
 module oracles::switchboard {
-    use switchboard::aggregator::{Aggregator};
+    use switchboard::aggregator::{Aggregator, CurrentResult};
     use switchboard::decimal::Decimal;    
     use oracles::oracle_decimal::{OracleDecimal, Self};
     use sui::clock::{Self, Clock};
@@ -20,7 +20,7 @@ module oracles::switchboard {
         max_staleness_s: u64,
         max_confidence_interval_pct: u64,
         expected_feed_id: ID,
-    ): OracleDecimal {
+    ): (OracleDecimal, CurrentResult) {
 
         // get the switchboard feed id as a price identifier - here it's just 32 bytes
         assert!(switchboard_feed.id() == expected_feed_id, EWrongFeedId);
@@ -46,7 +46,7 @@ module oracles::switchboard {
             EPriceRangeIsTooLarge
         );
 
-        from_switchboard_decimal(result)
+        (from_switchboard_decimal(result), *current_result)
     }
 
     public(package) fun from_switchboard_decimal(d: &Decimal): OracleDecimal {
