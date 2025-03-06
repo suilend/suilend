@@ -10,10 +10,6 @@ module oracles::switchboard {
     const EWrongFeedId: u64 = 2;
     const ESwitchboardDecimalIsNegative: u64 = 3;
 
-    /// parse the switchboard price info object to get a price and identifier. This function returns an None if the
-    /// price is invalid due to staleness checks or invalid submitted price range. It returns None instead of aborting
-    /// so the caller can handle invalid prices gracefully by eg falling back to a different oracle
-    /// return type: (spot price, feed id)
     public fun get_price(
         switchboard_feed: &Aggregator, 
         clock: &Clock,
