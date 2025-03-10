@@ -936,6 +936,23 @@ module suilend::lending_market {
         object_table::borrow(&lending_market.obligations, obligation_id)
     }
 
+    /// Refresh the obligation's state by updating prices and checking for stale oracles
+    public fun refresh_obligation<P>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_owner_cap: &ObligationOwnerCap<P>,
+        clock: &Clock,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = object_table::borrow_mut(
+            &mut lending_market.obligations,
+            obligation_owner_cap.obligation_id,
+        );
+
+        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
+    }
+
     public fun fee_receiver<P>(lending_market: &LendingMarket<P>): address {
         lending_market.fee_receiver
     }

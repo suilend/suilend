@@ -2489,4 +2489,240 @@ module suilend::lending_market_tests {
         test_utils::destroy(type_to_index);
         test_scenario::end(scenario);
     }
+
+        #[test]
+    public fun test_refresh_obligation() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
+                let mut bag = bag::new(test_scenario::ctx(&mut scenario));
+                bag::add(
+                    &mut bag,
+                    type_name::get<TEST_USDC>(),
+                    ReserveArgs {
+                        config: {
+                            let config = default_reserve_config();
+                            let mut builder = reserve_config::from(
+                                &config,
+                                test_scenario::ctx(&mut scenario),
+                            );
+                            reserve_config::set_open_ltv_pct(&mut builder, 50);
+                            reserve_config::set_close_ltv_pct(&mut builder, 50);
+                            reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                            sui::test_utils::destroy(config);
+
+                            reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                        },
+                        initial_deposit: 100 * 1_000_000,
+                    },
+                );
+                bag::add(
+                    &mut bag,
+                    type_name::get<TEST_SUI>(),
+                    ReserveArgs {
+                        config: reserve_config::default_reserve_config(),
+                        initial_deposit: 100 * 1_000_000_000,
+                    },
+                );
+
+                bag
+            }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // Set initial prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        // Create obligation and deposit collateral
+        let obligation_owner_cap = lending_market::create_obligation(
+            &mut lending_market,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        let coins = coin::mint_for_testing<TEST_USDC>(
+            100 * 1_000_000,
+            test_scenario::ctx(&mut scenario),
+        );
+        let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            coins,
+            test_scenario::ctx(&mut scenario),
+        );
+        lending_market::deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &obligation_owner_cap,
+            &clock,
+            ctokens,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Take out a borrow
+        lending_market::refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices),
+        );
+        lending_market::refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices),
+        );
+
+        let sui = lending_market::borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &obligation_owner_cap,
+            &clock,
+            2_500_000_000,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Test successful refresh
+        lending_market::refresh_obligation<LENDING_MARKET>(
+            &mut lending_market,
+            &obligation_owner_cap,
+            &clock,
+        );
+
+        test_utils::destroy(sui);
+        test_utils::destroy(obligation_owner_cap);
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = suilend::obligation::EOraclesAreStale)]
+    public fun test_refresh_obligation_stale_oracle() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
+                let mut bag = bag::new(test_scenario::ctx(&mut scenario));
+                bag::add(
+                    &mut bag,
+                    type_name::get<TEST_USDC>(),
+                    ReserveArgs {
+                        config: {
+                            let config = default_reserve_config();
+                            let mut builder = reserve_config::from(
+                                &config,
+                                test_scenario::ctx(&mut scenario),
+                            );
+                            reserve_config::set_open_ltv_pct(&mut builder, 50);
+                            reserve_config::set_close_ltv_pct(&mut builder, 50);
+                            reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                            sui::test_utils::destroy(config);
+
+                            reserve_config::build(builder, test_scenario::ctx(&mut scenario))
+                        },
+                        initial_deposit: 100 * 1_000_000,
+                    },
+                );
+                bag::add(
+                    &mut bag,
+                    type_name::get<TEST_SUI>(),
+                    ReserveArgs {
+                        config: reserve_config::default_reserve_config(),
+                        initial_deposit: 100 * 1_000_000_000,
+                    },
+                );
+
+                bag
+            }, &mut scenario);
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // Set initial prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        // Create obligation and deposit collateral
+        let obligation_owner_cap = lending_market::create_obligation(
+            &mut lending_market,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        let coins = coin::mint_for_testing<TEST_USDC>(
+            100 * 1_000_000,
+            test_scenario::ctx(&mut scenario),
+        );
+        let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            coins,
+            test_scenario::ctx(&mut scenario),
+        );
+        lending_market::deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &obligation_owner_cap,
+            &clock,
+            ctokens,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Take out a borrow
+        lending_market::refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_USDC>(&prices),
+        );
+        lending_market::refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices),
+        );
+
+        let sui = lending_market::borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &obligation_owner_cap,
+            &clock,
+            2_500_000_000,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Advance clock to make oracles stale
+        clock::increment_for_testing(&mut clock, 100_000);
+
+        // This should fail with EOraclesAreStale
+        lending_market::refresh_obligation<LENDING_MARKET>(
+            &mut lending_market,
+            &obligation_owner_cap,
+            &clock,
+        );
+
+        test_utils::destroy(sui);
+        test_utils::destroy(obligation_owner_cap);
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
 }
