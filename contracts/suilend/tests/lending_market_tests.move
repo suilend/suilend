@@ -2490,7 +2490,7 @@ module suilend::lending_market_tests {
         test_scenario::end(scenario);
     }
 
-        #[test]
+    #[test]
     public fun test_refresh_obligation() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
