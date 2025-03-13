@@ -20,7 +20,7 @@ module suilend::lending_market_tests {
         LendingMarket
     };
     use suilend::mock_pyth::PriceState;
-    use suilend::obligation;
+    use suilend::obligation::{Self, unweighted_borrowed_value_usd, deposited_value_usd};
     use suilend::rate_limiter;
     use suilend::reserve::{Self, CToken};
     use suilend::reserve_config::ReserveConfig;
@@ -2589,12 +2589,44 @@ module suilend::lending_market_tests {
             test_scenario::ctx(&mut scenario),
         );
 
-        // Test successful refresh
+        // Get initial obligation values
+        let obligation_id = lending_market::obligation_id(&obligation_owner_cap);
+        let obligation = lending_market::obligation<LENDING_MARKET>(&lending_market, obligation_id);
+        let initial_borrowed_value  = unweighted_borrowed_value_usd<LENDING_MARKET>(obligation);
+        let initial_deposited_value = deposited_value_usd<LENDING_MARKET>(obligation);
+
+        // initial borrow should be 25. i.e. borrowing 2_500_000_000 (which is 2.5 SUI) and initial price is 10$
+        assert!(25 == decimal::floor(initial_borrowed_value), 0);        
+
+        // initial deposit should be 100 USD (100 * 1_000_000 * 1$ price)        
+        assert!(100 == decimal::floor(initial_deposited_value), 0);
+        
+        // Update prices to simulate market changes
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 2, 1, &clock); // Now $20 (doubled)
+        // refresh reserve with new prices
+        lending_market::refresh_reserve_price<LENDING_MARKET>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            mock_pyth::get_price_obj<TEST_SUI>(&prices),
+        );
+        // Refresh obligation with new prices
         lending_market::refresh_obligation<LENDING_MARKET>(
             &mut lending_market,
             &obligation_owner_cap,
             &clock,
         );
+ 
+        // Get updated obligation values
+        let obligation = lending_market::obligation<LENDING_MARKET>(&lending_market, obligation_id);
+        let borrowed_value  = unweighted_borrowed_value_usd<LENDING_MARKET>(obligation);
+        let deposited_value = deposited_value_usd<LENDING_MARKET>(obligation);
+
+        // price for SUI doubled, now borrow should be 50
+        assert!(50 == decimal::floor(borrowed_value), 0);
+        
+        // price for USDC did not change, should still be 100
+        assert!(100 == decimal::floor(deposited_value), 0);        
 
         test_utils::destroy(sui);
         test_utils::destroy(obligation_owner_cap);
