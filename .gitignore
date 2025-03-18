@@ -2,4 +2,4 @@ contracts/build
 contracts/suilend/build
 contracts/sprungsui/build
 suilend-cli/node_modules
-contracts/oracle/build
+contracts/oracles/build

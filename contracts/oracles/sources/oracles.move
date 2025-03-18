@@ -111,10 +111,13 @@ module oracles::oracles {
         }
     }
 
-    fun init(ctx: &mut TxContext) {
+    public fun new(
+        config: OracleRegistryConfig,
+        ctx: &mut TxContext
+    ): (OracleRegistry, AdminCap) {
         let registry = OracleRegistry {
             id: object::new(ctx),
-            config: new_oracle_registry_config(60, 10, 60, 10, ctx),
+            config: config,
             oracles: vector::empty(),
             version: version::new(CURRENT_VERSION),
             extra_fields: bag::new(ctx)
@@ -125,8 +128,7 @@ module oracles::oracles {
             oracle_registry_id: object::id(&registry)
         };
 
-        sui::transfer::share_object(registry);
-        sui::transfer::transfer(admin_cap, ctx.sender());
+        (registry, admin_cap)
     }
 
     public fun new_oracle_registry_config(
