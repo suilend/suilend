@@ -12,6 +12,7 @@ module oracles::pyth {
     const EConfidenceIntervalExceeded: u64 = 0;
     const EPriceIsStale: u64 = 1;
     const EWrongPriceIdentifier: u64 = 2;
+    const EPythDecimalIsZero: u64 = 3;
 
     public(package) fun get_prices(
         price_info_obj: &PriceInfoObject, 
@@ -52,7 +53,7 @@ module oracles::pyth {
     }
 
     public(package) fun from_pyth_price(price: &Price): OracleDecimal {
-        oracle_decimal::new(
+        let price = oracle_decimal::new(
             price.get_price().get_magnitude_if_positive() as u128,
             if (price.get_expo().get_is_negative()) {
                 price.get_expo().get_magnitude_if_negative()
@@ -60,7 +61,10 @@ module oracles::pyth {
                 price.get_expo().get_magnitude_if_positive()
             },
             price.get_expo().get_is_negative()
-        )
+        );
+
+        assert!(price.base() > 0, EPythDecimalIsZero);
+        price
     }
 
 }

@@ -9,6 +9,7 @@ module oracles::switchboard {
     const EPriceRangeIsTooLarge: u64 = 1;
     const EWrongFeedId: u64 = 2;
     const ESwitchboardDecimalIsNegative: u64 = 3;
+    const ESwitchboardDecimalIsZero: u64 = 4;
 
     public fun get_price(
         switchboard_feed: &Aggregator, 
@@ -47,7 +48,8 @@ module oracles::switchboard {
 
     public(package) fun from_switchboard_decimal(d: &Decimal): OracleDecimal {
         assert!(!d.neg(), ESwitchboardDecimalIsNegative);
+        assert!(d.value() > 0, ESwitchboardDecimalIsZero);
 
-        oracle_decimal::new(d.value(), 18, false)
+        oracle_decimal::new(d.value(), 18, true)
     }
 }
