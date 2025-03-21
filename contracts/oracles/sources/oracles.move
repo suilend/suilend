@@ -1,4 +1,5 @@
 module oracles::oracles {
+    use sui::event;
     use sui::clock::Clock;
     use sui::bag::{Self, Bag};
     use pyth::price_identifier::PriceIdentifier;
@@ -23,6 +24,15 @@ module oracles::oracles {
         oracles: vector<Oracle>,
         version: Version,
         extra_fields: Bag
+    }
+
+    public struct NewRegistryEvent has copy, store, drop {
+        registry_id: ID,
+        admin_cap_id: ID,
+        pyth_max_staleness_threshold_s: u64,
+        pyth_max_confidence_interval_pct: u64,
+        switchboard_max_staleness_threshold_s: u64,
+        switchboard_max_confidence_interval_pct: u64,
     }
 
     public struct AdminCap has key, store {
@@ -111,10 +121,13 @@ module oracles::oracles {
         }
     }
 
-    fun init(ctx: &mut TxContext) {
+    public fun new(
+        config: OracleRegistryConfig,
+        ctx: &mut TxContext
+    ): (OracleRegistry, AdminCap) {
         let registry = OracleRegistry {
             id: object::new(ctx),
-            config: new_oracle_registry_config(60, 10, 60, 10, ctx),
+            config: config,
             oracles: vector::empty(),
             version: version::new(CURRENT_VERSION),
             extra_fields: bag::new(ctx)
@@ -125,8 +138,16 @@ module oracles::oracles {
             oracle_registry_id: object::id(&registry)
         };
 
-        sui::transfer::share_object(registry);
-        sui::transfer::transfer(admin_cap, ctx.sender());
+        event::emit(NewRegistryEvent {
+            registry_id: object::id(&registry),
+            admin_cap_id: object::id(&admin_cap),
+            pyth_max_staleness_threshold_s: registry.config.pyth_max_staleness_threshold_s,
+            pyth_max_confidence_interval_pct: registry.config.pyth_max_confidence_interval_pct,
+            switchboard_max_staleness_threshold_s: registry.config.switchboard_max_staleness_threshold_s,
+            switchboard_max_confidence_interval_pct: registry.config.switchboard_max_confidence_interval_pct,
+        });
+
+        (registry, admin_cap)
     }
 
     public fun new_oracle_registry_config(
