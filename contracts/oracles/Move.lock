@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "9027E951BA9A3023FCFCC39985266F69955EE54145A4FD209404C25739D2D574"
+manifest_digest = "21EB1C6CD2C801E55F12F97504A34DCC68AC8D4B7CCCBF42D702B2329B4E6424"
 deps_digest = "060AD7E57DFB13104F21BE5F5C3759D03F0553FC3229247D9A7A6B45F50D03A3"
 dependencies = [
   { id = "Pyth", name = "Pyth" },
@@ -33,7 +33,7 @@ dependencies = [
 
 [[move.package]]
 id = "Switchboard"
-source = { git = "https://github.com/switchboard-xyz/sui.git", rev = "mainnet", subdir = "on_demand/" }
+source = { git = "https://github.com/suilend/switchboard.git", rev = "mainnet", subdir = "on_demand/" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -48,6 +48,6 @@ dependencies = [
 ]
 
 [move.toolchain-version]
-compiler-version = "1.35.3"
+compiler-version = "1.44.3"
 edition = "2024.beta"
 flavor = "sui"

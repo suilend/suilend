@@ -16,7 +16,7 @@ subdir = "target_chains/sui/contracts"
 rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62"
 
 [dependencies.Switchboard]
-git = "https://github.com/switchboard-xyz/sui.git"
+git = "https://github.com/suilend/switchboard.git"
 subdir = "on_demand/"
 rev = "mainnet"
 
