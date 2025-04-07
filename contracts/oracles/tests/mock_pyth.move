@@ -6,11 +6,8 @@ module oracles::mock_pyth {
     use pyth::price::{Self};
     use pyth::price_identifier::{Self};
     use pyth::i64::{Self};
-    use sui::tx_context::{TxContext};
-    use std::vector::{Self};
-    use sui::object::{Self, UID};
     use sui::bag::{Self, Bag};
-    use sui::clock::{Clock, Self, create_for_testing};
+    use sui::clock::{Clock, Self};
 
 
     public struct PriceState has key {

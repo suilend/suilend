@@ -1087,7 +1087,7 @@ module suilend::reserve {
             lending_market_id: object::uid_to_inner(&id),
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
-            config: cell::new(default_reserve_config()),
+            config: cell::new(default_reserve_config(scenario.ctx())),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
             price: decimal::from(1),
@@ -1132,7 +1132,7 @@ module suilend::reserve {
             array_index: 0,
             coin_type: type_name::get<TEST_USDC>(),
             config: cell::new({
-                let config = default_reserve_config();
+                let config = default_reserve_config(scenario.ctx());
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_spread_fee_bps(&mut builder, 2_000);
                 reserve_config::set_interest_rate_utils(&mut builder, {

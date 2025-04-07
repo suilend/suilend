@@ -441,7 +441,9 @@ module suilend::reserve_config {
     // === Tests ==
     #[test]
     fun test_calculate_apr() {
-        let mut config = default_reserve_config();
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let mut config = default_reserve_config(scenario.ctx());
         config.interest_rate_utils = {
                 let mut v = vector::empty();
                 vector::push_back(&mut v, 0);
@@ -470,6 +472,7 @@ module suilend::reserve_config {
         );
 
         destroy(config);
+        test_scenario::end(scenario);
     }
 
     #[test]
@@ -568,10 +571,7 @@ module suilend::reserve_config {
     }
 
     #[test_only]
-    public fun default_reserve_config(): ReserveConfig {
-        let owner = @0x26;
-        let mut scenario = test_scenario::begin(owner);
-
+    public fun default_reserve_config(ctx: &mut TxContext): ReserveConfig {
         let config = create_reserve_config(
             // open ltv pct
             0,
@@ -616,10 +616,9 @@ module suilend::reserve_config {
             false,
             18_446_744_073_709_551_615,
             18_446_744_073_709_551_615,
-            test_scenario::ctx(&mut scenario),
+            ctx,
         );
 
-        test_scenario::end(scenario);
         config
     }
 }

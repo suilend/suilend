@@ -3,12 +3,6 @@ name = "suilend"
 version = "0.0.1"
 published-at = "0xbfc6127da72073545b271e2eee0e554ef34b10ba602cc7a287f28a465bd3483d"
 edition = "2024.beta"
-
-[dependencies.Sui]
-git = "https://github.com/MystenLabs/sui.git"
-subdir = "crates/sui-framework/packages/sui-framework"
-rev = "framework/mainnet"
-override = true
  
 [dependencies.Pyth]
 git = "https://github.com/solendprotocol/pyth-crosschain.git"

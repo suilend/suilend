@@ -889,7 +889,7 @@ module suilend::liquidity_mining {
             &clock,
             1,
         );
-        std::debug::print(&balance::value(&user_reward_manager_rewards_2));
+        // std::debug::print(&balance::value(&user_reward_manager_rewards_2));
 
         assert!(balance::value(&user_reward_manager_rewards_2) == 50 * 1_000_000, 0);
 
