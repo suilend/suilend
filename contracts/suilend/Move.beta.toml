@@ -18,6 +18,4 @@ rev = "main"
 local = "../sprungsui"
 
 [addresses]
-sui = "0x2"
-# suilend = "0x0"
 suilend = "0x1f54a9a2d71799553197e9ea24557797c6398d6a65f2d4d3818c9304b75d5e21"
