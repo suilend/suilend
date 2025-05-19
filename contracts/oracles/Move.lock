@@ -2,17 +2,30 @@
 
 [move]
 version = 3
-manifest_digest = "21EB1C6CD2C801E55F12F97504A34DCC68AC8D4B7CCCBF42D702B2329B4E6424"
-deps_digest = "060AD7E57DFB13104F21BE5F5C3759D03F0553FC3229247D9A7A6B45F50D03A3"
+manifest_digest = "6811860B625026D8D08A174D1BC0DA9F51416F50BC0F05533D8A5DAEF04A4BF8"
+deps_digest = "52B406A7A21811BEF51751CF88DA0E76DAEFFEAC888D4F4060B1A72BBE7D8D35"
 dependencies = [
+  { id = "Bridge", name = "Bridge" },
+  { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Pyth", name = "Pyth" },
   { id = "Sui", name = "Sui" },
+  { id = "SuiSystem", name = "SuiSystem" },
   { id = "Switchboard", name = "Switchboard" },
 ]
 
 [[move.package]]
+id = "Bridge"
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/bridge" }
+
+dependencies = [
+  { id = "MoveStdlib", name = "MoveStdlib" },
+  { id = "Sui", name = "Sui" },
+  { id = "SuiSystem", name = "SuiSystem" },
+]
+
+[[move.package]]
 id = "MoveStdlib"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "framework/mainnet", subdir = "crates/sui-framework/packages/move-stdlib" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/move-stdlib" }
 
 [[move.package]]
 id = "Pyth"
@@ -25,10 +38,19 @@ dependencies = [
 
 [[move.package]]
 id = "Sui"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "framework/mainnet", subdir = "crates/sui-framework/packages/sui-framework" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/sui-framework" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
+]
+
+[[move.package]]
+id = "SuiSystem"
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "04f11afaf5e0", subdir = "crates/sui-framework/packages/sui-system" }
+
+dependencies = [
+  { id = "MoveStdlib", name = "MoveStdlib" },
+  { id = "Sui", name = "Sui" },
 ]
 
 [[move.package]]
@@ -48,7 +70,7 @@ dependencies = [
 ]
 
 [move.toolchain-version]
-compiler-version = "1.44.3"
+compiler-version = "1.46.1"
 edition = "2024.beta"
 flavor = "sui"
 

@@ -1,14 +1,11 @@
 #[test_only]
 module oracles::pyth_tests {
-    use pyth::price_info::{Self, PriceInfoObject};
+    use pyth::price_info;
     use pyth::price_feed::{Self};
     use pyth::price_identifier::{PriceIdentifier, Self};
-    use pyth::price::{Self, Price};
+    use pyth::price;
     use pyth::i64::{Self};
-    use sui::math::{Self};
-    use sui::clock::{Self, Clock};
-    use oracles::oracle_decimal::{OracleDecimal, Self};
-    use sui::test_utils::{Self};
+    use sui::clock;
     use oracles::pyth::{get_prices, from_pyth_price};
 
     #[test_only]

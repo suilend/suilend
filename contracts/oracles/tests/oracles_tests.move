@@ -1,11 +1,10 @@
 module oracles::oracles_tests {
     use sui::test_scenario::{Self};
-    use oracles::oracles::{Self, OracleRegistryConfig, OraclePriceUpdate, OracleMetadata};
+    use oracles::oracles::{Self, OraclePriceUpdate};
     use sui::clock::{Self, Clock};
     use oracles::mock_pyth::{Self, PriceState};
     use sui::sui::{SUI};
     use sui::test_scenario::Scenario; // Ensure Scenario is imported
-    use pyth::i64::{Self};
     use switchboard::decimal::{Self};
 
     public struct TEST_USDC has drop {}
@@ -93,7 +92,7 @@ module oracles::oracles_tests {
     #[test]
     fun test_oracles_happy_switchboard() {
         let owner = @0x26;
-        let (mut scenario, clock, mut prices) = setup(owner);
+        let (mut scenario, clock, prices) = setup(owner);
 
         let (mut registry, admin_cap) = oracles::new_oracle_registry_for_testing(
             oracles::new_oracle_registry_config(
@@ -146,7 +145,7 @@ module oracles::oracles_tests {
 
         assert!(price_update.price().base() == price);
         assert!(price_update.price().expo() == 18);
-        assert!(price_update.price().is_expo_negative() == false);
+        assert!(price_update.price().is_expo_negative() == true);
         assert!(price_update.metadata().switchboard() == aggregator.current_result());
 
         let mut aggregator2 = switchboard::aggregator::new_aggregator(
@@ -189,7 +188,7 @@ module oracles::oracles_tests {
 
         assert!(price_update.price().base() == price);
         assert!(price_update.price().expo() == 18);
-        assert!(price_update.price().is_expo_negative() == false);
+        assert!(price_update.price().is_expo_negative() == true);
 
         sui::test_utils::destroy(admin_cap);
         sui::test_utils::destroy(registry);
@@ -205,7 +204,7 @@ module oracles::oracles_tests {
     #[expected_failure(abort_code = ::oracles::oracles::EInvalidOracleType)]
     fun test_oracles_fail_wrong_type() {
         let owner = @0x26;
-        let (mut scenario, clock, mut prices) = setup(owner);
+        let (mut scenario, clock, prices) = setup(owner);
 
 
         let (mut registry, admin_cap) = oracles::new_oracle_registry_for_testing(
