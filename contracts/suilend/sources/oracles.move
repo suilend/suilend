@@ -7,6 +7,8 @@ module suilend::oracles {
     use pyth::price_info::{Self, PriceInfoObject};
     use sui::clock::{Self, Clock};
     use suilend::decimal::{Self, Decimal, mul, div};
+    use oracles::oracles::OraclePriceUpdate;
+    use oracles::oracle_decimal::OracleDecimal;
 
     // min confidence ratio of X means that the confidence interval must be less than (100/x)% of the price
     const MIN_CONFIDENCE_RATIO: u64 = 10;
@@ -65,6 +67,35 @@ module suilend::oracles {
             mul(
                 decimal::from(price_mag),
                 decimal::from(std::u64::pow(10, (i64::get_magnitude_if_positive(&expo) as u8))),
+            )
+        }
+    }
+
+    public fun get_oracle_price_and_identifier(
+        price_info_obj: &OraclePriceUpdate,
+    ): (Decimal, Decimal, ID, u64) {
+        let mut ema_price_opt = price_info_obj.ema_price().map!(|px| parse_oracle_price_to_decimal(px));
+        let ema_price = ema_price_opt.extract(); // TODO: how to handle optional ema price?
+
+        let price = price_info_obj.price();
+
+        let spot_price = parse_oracle_price_to_decimal(price);
+        (spot_price, ema_price, price_info_obj.oracle_registry_id(), price_info_obj.oracle_index())
+    }
+
+    fun parse_oracle_price_to_decimal(price: OracleDecimal): Decimal {
+        let price_mag = price.base();
+        let expo = price.expo();
+
+        if (price.is_expo_negative()) {
+            div(
+                decimal::from(price_mag as u64),
+                decimal::from(std::u64::pow(10, (expo as u8))),
+            )
+        } else {
+            mul(
+                decimal::from(price_mag as u64),
+                decimal::from(std::u64::pow(10, (expo as u8))),
             )
         }
     }

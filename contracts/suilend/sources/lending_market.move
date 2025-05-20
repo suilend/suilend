@@ -17,6 +17,7 @@ module suilend::lending_market {
     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
     use suilend::reserve::{Self, Reserve, CToken, LiquidityRequest};
     use suilend::reserve_config::{ReserveConfig, borrow_fee};
+    use oracles::oracles::OraclePriceUpdate;
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -208,6 +209,18 @@ module suilend::lending_market {
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         reserve::update_price<P>(reserve, clock, price_info);
+    }
+    
+    public fun refresh_reserve_price_v2<P>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        price_info: &OraclePriceUpdate,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        reserve::update_price_v2<P>(reserve, clock, price_info);
     }
 
     public fun create_obligation<P>(
@@ -979,6 +992,34 @@ module suilend::lending_market {
 
         vector::push_back(&mut lending_market.reserves, reserve);
     }
+    
+    public fun add_reserve_v2<P, T>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        price_info: &OraclePriceUpdate,
+        config: ReserveConfig,
+        coin_metadata: &CoinMetadata<T>,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(
+            reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves),
+            EDuplicateReserve,
+        );
+
+        let reserve = reserve::create_reserve_v2<P, T>(
+            object::id(lending_market),
+            config,
+            vector::length(&lending_market.reserves),
+            coin::get_decimals(coin_metadata),
+            price_info,
+            clock,
+            ctx,
+        );
+
+        vector::push_back(&mut lending_market.reserves, reserve);
+    }
 
     public fun update_reserve_config<P, T>(
         _: &LendingMarketOwnerCap<P>,
@@ -1007,6 +1048,20 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::change_price_feed<P>(reserve, price_info_obj, clock);
+    }
+    
+    public fun change_reserve_price_feed_v2<P, T>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        price_info_obj: &OraclePriceUpdate,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve::change_price_feed_v2<P>(reserve, price_info_obj);
     }
 
     public fun add_pool_reward<P, RewardType>(
@@ -1353,6 +1408,35 @@ module suilend::lending_market {
         );
 
         let reserve = reserve::create_reserve<P, T>(
+            object::id(lending_market),
+            config,
+            vector::length(&lending_market.reserves),
+            mint_decimals,
+            price_info,
+            clock,
+            ctx,
+        );
+
+        vector::push_back(&mut lending_market.reserves, reserve);
+    }
+    
+    #[test_only]
+    public fun add_reserve_for_testing_v2<P, T>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        price_info: &OraclePriceUpdate,
+        config: ReserveConfig,
+        mint_decimals: u8,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(
+            reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves),
+            EDuplicateReserve,
+        );
+
+        let reserve = reserve::create_reserve_v2<P, T>(
             object::id(lending_market),
             config,
             vector::length(&lending_market.reserves),

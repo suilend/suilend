@@ -11,7 +11,7 @@ module suilend::reserve {
     use suilend::decimal::{Decimal, Self, add, sub, mul, div, eq, floor, pow, le, ceil, min, max, saturating_sub};
     use sui::clock::{Self, Clock};
     use sui::coin::{TreasuryCap};
-    use pyth::price_identifier::{PriceIdentifier};
+    use pyth::price_identifier::{Self, PriceIdentifier};
     use pyth::price_info::{PriceInfoObject};
     use suilend::reserve_config::{
         Self, 
@@ -31,6 +31,7 @@ module suilend::reserve {
     use suilend::staker::{Self, Staker};
     use sui_system::sui_system::{SuiSystemState};
     use sprungsui::sprungsui::SPRUNGSUI;
+    use oracles::oracles::OraclePriceUpdate;
 
     // === Errors ===
     const EPriceStale: u64 = 0;
@@ -176,6 +177,59 @@ module suilend::reserve {
             mint_decimals,
             price_identifier,
             price: option::extract(&mut price_decimal),
+            smoothed_price: smoothed_price_decimal,
+            price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+            available_amount: 0,
+            ctoken_supply: 0,
+            borrowed_amount: decimal::from(0),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
+            unclaimed_spread_fees: decimal::from(0),
+            attributed_borrow_value: decimal::from(0),
+            deposits_pool_reward_manager: liquidity_mining::new_pool_reward_manager(ctx),
+            borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(ctx)
+        };
+
+        dynamic_field::add(
+            &mut reserve.id,
+            BalanceKey {},
+            Balances<P, T> {
+                available_amount: balance::zero<T>(),
+                ctoken_supply: balance::create_supply(CToken<P, T> {}),
+                fees: balance::zero<T>(),
+                ctoken_fees: balance::zero<CToken<P, T>>(),
+                deposited_ctokens: balance::zero<CToken<P, T>>()
+            }
+        );
+
+        reserve
+    }
+    
+    public(package) fun create_reserve_v2<P, T>(
+        lending_market_id: ID,
+        mut config: ReserveConfig, 
+        array_index: u64,
+        mint_decimals: u8,
+        price_info_obj: &OraclePriceUpdate, 
+        clock: &Clock, 
+        ctx: &mut TxContext
+    ): Reserve<P> {
+        let (price_decimal, smoothed_price_decimal, oracle_registry_id, oracle_index) = oracles::get_oracle_price_and_identifier(price_info_obj);
+
+        config.add_oracle_info(
+            oracle_registry_id,
+            oracle_index,
+        );
+
+        let mut reserve = Reserve {
+            id: object::new(ctx),
+            lending_market_id,
+            array_index,
+            coin_type: type_name::get<T>(),
+            config: cell::new(config),
+            mint_decimals,
+            price_identifier: sentinel_price_identifier(),
+            price: price_decimal,
             smoothed_price: smoothed_price_decimal,
             price_last_update_timestamp_s: clock::timestamp_ms(clock) / 1000,
             available_amount: 0,
@@ -591,6 +645,19 @@ module suilend::reserve {
         reserve.smoothed_price = ema_price_decimal;
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
+    
+    public(package) fun update_price_v2<P>(
+        reserve: &mut Reserve<P>, 
+        clock: &Clock,
+        price_info_obj: &OraclePriceUpdate
+    ) {
+        let (price_decimal, ema_price_decimal, oracle_registry_id, oracle_index) = oracles::get_oracle_price_and_identifier(price_info_obj);
+        assert!(reserve.config.get().check_oracle_info(oracle_registry_id, oracle_index), EPriceIdentifierMismatch);
+
+        reserve.price = price_decimal;
+        reserve.smoothed_price = ema_price_decimal;
+        reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
+    }
 
     /// Compound interest, debt. Interest is compounded every second.
     public(package) fun compound_interest<P>(reserve: &mut Reserve<P>, clock: &Clock) {
@@ -989,8 +1056,26 @@ module suilend::reserve {
         price_info_obj: &PriceInfoObject,
         clock: &Clock,
     ){
+        reserve.config.get_mut().remove_oracle_info_if_any();
+
         let (_, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         reserve.price_identifier = price_identifier;
+    }
+    
+    public(package) fun change_price_feed_v2<P>(
+        reserve: &mut Reserve<P>,
+        price_info_obj: &OraclePriceUpdate,
+    ){
+        reserve.config.get_mut().remove_oracle_info_if_any();
+
+        let (_, _, oracle_registry_id, oracle_index) = oracles::get_oracle_price_and_identifier(price_info_obj);
+
+        reserve.config.get_mut().add_oracle_info(
+            oracle_registry_id,
+            oracle_index,
+        );
+
+        reserve.price_identifier = sentinel_price_identifier();
     }
 
     // === View Functions ===
@@ -1028,6 +1113,19 @@ module suilend::reserve {
         });
     }
 
+    public(package) fun sentinel_price_identifier(): PriceIdentifier {
+        price_identifier::from_byte_vec(vector[
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+        ])
+    }
+
+    public fun assert_sentinel_price_identifier<P>(reserve: &Reserve<P>) {
+        assert!(reserve.price_identifier == sentinel_price_identifier(), EPriceIdentifierMismatch);
+    }
+    public fun assert_not_sentinel_price_identifier<P>(reserve: &Reserve<P>) {
+        assert!(reserve.price_identifier == sentinel_price_identifier(), EPriceIdentifierMismatch);
+    }
+
     // === Test Functions ===
     #[test_only]
     public fun update_price_for_testing<P>(
@@ -1040,9 +1138,6 @@ module suilend::reserve {
         reserve.smoothed_price = smoothed_price_decimal;
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
     }
-
-    #[test_only]
-    use pyth::price_identifier::{Self};
 
     #[test_only]
     fun example_price_identifier(): PriceIdentifier {

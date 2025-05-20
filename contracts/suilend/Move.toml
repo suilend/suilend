@@ -17,6 +17,9 @@ rev = "main"
 [dependencies.sprungsui]
 local = "../sprungsui"
 
+[dependencies.oracles]
+local = "../oracles"
+
 [addresses]
 sui = "0x2"
 # suilend = "0x0"

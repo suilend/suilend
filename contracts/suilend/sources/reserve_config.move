@@ -44,6 +44,13 @@ module suilend::reserve_config {
         additional_fields: Bag,
     }
 
+    public struct OracleInfoKey has store, copy, drop {}
+
+    public struct OracleInfo has store, copy, drop {
+        oracle_registry_id: ID,
+        oracle_index: u64,
+    }
+
     public struct ReserveConfigBuilder has store {
         fields: Bag,
     }
@@ -93,6 +100,36 @@ module suilend::reserve_config {
 
         validate_reserve_config(&config);
         config
+    }
+
+    public(package)fun add_oracle_info(
+        config: &mut ReserveConfig,
+        oracle_registry_id: ID,
+        oracle_index: u64,
+    ) {
+        bag::add(&mut config.additional_fields, OracleInfoKey {}, OracleInfo {
+            oracle_registry_id,
+            oracle_index,
+        });
+    }
+    
+    public(package)fun remove_oracle_info_if_any(
+        config: &mut ReserveConfig,
+    ) {
+        if (bag::contains(&config.additional_fields, OracleInfoKey {})) {
+            bag::remove<OracleInfoKey, OracleInfo>(&mut config.additional_fields, OracleInfoKey {});
+        }
+    }
+
+    public(package)fun check_oracle_info(
+        config: &ReserveConfig,
+        oracle_registry_id: ID,
+        oracle_index: u64,
+    ): bool {
+        let oracle_info: &OracleInfo = bag::borrow(&config.additional_fields, OracleInfoKey {});
+
+        oracle_info.oracle_registry_id == oracle_registry_id
+        && oracle_info.oracle_index == oracle_index
     }
 
     fun validate_reserve_config(config: &ReserveConfig) {
