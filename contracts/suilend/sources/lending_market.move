@@ -30,7 +30,7 @@ module suilend::lending_market {
     const EInvalidFeeReceivers: u64 = 8;
 
     // === Constants ===
-    const CURRENT_VERSION: u64 = 7;
+    const CURRENT_VERSION: u64 = 7; // TODO: Consider bumping version?
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
 
     // === One time Witness ===
