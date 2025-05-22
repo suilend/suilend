@@ -167,12 +167,12 @@ module suilend::lending_market {
     public enum SetOracleEvent has store, drop, copy {
         V1 {
             lending_market_id: address,
-            reserve_id: address,
+            reserve_array_index: u64,
             price_identifier: PriceIdentifier,
         },
         V2 {
             lending_market_id: address,
-            reserve_id: address,
+            reserve_array_index: u64,
             oracle_registry_id: ID,
             oracle_index: u64,
         }
@@ -1023,20 +1023,21 @@ module suilend::lending_market {
             EDuplicateReserve,
         );
 
+        let reserve_index = vector::length(&lending_market.reserves);
+
         let reserve = reserve::create_reserve_v2<P, T>(
             object::id(lending_market),
             config,
-            vector::length(&lending_market.reserves),
+            reserve_index,
             coin::get_decimals(coin_metadata),
             price_info,
             clock,
             ctx,
         );
 
-        let reserve_id = object::id_address(&reserve);
         event::emit(SetOracleEvent::V2 {
             lending_market_id: object::id_address(lending_market),
-            reserve_id,
+            reserve_array_index: reserve_index,
             oracle_registry_id: price_info.oracle_registry_id(),
             oracle_index: price_info.oracle_index(),
         });
@@ -1072,10 +1073,9 @@ module suilend::lending_market {
 
         let price_identifier = reserve::change_price_feed<P>(reserve, price_info_obj, clock);
 
-        let reserve_id = object::id_address(reserve);
         event::emit(SetOracleEvent::V1 {
             lending_market_id: object::id_address(lending_market),
-            reserve_id,
+            reserve_array_index,
             price_identifier,
         });
     }
@@ -1093,10 +1093,9 @@ module suilend::lending_market {
 
         let (oracle_registry_id, oracle_index) = reserve::change_price_feed_v2<P>(reserve, price_info_obj);
 
-        let reserve_id = object::id_address(reserve);
         event::emit(SetOracleEvent::V2 {
             lending_market_id: object::id_address(lending_market),
-            reserve_id,
+            reserve_array_index,
             oracle_registry_id,
             oracle_index,
         });
