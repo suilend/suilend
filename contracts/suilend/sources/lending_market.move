@@ -164,6 +164,18 @@ module suilend::lending_market {
         liquidity_amount: u64,
     }
 
+    public enum SetOracleEvent has store, drop, copy {
+        V1 {
+            lending_market_id: address,
+            price_identifier: PriceIdentifier,
+        },
+        V2 {
+            lending_market_id: address,
+            oracle_registry_id: ID,
+            oracle_index: u64,
+        }
+    }
+
     // === Public-Mutative Functions ===
     public(package) fun create_lending_market<P>(
         ctx: &mut TxContext,
@@ -954,6 +966,7 @@ module suilend::lending_market {
     }
 
     public use fun rate_limiter_exemption_amount as RateLimiterExemption.amount;
+    use pyth::price_identifier::PriceIdentifier;
 
     public fun rate_limiter_exemption_amount<P, T>(exemption: &RateLimiterExemption<P, T>): u64 {
         exemption.amount
@@ -1047,7 +1060,12 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
-        reserve::change_price_feed<P>(reserve, price_info_obj, clock);
+        let price_identifier = reserve::change_price_feed<P>(reserve, price_info_obj, clock);
+
+        event::emit(SetOracleEvent::V1 {
+            lending_market_id: object::id_address(lending_market),
+            price_identifier,
+        });
     }
     
     public fun change_reserve_price_feed_v2<P, T>(
@@ -1061,7 +1079,13 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
-        reserve::change_price_feed_v2<P>(reserve, price_info_obj);
+        let (oracle_registry_id, oracle_index) = reserve::change_price_feed_v2<P>(reserve, price_info_obj);
+
+        event::emit(SetOracleEvent::V2 {
+            lending_market_id: object::id_address(lending_market),
+            oracle_registry_id,
+            oracle_index,
+        });
     }
 
     public fun add_pool_reward<P, RewardType>(

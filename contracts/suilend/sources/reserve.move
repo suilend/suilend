@@ -1055,17 +1055,19 @@ module suilend::reserve {
         reserve: &mut Reserve<P>,
         price_info_obj: &PriceInfoObject,
         clock: &Clock,
-    ){
+    ): PriceIdentifier {
         reserve.config.get_mut().remove_oracle_info_if_any();
 
         let (_, _, price_identifier) = oracles::get_pyth_price_and_identifier(price_info_obj, clock);
         reserve.price_identifier = price_identifier;
+
+        price_identifier
     }
     
     public(package) fun change_price_feed_v2<P>(
         reserve: &mut Reserve<P>,
         price_info_obj: &OraclePriceUpdate,
-    ){
+    ): (ID, u64) {
         reserve.config.get_mut().remove_oracle_info_if_any();
 
         let (_, _, oracle_registry_id, oracle_index) = oracles::get_oracle_price_and_identifier(price_info_obj);
@@ -1076,6 +1078,7 @@ module suilend::reserve {
         );
 
         reserve.price_identifier = sentinel_price_identifier();
+        (oracle_registry_id, oracle_index)
     }
 
     // === View Functions ===
