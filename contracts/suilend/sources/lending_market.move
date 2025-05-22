@@ -167,10 +167,12 @@ module suilend::lending_market {
     public enum SetOracleEvent has store, drop, copy {
         V1 {
             lending_market_id: address,
+            reserve_id: address,
             price_identifier: PriceIdentifier,
         },
         V2 {
             lending_market_id: address,
+            reserve_id: address,
             oracle_registry_id: ID,
             oracle_index: u64,
         }
@@ -1031,6 +1033,14 @@ module suilend::lending_market {
             ctx,
         );
 
+        let reserve_id = object::id_address(&reserve);
+        event::emit(SetOracleEvent::V2 {
+            lending_market_id: object::id_address(lending_market),
+            reserve_id,
+            oracle_registry_id: price_info.oracle_registry_id(),
+            oracle_index: price_info.oracle_index(),
+        });
+
         vector::push_back(&mut lending_market.reserves, reserve);
     }
 
@@ -1062,8 +1072,10 @@ module suilend::lending_market {
 
         let price_identifier = reserve::change_price_feed<P>(reserve, price_info_obj, clock);
 
+        let reserve_id = object::id_address(reserve);
         event::emit(SetOracleEvent::V1 {
             lending_market_id: object::id_address(lending_market),
+            reserve_id,
             price_identifier,
         });
     }
@@ -1081,8 +1093,10 @@ module suilend::lending_market {
 
         let (oracle_registry_id, oracle_index) = reserve::change_price_feed_v2<P>(reserve, price_info_obj);
 
+        let reserve_id = object::id_address(reserve);
         event::emit(SetOracleEvent::V2 {
             lending_market_id: object::id_address(lending_market),
+            reserve_id,
             oracle_registry_id,
             oracle_index,
         });
