@@ -1300,7 +1300,7 @@ module suilend::obligation {
     }
 
     #[test_only]
-    public(package) fun create_borrow_for_testing(
+    public fun create_borrow_for_testing(
         coin_type: TypeName,
         reserve_array_index: u64,
         borrowed_amount: Decimal,
@@ -1319,7 +1319,7 @@ module suilend::obligation {
     }
     
     #[test_only]
-    public(package) fun create_deposit_for_testing(
+    public fun create_deposit_for_testing(
         coin_type: TypeName,
         reserve_array_index: u64,
         deposited_ctoken_amount: u64,
