@@ -446,6 +446,23 @@ module suilend::liquidity_mining {
     }
     
     #[test_only]
+    public fun create_user_reward_manager_for_testing(
+        pool_reward_manager_id: ID,
+        share: u64,
+        rewards: vector<Option<UserReward>>,
+        last_update_time_ms: u64,
+    ): UserRewardManager {
+        let user_reward_manager = UserRewardManager {
+            pool_reward_manager_id,
+            share,
+            rewards,
+            last_update_time_ms,
+        };
+
+        user_reward_manager
+    }
+    
+    #[test_only]
     public fun create_pool_reward(
         pool_reward_manager_id: ID,
         coin_type: TypeName,
