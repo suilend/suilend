@@ -1366,6 +1366,26 @@ module suilend::lending_market {
     }
 
     #[test_only]
+    public fun new_obligation_owner_cap_for_testing<P>(
+        lending_market: &LendingMarket<P>,
+        obligation_id: ID,
+        ctx: &mut TxContext,
+    ): ObligationOwnerCap<P> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(
+            object_table::contains(&lending_market.obligations, obligation_id),
+            EInvalidObligationId,
+        );
+
+        let cap = ObligationOwnerCap<P> {
+            id: object::new(ctx),
+            obligation_id: obligation_id,
+        };
+
+        cap
+    }
+
+    #[test_only]
     public fun mock_for_testing<P>(
         reserves: vector<Reserve<P>>,
         obligations: ObjectTable<ID, Obligation<P>>,
