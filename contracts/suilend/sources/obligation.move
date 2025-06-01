@@ -1317,4 +1317,63 @@ module suilend::obligation {
             user_reward_manager_index,
         }
     }
+    
+    #[test_only]
+    public(package) fun create_deposit_for_testing(
+        coin_type: TypeName,
+        reserve_array_index: u64,
+        deposited_ctoken_amount: u64,
+        market_value: Decimal,
+        user_reward_manager_index: u64,
+        attributed_borrow_value: Decimal,
+    ): Deposit {
+        Deposit {
+            coin_type,
+            reserve_array_index,
+            deposited_ctoken_amount,
+            market_value,
+            user_reward_manager_index,
+            attributed_borrow_value,
+        }
+    }
+
+    #[test_only]
+    public fun mock_for_testing<P>(
+        lending_market_id: ID,
+        deposits: vector<Deposit>,
+        borrows: vector<Borrow>,
+        deposited_value_usd: Decimal,
+        allowed_borrow_value_usd: Decimal,
+        unhealthy_borrow_value_usd: Decimal,
+        super_unhealthy_borrow_value_usd: Decimal, // unused
+        unweighted_borrowed_value_usd: Decimal,
+        weighted_borrowed_value_usd: Decimal,
+        weighted_borrowed_value_upper_bound_usd: Decimal,
+        borrowing_isolated_asset: bool,
+        user_reward_managers: vector<UserRewardManager>,
+        bad_debt_usd: Decimal,
+        closable: bool,
+        ctx: &mut TxContext,
+    ): Obligation<P> {
+        let obligation = Obligation {
+            id: object::new(ctx),
+            lending_market_id,
+            deposits,
+            borrows,
+            deposited_value_usd,
+            allowed_borrow_value_usd,
+            unhealthy_borrow_value_usd,
+            super_unhealthy_borrow_value_usd,
+            unweighted_borrowed_value_usd,
+            weighted_borrowed_value_usd,
+            weighted_borrowed_value_upper_bound_usd,
+            borrowing_isolated_asset,
+            user_reward_managers,
+            bad_debt_usd,
+            closable,
+        };
+
+        obligation
+
+    }
 }

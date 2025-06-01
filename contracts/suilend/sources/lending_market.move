@@ -1364,4 +1364,31 @@ module suilend::lending_market {
 
         vector::push_back(&mut lending_market.reserves, reserve);
     }
+
+    #[test_only]
+    public fun mock_for_testing<P>(
+        reserves: vector<Reserve<P>>,
+        obligations: ObjectTable<ID, Obligation<P>>,
+        fee_receiver: address,
+        bad_debt_usd: Decimal,
+        bad_debt_limit_usd: Decimal,
+        ctx: &mut TxContext,
+    ): LendingMarket<P> {
+        let lending_market = LendingMarket<P> {
+            id: object::new(ctx),
+            version: CURRENT_VERSION,
+            reserves,
+            obligations,
+            rate_limiter: rate_limiter::new(
+                rate_limiter::new_config(1, 18_446_744_073_709_551_615),
+                0,
+            ),
+            fee_receiver,
+            bad_debt_usd,
+            bad_debt_limit_usd,
+        };
+
+        lending_market
+
+    }
 }
