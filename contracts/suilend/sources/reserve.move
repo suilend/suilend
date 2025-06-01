@@ -1284,6 +1284,7 @@ module suilend::reserve {
         deposits_pool_reward_manager: PoolRewardManager,
         borrows_pool_reward_manager: PoolRewardManager,
         // Balances
+        available_amount_in_balances: u64,
         balance_fees: u64,
         ctoken_fees: u64,
         deposited_ctokens: u64,
@@ -1316,7 +1317,7 @@ module suilend::reserve {
             &mut reserve.id,
             BalanceKey {},
             Balances<P, T> {
-                available_amount: balance::create_for_testing(available_amount),
+                available_amount: balance::create_for_testing(available_amount_in_balances),
                 ctoken_supply: {
                     let mut supply = balance::create_supply(CToken<P, T> {});
                     let tokens = balance::increase_supply(&mut supply, ctoken_supply);
