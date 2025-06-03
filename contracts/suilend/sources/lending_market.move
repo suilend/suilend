@@ -1259,11 +1259,11 @@ module suilend::lending_market {
         let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
-        assert!(
-            type_name::borrow_string(&type_name::get<RewardType>()) != 
-            &ascii::string(b"97d2a76efce8e7cdf55b781bd3d23382237fb1d095f9b9cad0bf1fd5f7176b62::suilend_point_2::SUILEND_POINT_2"),
-            ECannotClaimReward,
-        );
+        // assert!(
+        //     type_name::borrow_string(&type_name::get<RewardType>()) != 
+        //     &ascii::string(b"97d2a76efce8e7cdf55b781bd3d23382237fb1d095f9b9cad0bf1fd5f7176b62::suilend_point_2::SUILEND_POINT_2"),
+        //     ECannotClaimReward,
+        // );
 
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations,
