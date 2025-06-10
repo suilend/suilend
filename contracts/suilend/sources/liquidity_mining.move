@@ -65,6 +65,44 @@ module suilend::liquidity_mining {
         user_reward_manager.share
     }
 
+    /// === Start ===
+    /// New functions added to support obligation-based reward tracking
+    /// These functions enable tracking and claiming of rewards based on user obligations
+    /// by providing access to user's reward information and pending rewards amount
+    public fun rewards(
+        user_reward_manager: &UserRewardManager
+    ): &vector<Option<UserReward>>{
+        &user_reward_manager.rewards
+    }
+
+    public fun user_reward(
+        user_rewards: &vector<Option<UserReward>>,
+        reward_index: u64,
+    ): &Option<UserReward>{
+        user_rewards.borrow(reward_index)
+    }
+
+    public fun earned_rewards(
+        user_reward: &UserReward,
+    ): Decimal{
+        user_reward.earned_rewards
+    }
+
+    public fun cumulative_rewards_per_share(
+        user_reward: &UserReward,
+    ): Decimal{
+        user_reward.cumulative_rewards_per_share
+    }
+
+    public use fun user_reward_pool_reward_id as UserReward.pool_reward_id;
+    public fun user_reward_pool_reward_id(
+        user_reward: &UserReward,
+    ):ID{
+        user_reward.pool_reward_id
+    }
+
+    // ==== End ====
+
     public fun last_update_time_ms(user_reward_manager: &UserRewardManager): u64 {
         user_reward_manager.last_update_time_ms
     }
@@ -73,6 +111,11 @@ module suilend::liquidity_mining {
         let optional_pool_reward = vector::borrow(&pool_reward_manager.pool_rewards, index);
         let pool_reward = option::borrow(optional_pool_reward);
         object::id(pool_reward)
+    }
+    public fun pool_rewards(
+        pool_reward_manager: &PoolRewardManager, 
+    ): &vector<Option<PoolReward>>{
+        &pool_reward_manager.pool_rewards
     }
 
     public fun pool_reward(
