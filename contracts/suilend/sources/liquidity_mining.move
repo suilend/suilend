@@ -112,6 +112,11 @@ module suilend::liquidity_mining {
         let pool_reward = option::borrow(optional_pool_reward);
         object::id(pool_reward)
     }
+    public fun pool_rewards(
+        pool_reward_manager: &PoolRewardManager, 
+    ): &vector<Option<PoolReward>>{
+        &pool_reward_manager.pool_rewards
+    }
 
     public fun pool_reward(
         pool_reward_manager: &PoolRewardManager,
