@@ -69,10 +69,37 @@ module suilend::liquidity_mining {
         user_reward_manager.last_update_time_ms
     }
 
+    public fun user_rewards(user_reward_manager: &UserRewardManager): &vector<Option<UserReward>> {
+        &user_reward_manager.rewards
+    }
+
+    public fun user_reward(
+        user_reward_manager: &UserRewardManager,
+        index: u64,
+    ): &Option<UserReward> {
+        vector::borrow(&user_reward_manager.rewards, index)
+    }
+    
+    public fun user_pool_reward_id(user_reward: &UserReward): &ID {
+        &user_reward.pool_reward_id
+    }
+    
+    public fun user_earned_rewards(user_reward: &UserReward): &Decimal {
+        &user_reward.earned_rewards
+    }
+    
+    public fun user_cumulative_rewards_per_share(user_reward: &UserReward): &Decimal {
+        &user_reward.cumulative_rewards_per_share
+    }
+
     public fun pool_reward_id(pool_reward_manager: &PoolRewardManager, index: u64): ID {
         let optional_pool_reward = vector::borrow(&pool_reward_manager.pool_rewards, index);
         let pool_reward = option::borrow(optional_pool_reward);
         object::id(pool_reward)
+    }
+
+    public fun pool_rewards(pool_reward_manager: &PoolRewardManager): &vector<Option<PoolReward>> {
+        &pool_reward_manager.pool_rewards
     }
 
     public fun pool_reward(
@@ -82,8 +109,46 @@ module suilend::liquidity_mining {
         vector::borrow(&pool_reward_manager.pool_rewards, index)
     }
 
+    public fun start_time_ms(pool_reward: &PoolReward): u64 {
+        pool_reward.start_time_ms
+    }
+    
     public fun end_time_ms(pool_reward: &PoolReward): u64 {
         pool_reward.end_time_ms
+    }
+    
+    public fun total_rewards(pool_reward: &PoolReward): u64 {
+        pool_reward.total_rewards
+    }
+    
+    public fun allocated_rewards(pool_reward: &PoolReward): &Decimal {
+        &pool_reward.allocated_rewards
+    }
+    
+    public fun cumulative_rewards_per_share(pool_reward: &PoolReward): &Decimal {
+        &pool_reward.cumulative_rewards_per_share
+    }
+    
+    public fun num_user_reward_managers(pool_reward: &PoolReward): u64 {
+        pool_reward.num_user_reward_managers
+    }
+    
+    public fun pool_reward_coin_type(pool_reward: &PoolReward): TypeName {
+        pool_reward.coin_type
+    }
+    
+    public fun pool_reward_balance<T>(pool_reward: &PoolReward): u64 {
+        let reward_balance: &Balance<T> = pool_reward.additional_fields.borrow(
+            RewardBalance<T> {},
+        );
+
+        reward_balance.value()
+    }
+    
+    public fun has_pool_reward_balance<T>(pool_reward: &PoolReward): bool {
+        pool_reward.additional_fields.contains(
+            RewardBalance<T> {},
+        )
     }
 
     // === Public-Friend functions
