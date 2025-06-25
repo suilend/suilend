@@ -1315,6 +1315,15 @@ module suilend::lending_market {
     }
 
     // === Test Functions ===
+
+    #[test_only]
+    public fun new_lending_market_owner_cap_for_testing<P>(lending_market_id: ID, ctx: &mut TxContext): LendingMarketOwnerCap<P> {
+        LendingMarketOwnerCap {
+            id: object::new(ctx),
+            lending_market_id,
+        }
+    }
+
     #[test_only]
     public fun destroy_for_testing<P>(obligation_owner_cap: ObligationOwnerCap<P>) {
         let ObligationOwnerCap { id, obligation_id: _ } = obligation_owner_cap;

@@ -1264,6 +1264,22 @@ module suilend::reserve {
 
         reserve
     }
+
+    #[test_only]
+    public fun borrow_staker_for_testing<P>(
+        reserve: &mut Reserve<P>,
+    ): &mut Staker<SPRUNGSUI> {
+        dynamic_field::borrow_mut(&mut reserve.id, StakerKey {})
+    }
+
+    #[test_only]
+    public fun init_staker_for_testing<P, S: drop>(
+        reserve: &mut Reserve<P>,
+        treasury_cap: TreasuryCap<S>,
+        ctx: &mut TxContext
+    ) {
+        init_staker(reserve, treasury_cap, ctx);
+    }
     
     #[test_only]
     public fun mock_for_testing<P, T>(
