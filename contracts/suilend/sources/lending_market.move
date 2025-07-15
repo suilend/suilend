@@ -64,6 +64,10 @@ module suilend::lending_market {
         obligation_id: ID,
     }
 
+    public struct FlashLoan {
+        amount_to_repay: u64
+    }
+
     // === Dynamic Fields ===
     public struct FeeReceiversKey has copy, drop, store {}
 
@@ -373,6 +377,53 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
+    public fun flash_loan_borrow<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        amount: u64,
+        ctx: &mut TxContext,
+    ): (Coin<T>, FlashLoan) {
+        let liquidity_request = flash_loan_request<P, T>(
+            lending_market,
+            reserve_array_index,
+            clock,
+            amount,
+        );
+
+        fulfill_flash_loan_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
+    }
+
+    public fun flash_loan_repay<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        flash_loan: FlashLoan,
+        max_repay_coins: &mut Coin<T>,
+        ctx: &mut TxContext,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve::compound_interest(reserve, clock);
+
+        let FlashLoan{ amount_to_repay } = flash_loan;
+        let repay_coins = coin::split(max_repay_coins, amount_to_repay, ctx);
+        reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), decimal::from(amount_to_repay));
+
+        // event::emit(RepayEvent {
+        //     lending_market_id,
+        //     coin_type: type_name::get<T>(),
+        //     reserve_id: object::id_address(reserve),
+        //     obligation_id: object::id_address(obligation),
+        //     liquidity_amount: ceil(repay_amount),
+        // });
+
+        // obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
+    }
+
     // Compound interest for reserve of type T
     public fun compound_interest<P>(
         lending_market: &mut LendingMarket<P>,
@@ -447,6 +498,53 @@ module suilend::lending_market {
         liquidity_request
     }
 
+    /// Borrow tokens of type T. A fee is charged.
+    public fun flash_loan_request<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        mut amount: u64,
+    ): LiquidityRequest<P, T> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(amount > 0, ETooSmall);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        reserve::compound_interest(reserve, clock);
+        // reserve::assert_price_is_fresh(reserve, clock);
+
+        if (amount == U64_MAX) {
+            amount = reserve.available_amount();
+            assert!(amount > 0, ETooSmall);
+        };
+
+        let liquidity_request = reserve::flash_loan_borrow_liquidity<P, T>(reserve, amount);
+
+        // let borrow_value = reserve::market_value_upper_bound(
+        //     reserve,
+        //     decimal::from(reserve::liquidity_request_amount(&liquidity_request)),
+        // );
+        // rate_limiter::process_qty(
+        //     &mut lending_market.rate_limiter,
+        //     clock::timestamp_ms(clock) / 1000,
+        //     borrow_value,
+        // );
+
+        // event::emit(BorrowEvent {
+        //     lending_market_id,
+        //     coin_type: type_name::get<T>(),
+        //     reserve_id: object::id_address(reserve),
+        //     obligation_id: object::id_address(obligation),
+        //     liquidity_amount: reserve::liquidity_request_amount(&liquidity_request),
+        //     origination_fee_amount: reserve::liquidity_request_fee(&liquidity_request),
+        // });
+
+        // obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
+        
+        liquidity_request
+    }
+
     public fun fulfill_liquidity_request<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -461,6 +559,27 @@ module suilend::lending_market {
         coin::from_balance(
             reserve::fulfill_liquidity_request(reserve, liquidity_request),
             ctx,
+        )
+    }
+
+    public fun fulfill_flash_loan_liquidity_request<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        liquidity_request: LiquidityRequest<P, T>,
+        ctx: &mut TxContext,
+    ): (Coin<T>, FlashLoan) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+
+        let (balance, amount_to_repay) = reserve::fulfill_flash_loan_liquidity_request(reserve, liquidity_request);
+        (
+            coin::from_balance(
+            balance,
+            ctx,
+            ),
+            FlashLoan {amount_to_repay}
         )
     }
 

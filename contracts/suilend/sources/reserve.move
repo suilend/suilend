@@ -816,6 +816,23 @@ module suilend::reserve {
         liquidity
     }
 
+    /// Returns balance that we are loaning and amount we expect to be repaid
+    public(package) fun fulfill_flash_loan_liquidity_request<P, T>(
+        reserve: &mut Reserve<P>,
+        request: LiquidityRequest<P, T>,
+    ): (Balance<T>, u64) {
+        let LiquidityRequest { amount, fee } = request;
+
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(
+            &mut reserve.id, 
+            BalanceKey {}
+        );
+
+        let liquidity = balance::split(&mut balances.available_amount, amount);
+
+        (liquidity, amount + fee)
+    }
+
     public(package) fun init_staker<P, S: drop>(
         reserve: &mut Reserve<P>,
         treasury_cap: TreasuryCap<S>,
@@ -952,6 +969,46 @@ module suilend::reserve {
         log_reserve_data(reserve);
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
         balance::join(&mut balances.available_amount, liquidity);
+    }
+    
+    /// Flashloan borrow tokens from the reserve. A fee is charged on return of the borrowed amount
+    /// NOTE THAT THIS FUNCTION DIFFERS FROM the regular `borrow_liquidity` function in that
+    /// it returns the amount and fee instead of amount+fee, fee
+    public(package) fun flash_loan_borrow_liquidity<P, T>(
+        reserve: &mut Reserve<P>, 
+        amount: u64
+    ): LiquidityRequest<P, T> {
+        let borrow_fee = calculate_borrow_fee(reserve, amount);
+        // let borrow_amount_with_fees = amount + borrow_fee;
+
+        reserve.available_amount = reserve.available_amount - amount;
+        reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(amount));
+
+        // assert!(
+        //     le(reserve.borrowed_amount, decimal::from(borrow_limit(config(reserve)))), 
+        //     EBorrowLimitExceeded 
+        // );
+
+        // let borrowed_amount = reserve.borrowed_amount;
+        // assert!(
+        //     le(
+        //         market_value_upper_bound(reserve, borrowed_amount), 
+        //         decimal::from(borrow_limit_usd(config(reserve)))
+        //     ), 
+        //     EBorrowLimitExceeded
+        // );
+
+        assert!(
+            reserve.available_amount >= MIN_AVAILABLE_AMOUNT && reserve.ctoken_supply >= MIN_AVAILABLE_AMOUNT,
+            EMinAvailableAmountViolated
+        );
+
+        log_reserve_data(reserve);
+
+        LiquidityRequest<P, T> {
+            amount,
+            fee: borrow_fee
+        }
     }
 
     public(package) fun forgive_debt<P>(
