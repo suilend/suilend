@@ -38,11 +38,18 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_create_strategy_owner_cap() {
         let mut scenario = test_scenario::begin(@0x1);
         let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, b"test_tag", scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
+            obligation_cap, 
+            1, // STRATEGY_SUI_LOOPING_SSUI
+            scenario.ctx()
+        );
         
         // Check version is set correctly
         assert!(strategy_wrapper::get_version(&strategy_cap) == 1, 0);
         assert!(!strategy_wrapper::needs_migration(&strategy_cap), 1);
+        
+        // Check strategy type is set correctly
+        assert!(strategy_wrapper::get_strategy_type(&strategy_cap) == 1, 2);
         
         // Cleanup
         test_utils::destroy(lending_market);
@@ -52,10 +59,66 @@ module strategy_wrapper::strategy_wrapper_tests {
     }
 
     #[test]
+    fun test_strategy_types() {
+        let mut scenario = test_scenario::begin(@0x1);
+        let (lending_market1, obligation_cap1, clock1) = setup(scenario.ctx());
+        let (lending_market2, obligation_cap2, clock2) = setup(scenario.ctx());
+        
+        // Test creating strategies with different types
+        let sui_strategy = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap1, 1, scenario.ctx());
+        let btc_strategy = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap2, 2, scenario.ctx());
+        
+        // Verify strategy types
+        assert!(strategy_wrapper::get_strategy_type(&sui_strategy) == 1, 0);
+        assert!(strategy_wrapper::get_strategy_type(&btc_strategy) == 2, 1);
+        
+        // Cleanup
+        test_utils::destroy(lending_market1);
+        test_utils::destroy(lending_market2);
+        strategy_wrapper::destroy_for_testing(sui_strategy);
+        strategy_wrapper::destroy_for_testing(btc_strategy);
+        clock::destroy_for_testing(clock1);
+        clock::destroy_for_testing(clock2);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 2)] // EInvalidStrategyType
+    fun test_invalid_strategy_type() {
+        let mut scenario = test_scenario::begin(@0x1);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Try to create with invalid strategy type (99)
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
+            obligation_cap, 
+            99, // Invalid strategy type
+            scenario.ctx()
+        );
+        
+        // Should never reach here
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_for_testing(strategy_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_strategy_type_validation() {
+        // Test valid strategy types
+        assert!(strategy_wrapper::is_valid_strategy_type(1), 0); // SUI looping
+        assert!(strategy_wrapper::is_valid_strategy_type(2), 1); // BTC looping
+        
+        // Test invalid strategy types
+        assert!(!strategy_wrapper::is_valid_strategy_type(0), 2);
+        assert!(!strategy_wrapper::is_valid_strategy_type(99), 3);
+        assert!(!strategy_wrapper::is_valid_strategy_type(255), 4);
+    }
+
+    #[test]
     fun test_eject() {
         let mut scenario = test_scenario::begin(@0x1);
         let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, b"test_tag", scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
         strategy_wrapper::eject<LENDING_MARKET>(strategy_cap, scenario.ctx());
 
         // Cleanup
@@ -65,26 +128,10 @@ module strategy_wrapper::strategy_wrapper_tests {
     }
 
     #[test]
-    fun test_get_tag() {
-        let mut scenario = test_scenario::begin(@0x1);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, b"test_tag", scenario.ctx());
-        
-        let tag = strategy_wrapper::get_tag(&strategy_cap);
-        assert!(ascii::as_bytes(tag) == &b"test_tag", 0);
-        
-        // Cleanup
-        test_utils::destroy(lending_market);
-        strategy_wrapper::destroy_for_testing(strategy_cap);
-        clock::destroy_for_testing(clock);
-        test_scenario::end(scenario);
-    }
-
-    #[test]
     fun test_version_control() {
         let mut scenario = test_scenario::begin(@0x1);
         let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        let mut strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, b"test_tag", scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
         
         // Check initial version
         assert!(strategy_wrapper::get_version(&strategy_cap) == 1, 0);
@@ -92,12 +139,6 @@ module strategy_wrapper::strategy_wrapper_tests {
         
         // Test assert_current_version doesn't fail
         strategy_wrapper::assert_current_version(&strategy_cap);
-        
-        // Manually set version to 0 to simulate old version (for testing)
-        // Note: In real scenarios, this would be an older cap from a previous version
-        
-        // Since we can't directly modify the version in tests without internal access,
-        // tests the migration logic by ensuring current caps are already at current version
         
         // Cleanup
         test_utils::destroy(lending_market);

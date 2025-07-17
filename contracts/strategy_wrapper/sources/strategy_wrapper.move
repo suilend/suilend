@@ -8,23 +8,28 @@ module strategy_wrapper::strategy_wrapper {
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
+    const EInvalidStrategyType: u64 = 2;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
+
+    // === Strategy Type Constants ===
+    const STRATEGY_SUI_LOOPING_SSUI: u8 = 1;
+    const STRATEGY_BTC_LOOPING_WBTC: u8 = 2;
 
     // Structs
     public struct StrategyOwnerCap<phantom P> has key, store {
         id: UID,
         version: u64,
         inner_cap: ObligationOwnerCap<P>,
-        tag: String,
+        strategy_type: u8,
     }
 
     // Events
     public struct CreatedStrategyOwnerCap has copy, drop {
         cap_id: address,
         obligation_id: address,
-        tag: String,
+        strategy_type: u8,
     }
 
     public struct EjectedInnerCap has copy, drop {
@@ -38,29 +43,39 @@ module strategy_wrapper::strategy_wrapper {
         new_version: u64,
     }
 
+    // === Strategy Type Validation ===
+    public fun is_valid_strategy_type(strategy_type: u8): bool {
+        strategy_type == STRATEGY_SUI_LOOPING_SSUI ||
+        strategy_type == STRATEGY_BTC_LOOPING_WBTC 
+    }
+
     // Public functions
     public fun create_strategy_owner_cap<P>(
         inner_cap: ObligationOwnerCap<P>,
-        tag: vector<u8>,
+        strategy_type: u8,
         ctx: &mut TxContext
     ): StrategyOwnerCap<P> {
+        assert!(is_valid_strategy_type(strategy_type), EInvalidStrategyType);
+        
         let obligation_id = lending_market::obligation_id(&inner_cap);
 
         let strategy_cap = StrategyOwnerCap {
             id: object::new(ctx),
             version: CURRENT_VERSION,
             inner_cap,
-            tag: ascii::string(tag),
+            strategy_type,
         };
 
         event::emit(CreatedStrategyOwnerCap {
             cap_id: object::id_address(&strategy_cap),
             obligation_id: object::id_to_address(&obligation_id),
-            tag: strategy_cap.tag,
+            strategy_type: strategy_cap.strategy_type,
         });
 
         strategy_cap
     }
+
+
 
     public entry fun eject<P>(
         strategy_cap: StrategyOwnerCap<P>,
@@ -68,7 +83,7 @@ module strategy_wrapper::strategy_wrapper {
     ) {
         assert!(strategy_cap.version == CURRENT_VERSION, EIncorrectVersion);
         
-        let StrategyOwnerCap { id, version: _, inner_cap, tag: _ } = strategy_cap;
+        let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
         let cap_id_addr = object::uid_to_address(&id);
         let obligation_id_addr = object::id_to_address(&lending_market::obligation_id(&inner_cap));
         object::delete(id);
@@ -80,8 +95,8 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     // View functions
-    public fun get_tag<P>(cap: &StrategyOwnerCap<P>): &String {
-        &cap.tag
+    public fun get_strategy_type<P>(cap: &StrategyOwnerCap<P>): u8 {
+        cap.strategy_type
     }
 
     public fun get_version<P>(cap: &StrategyOwnerCap<P>): u64 {
@@ -92,6 +107,8 @@ module strategy_wrapper::strategy_wrapper {
     public fun inner_cap<P>(cap: &StrategyOwnerCap<P>): &ObligationOwnerCap<P> {
         &cap.inner_cap
     }
+
+
 
     // === Migration Functions ===
     
@@ -122,7 +139,7 @@ module strategy_wrapper::strategy_wrapper {
     // === Test Functions ===
     #[test_only]
     public fun destroy_for_testing<P>(strategy_cap: StrategyOwnerCap<P>) {
-        let StrategyOwnerCap { id, version: _, inner_cap, tag: _ } = strategy_cap;
+        let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
         object::delete(id);
         lending_market::destroy_for_testing(inner_cap);
     }
