@@ -109,7 +109,6 @@ module strategy_wrapper::strategy_wrapper {
     }
 
 
-
     // === Migration Functions ===
     
     /// Migrate a strategy owner cap to the current version
