@@ -74,9 +74,6 @@ module strategy_wrapper::strategy_wrapper {
 
         strategy_cap
     }
-
-
-
     public entry fun eject<P>(
         strategy_cap: StrategyOwnerCap<P>,
         ctx: &TxContext
