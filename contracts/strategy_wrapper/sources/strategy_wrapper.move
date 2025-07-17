@@ -1,5 +1,4 @@
 module strategy_wrapper::strategy_wrapper {
-    use std::ascii::{Self, String};
     use sui::event;
     use suilend::lending_market::{Self, ObligationOwnerCap};
 
