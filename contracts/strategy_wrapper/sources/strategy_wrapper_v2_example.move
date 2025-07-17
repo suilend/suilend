@@ -76,7 +76,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         strategy_cap: &mut StrategyOwnerCap<P>,
         threshold_bps: u64,
         max_frequency_hours: u64,
-        ctx: &TxContext
+        _ctx: &TxContext
     ) {
         assert!(strategy_cap.version >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
         
