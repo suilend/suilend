@@ -3,9 +3,6 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     use std::ascii::{Self, String};
     use sui::dynamic_field;
     use sui::event;
-    use sui::object::{Self, UID};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
     use suilend::lending_market::{Self, ObligationOwnerCap};
 
     // === Errors ===
