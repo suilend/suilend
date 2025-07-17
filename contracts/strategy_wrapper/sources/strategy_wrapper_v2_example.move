@@ -11,10 +11,15 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
     const EFeatureNotAvailable: u64 = 2;
+    const EInvalidStrategyType: u64 = 3;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 2;
     const MIN_VERSION_FOR_FEATURES: u64 = 2;
+
+    // === Strategy Type Constants ===
+    const STRATEGY_SUI_LOOPING_SSUI: u8 = 1;
+    const STRATEGY_BTC_LOOPING_WBTC: u8 = 2;
 
     // === Dynamic Field Keys ===
     public struct AutoRebalanceConfig has copy, drop, store {}
@@ -45,7 +50,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         id: UID,
         version: u64,
         inner_cap: ObligationOwnerCap<P>,
-        tag: String,
+        strategy_type: u8,
     }
 
     // === Events ===
@@ -59,6 +64,12 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         cap_id: address,
         threshold_reached: u64,
         timestamp: u64,
+    }
+
+    // === Strategy Type Validation ===
+    public fun is_valid_strategy_type(strategy_type: u8): bool {
+        strategy_type == STRATEGY_SUI_LOOPING_SSUI ||
+        strategy_type == STRATEGY_BTC_LOOPING_WBTC
     }
 
     // === V2 Feature Functions ===
@@ -248,7 +259,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
             let CustomParams { risk_level: _, auto_compound: _, notification_enabled: _ } = params;
         };
         
-        let StrategyOwnerCap { id, version: _, inner_cap, tag: _ } = strategy_cap;
+        let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
         let cap_id_addr = object::uid_to_address(&id);
         let obligation_id_addr = object::id_to_address(&lending_market::obligation_id(&inner_cap));
         object::delete(id);
