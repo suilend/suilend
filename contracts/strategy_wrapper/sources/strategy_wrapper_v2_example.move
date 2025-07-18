@@ -4,6 +4,8 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     use sui::dynamic_field;
     use sui::event;
     use suilend::lending_market::{Self, ObligationOwnerCap};
+    // Import the base StrategyOwnerCap from the main module
+    use strategy_wrapper::strategy_wrapper::{Self, StrategyOwnerCap};
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -43,12 +45,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         notification_enabled: bool,
     }
 
-    public struct StrategyOwnerCap<phantom P> has key, store {
-        id: UID,
-        version: u64,
-        inner_cap: ObligationOwnerCap<P>,
-        strategy_type: u8,
-    }
+    // Remove the duplicate StrategyOwnerCap struct - we use the one from strategy_wrapper
 
     // === Events ===
     public struct FeatureEnabled has copy, drop {
@@ -78,7 +75,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         max_frequency_hours: u64,
         _ctx: &TxContext
     ) {
-        assert!(strategy_cap.version >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
+        assert!(strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
         
         let config = RebalanceSettings {
             enabled: true,
@@ -86,12 +83,12 @@ module strategy_wrapper::strategy_wrapper_v2_example {
             max_frequency_hours,
         };
         
-        dynamic_field::add(&mut strategy_cap.id, AutoRebalanceConfig {}, config);
+        dynamic_field::add(strategy_wrapper::borrow_uid_mut(strategy_cap), AutoRebalanceConfig {}, config);
         
         event::emit(FeatureEnabled {
             cap_id: object::id_address(strategy_cap),
             feature_name: ascii::string(b"auto_rebalance"),
-            version: strategy_cap.version,
+            version: strategy_wrapper::get_version(strategy_cap),
         });
     }
 
@@ -100,7 +97,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         strategy_cap: &mut StrategyOwnerCap<P>,
         _ctx: &TxContext
     ) {
-        assert!(strategy_cap.version >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
+        assert!(strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
         
         let metrics = Metrics {
             total_deposits: 0,
@@ -109,12 +106,12 @@ module strategy_wrapper::strategy_wrapper_v2_example {
             performance_score: 100, // Start at 100%
         };
         
-        dynamic_field::add(&mut strategy_cap.id, PerformanceMetrics {}, metrics);
+        dynamic_field::add(strategy_wrapper::borrow_uid_mut(strategy_cap), PerformanceMetrics {}, metrics);
         
         event::emit(FeatureEnabled {
             cap_id: object::id_address(strategy_cap),
             feature_name: ascii::string(b"performance_metrics"),
-            version: strategy_cap.version,
+            version: strategy_wrapper::get_version(strategy_cap),
         });
     }
 
@@ -126,7 +123,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         notification_enabled: bool,
         _ctx: &TxContext
     ) {
-        assert!(strategy_cap.version >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
+        assert!(strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
         assert!(risk_level >= 1 && risk_level <= 10, 3);
         
         let params = CustomParams {
@@ -135,21 +132,22 @@ module strategy_wrapper::strategy_wrapper_v2_example {
             notification_enabled,
         };
         
-        if (dynamic_field::exists_(&strategy_cap.id, CustomParameters {})) {
-            let old_params: CustomParams = dynamic_field::remove(&mut strategy_cap.id, CustomParameters {});
+        let uid = strategy_wrapper::borrow_uid_mut(strategy_cap);
+        if (dynamic_field::exists_(uid, CustomParameters {})) {
+            let old_params: CustomParams = dynamic_field::remove(uid, CustomParameters {});
             // clean up old params if needed
             let CustomParams { risk_level: _, auto_compound: _, notification_enabled: _ } = old_params;
         };
         
-        dynamic_field::add(&mut strategy_cap.id, CustomParameters {}, params);
+        dynamic_field::add(uid, CustomParameters {}, params);
     }
 
     // === View Functions for V2 Features ===
 
     /// Check if auto-rebalance is enabled
     public fun has_auto_rebalance<P>(strategy_cap: &StrategyOwnerCap<P>): bool {
-        strategy_cap.version >= MIN_VERSION_FOR_FEATURES && 
-        dynamic_field::exists_(&strategy_cap.id, AutoRebalanceConfig {})
+        strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES && 
+        dynamic_field::exists_(strategy_wrapper::borrow_uid(strategy_cap), AutoRebalanceConfig {})
     }
 
     /// Get auto-rebalance configuration
@@ -157,7 +155,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         assert!(has_auto_rebalance(strategy_cap), EFeatureNotAvailable);
         
         let config = dynamic_field::borrow<AutoRebalanceConfig, RebalanceSettings>(
-            &strategy_cap.id, 
+            strategy_wrapper::borrow_uid(strategy_cap), 
             AutoRebalanceConfig {}
         );
         
@@ -166,8 +164,8 @@ module strategy_wrapper::strategy_wrapper_v2_example {
 
     /// Check if performance metrics are enabled
     public fun has_performance_metrics<P>(strategy_cap: &StrategyOwnerCap<P>): bool {
-        strategy_cap.version >= MIN_VERSION_FOR_FEATURES && 
-        dynamic_field::exists_(&strategy_cap.id, PerformanceMetrics {})
+        strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES && 
+        dynamic_field::exists_(strategy_wrapper::borrow_uid(strategy_cap), PerformanceMetrics {})
     }
 
     /// Get performance metrics
@@ -175,7 +173,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         assert!(has_performance_metrics(strategy_cap), EFeatureNotAvailable);
         
         let metrics = dynamic_field::borrow<PerformanceMetrics, Metrics>(
-            &strategy_cap.id, 
+            strategy_wrapper::borrow_uid(strategy_cap), 
             PerformanceMetrics {}
         );
         
@@ -195,7 +193,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         };
         
         let metrics = dynamic_field::borrow_mut<PerformanceMetrics, Metrics>(
-            &mut strategy_cap.id, 
+            strategy_wrapper::borrow_uid_mut(strategy_cap), 
             PerformanceMetrics {}
         );
         
@@ -213,10 +211,10 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         enable_metrics: bool,
         ctx: &TxContext
     ) {
-        assert!(strategy_cap.version == 1, EIncorrectVersion);
+        assert!(strategy_wrapper::get_version(strategy_cap) == 1, EIncorrectVersion);
         
-        // Update version
-        strategy_cap.version = 2;
+        // Use the base migration function to update version
+        strategy_wrapper::migrate(strategy_cap);
         
         // Optionally enable new features during migration
         if (enable_auto_rebalance) {
@@ -233,16 +231,18 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         mut strategy_cap: StrategyOwnerCap<P>,
         ctx: &TxContext
     ) {
-        assert!(strategy_cap.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(strategy_wrapper::get_version(&strategy_cap) == CURRENT_VERSION, EIncorrectVersion);
         
-        // clean up any dynamic fields before destructuring
-        if (dynamic_field::exists_(&strategy_cap.id, AutoRebalanceConfig {})) {
-            let config: RebalanceSettings = dynamic_field::remove(&mut strategy_cap.id, AutoRebalanceConfig {});
+        // clean up any dynamic fields before ejecting
+        let uid = strategy_wrapper::borrow_uid_mut(&mut strategy_cap);
+        
+        if (dynamic_field::exists_(uid, AutoRebalanceConfig {})) {
+            let config: RebalanceSettings = dynamic_field::remove(uid, AutoRebalanceConfig {});
             let RebalanceSettings { enabled: _, threshold_bps: _, max_frequency_hours: _ } = config;
         };
         
-        if (dynamic_field::exists_(&strategy_cap.id, PerformanceMetrics {})) {
-            let metrics: Metrics = dynamic_field::remove(&mut strategy_cap.id, PerformanceMetrics {});
+        if (dynamic_field::exists_(uid, PerformanceMetrics {})) {
+            let metrics: Metrics = dynamic_field::remove(uid, PerformanceMetrics {});
             let Metrics { 
                 total_deposits: _, 
                 total_withdrawals: _, 
@@ -251,15 +251,12 @@ module strategy_wrapper::strategy_wrapper_v2_example {
             } = metrics;
         };
         
-        if (dynamic_field::exists_(&strategy_cap.id, CustomParameters {})) {
-            let params: CustomParams = dynamic_field::remove(&mut strategy_cap.id, CustomParameters {});
+        if (dynamic_field::exists_(uid, CustomParameters {})) {
+            let params: CustomParams = dynamic_field::remove(uid, CustomParameters {});
             let CustomParams { risk_level: _, auto_compound: _, notification_enabled: _ } = params;
         };
         
-        let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
-        let cap_id_addr = object::uid_to_address(&id);
-        let obligation_id_addr = object::id_to_address(&lending_market::obligation_id(&inner_cap));
-        object::delete(id);
-        transfer::public_transfer(inner_cap, tx_context::sender(ctx));
+        // Use the base eject function
+        strategy_wrapper::eject(strategy_cap, ctx);
     }
 } 

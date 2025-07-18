@@ -70,21 +70,24 @@ module strategy_wrapper::strategy_wrapper {
 
         strategy_cap
     }
-    public entry fun eject<P>(
+
+    public fun eject<P>(
         strategy_cap: StrategyOwnerCap<P>,
-        ctx: &TxContext
-    ) {
+        _ctx: &TxContext
+    ): ObligationOwnerCap<P> {
         assert!(strategy_cap.version == CURRENT_VERSION, EIncorrectVersion);
         
         let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
         let cap_id_addr = object::uid_to_address(&id);
         let obligation_id_addr = object::id_to_address(&lending_market::obligation_id(&inner_cap));
         object::delete(id);
-        transfer::public_transfer(inner_cap, tx_context::sender(ctx));
+        
         event::emit(EjectedInnerCap {
             cap_id: cap_id_addr,
             obligation_id: obligation_id_addr,
         });
+        
+        inner_cap
     }
 
     // View functions
@@ -101,6 +104,14 @@ module strategy_wrapper::strategy_wrapper {
         &cap.inner_cap
     }
 
+    // Helper functions for dynamic field access
+    public fun borrow_uid<P>(cap: &StrategyOwnerCap<P>): &UID {
+        &cap.id
+    }
+
+    public fun borrow_uid_mut<P>(cap: &mut StrategyOwnerCap<P>): &mut UID {
+        &mut cap.id
+    }
 
     // === Migration Functions ===
     
