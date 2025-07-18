@@ -71,11 +71,13 @@ module strategy_wrapper::strategy_wrapper {
         strategy_cap
     }
 
+    // ===  Public Functions  ===
+
     public fun eject<P>(
-        strategy_cap: StrategyOwnerCap<P>,
+        mut strategy_cap: StrategyOwnerCap<P>,
         _ctx: &TxContext
     ): ObligationOwnerCap<P> {
-        assert!(strategy_cap.version == CURRENT_VERSION, EIncorrectVersion);
+        assert_version_and_upgrade(&mut strategy_cap);
         
         let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
         let cap_id_addr = object::uid_to_address(&id);
@@ -92,6 +94,7 @@ module strategy_wrapper::strategy_wrapper {
 
     // View functions
     public fun get_strategy_type<P>(cap: &StrategyOwnerCap<P>): u8 {
+        assert_current_version(cap);
         cap.strategy_type
     }
 
@@ -101,40 +104,45 @@ module strategy_wrapper::strategy_wrapper {
 
     // Getter for the inner obligation cap
     public fun inner_cap<P>(cap: &StrategyOwnerCap<P>): &ObligationOwnerCap<P> {
+        assert_current_version(cap);
         &cap.inner_cap
     }
 
-    // Helper functions for dynamic field access
-    public fun borrow_uid<P>(cap: &StrategyOwnerCap<P>): &UID {
-        &cap.id
-    }
-
+    // Helper functions for dynamic field access with auto-migration
     public fun borrow_uid_mut<P>(cap: &mut StrategyOwnerCap<P>): &mut UID {
+        assert_version_and_upgrade(cap);
         &mut cap.id
     }
 
-    // === Migration Functions ===
+    // Read-only UID access doesn't need migration
+    public fun borrow_uid<P>(cap: &StrategyOwnerCap<P>): &UID {
+        assert_current_version(cap);
+        &cap.id
+    }
+
+        // === Auto-Migration Functions ===
     
-    /// Migrate a strategy owner cap to the current version
-    public entry fun migrate<P>(strategy_cap: &mut StrategyOwnerCap<P>) {
-        assert!(strategy_cap.version <= CURRENT_VERSION - 1, EIncorrectVersion);
-        
-        let old_version = strategy_cap.version;
-        strategy_cap.version = CURRENT_VERSION;
-        
-        event::emit(MigratedStrategyOwnerCap {
-            cap_id: object::id_address(strategy_cap),
-            old_version,
-            new_version: CURRENT_VERSION,
-        });
+    /// Automatically migrate a strategy owner cap to the current version if needed
+    fun auto_migrate<P>(strategy_cap: &mut StrategyOwnerCap<P>) {
+        if (strategy_cap.version < CURRENT_VERSION) {
+            let old_version = strategy_cap.version;
+            strategy_cap.version = CURRENT_VERSION;
+            
+            event::emit(MigratedStrategyOwnerCap {
+                cap_id: object::id_address(strategy_cap),
+                old_version,
+                new_version: CURRENT_VERSION,
+            });
+        }
     }
 
-    /// Check if a strategy cap needs migration
-    public fun needs_migration<P>(cap: &StrategyOwnerCap<P>): bool {
-        cap.version < CURRENT_VERSION
+    /// Assert that the strategy cap is at the current version, auto-migrating if needed
+    fun assert_version_and_upgrade<P>(strategy_cap: &mut StrategyOwnerCap<P>) {
+        auto_migrate(strategy_cap);
+        assert!(strategy_cap.version == CURRENT_VERSION, EIncorrectVersion);
     }
 
-    /// Assert that the strategy cap is at the current version
+    /// Assert that the strategy cap is at the current version (read-only check)
     public fun assert_current_version<P>(cap: &StrategyOwnerCap<P>) {
         assert!(cap.version == CURRENT_VERSION, EIncorrectVersion);
     }

@@ -1,6 +1,5 @@
 #[test_only]
 module strategy_wrapper::strategy_wrapper_tests {
-    use std::ascii::{Self};
     use std::type_name;
     use sui::clock::{Self, Clock};
     use sui::test_utils::{Self};
@@ -9,7 +8,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     use suilend::lending_market::{Self,
         LendingMarket,
         ObligationOwnerCap};
-    use suilend::reserve_config::{Self, default_reserve_config};
+    use suilend::reserve_config::{default_reserve_config};
     use strategy_wrapper::strategy_wrapper::{Self};
     use suilend::lending_market_tests::{Self, LENDING_MARKET};
     use suilend::test_usdc::TEST_USDC;
@@ -46,7 +45,6 @@ module strategy_wrapper::strategy_wrapper_tests {
         
         // Check version is set correctly
         assert!(strategy_wrapper::get_version(&strategy_cap) == 1, 0);
-        assert!(!strategy_wrapper::needs_migration(&strategy_cap), 1);
         
         // Check strategy type is set correctly
         assert!(strategy_wrapper::get_strategy_type(&strategy_cap) == 1, 2);
@@ -119,9 +117,12 @@ module strategy_wrapper::strategy_wrapper_tests {
         let mut scenario = test_scenario::begin(@0x1);
         let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
-        strategy_wrapper::eject<LENDING_MARKET>(strategy_cap, scenario.ctx());
-
-        // Cleanup
+        
+        // Test eject returns the obligation cap
+        let returned_obligation_cap = strategy_wrapper::eject<LENDING_MARKET>(strategy_cap, scenario.ctx());
+        
+        // Cleanup - destroy the returned obligation cap
+        lending_market::destroy_for_testing(returned_obligation_cap);
         test_utils::destroy(lending_market);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
@@ -135,10 +136,37 @@ module strategy_wrapper::strategy_wrapper_tests {
         
         // Check initial version
         assert!(strategy_wrapper::get_version(&strategy_cap) == 1, 0);
-        assert!(!strategy_wrapper::needs_migration(&strategy_cap), 1);
         
         // Test assert_current_version doesn't fail
         strategy_wrapper::assert_current_version(&strategy_cap);
+        
+        // Cleanup
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_for_testing(strategy_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_auto_migration_functionality() {
+        let mut scenario = test_scenario::begin(@0x1);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let mut strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        
+        // Test that functions work regardless of version (auto-migration)
+        let initial_version = strategy_wrapper::get_version(&strategy_cap);
+        assert!(initial_version == 1, 0);
+        
+        // Test mutable access (which would trigger auto-migration if needed)
+        let _uid = strategy_wrapper::borrow_uid_mut(&mut strategy_cap);
+        
+        // Version should still be current after auto-migration check
+        assert!(strategy_wrapper::get_version(&strategy_cap) == 1, 1);
+        
+        // Test read-only access
+        let _uid_readonly = strategy_wrapper::borrow_uid(&strategy_cap);
+        let _inner_cap = strategy_wrapper::inner_cap(&strategy_cap);
+        let _strategy_type = strategy_wrapper::get_strategy_type(&strategy_cap);
         
         // Cleanup
         test_utils::destroy(lending_market);

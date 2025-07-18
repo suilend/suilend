@@ -3,17 +3,13 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     use std::ascii::{Self, String};
     use sui::dynamic_field;
     use sui::event;
-    use suilend::lending_market::{Self, ObligationOwnerCap};
-    // Import the base StrategyOwnerCap from the main module
+    use suilend::lending_market::ObligationOwnerCap;
     use strategy_wrapper::strategy_wrapper::{Self, StrategyOwnerCap};
 
     // === Errors ===
-    const EIncorrectVersion: u64 = 1;
     const EFeatureNotAvailable: u64 = 2;
-    const EInvalidStrategyType: u64 = 3;
 
     // === Constants ===
-    const CURRENT_VERSION: u64 = 2;
     const MIN_VERSION_FOR_FEATURES: u64 = 2;
 
     // === Strategy Type Constants ===
@@ -45,8 +41,6 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         notification_enabled: bool,
     }
 
-    // Remove the duplicate StrategyOwnerCap struct - we use the one from strategy_wrapper
-
     // === Events ===
     public struct FeatureEnabled has copy, drop {
         cap_id: address,
@@ -75,6 +69,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         max_frequency_hours: u64,
         _ctx: &TxContext
     ) {
+        // Auto-migration will happen in borrow_uid_mut
         assert!(strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
         
         let config = RebalanceSettings {
@@ -97,6 +92,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         strategy_cap: &mut StrategyOwnerCap<P>,
         _ctx: &TxContext
     ) {
+        // Auto-migration will happen in borrow_uid_mut
         assert!(strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
         
         let metrics = Metrics {
@@ -123,6 +119,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         notification_enabled: bool,
         _ctx: &TxContext
     ) {
+        // Auto-migration will happen in borrow_uid_mut
         assert!(strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
         assert!(risk_level >= 1 && risk_level <= 10, 3);
         
@@ -202,21 +199,20 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         metrics.performance_score = new_performance_score;
     }
 
-    // === Migration Function from V1 to V2 ===
+    // === Enhanced Functions with Auto-Migration ===
     
-    /// Enhanced migration that can add new features
-    public entry fun migrate_to_v2<P>(
+    /// Enhanced entry function that can add new features to any version
+    /// Auto-migration will handle version upgrades automatically
+    public entry fun enable_v2_features<P>(
         strategy_cap: &mut StrategyOwnerCap<P>,
         enable_auto_rebalance: bool,
         enable_metrics: bool,
         ctx: &TxContext
     ) {
-        assert!(strategy_wrapper::get_version(strategy_cap) == 1, EIncorrectVersion);
+        // Auto-migration happens automatically when we access mutable functions
+        // No need for explicit version checks - auto-migration handles it
         
-        // Use the base migration function to update version
-        strategy_wrapper::migrate(strategy_cap);
-        
-        // Optionally enable new features during migration
+        // Optionally enable new features
         if (enable_auto_rebalance) {
             init_auto_rebalance(strategy_cap, 500, 24, ctx); // Default: 5% threshold, max once per day
         };
@@ -226,14 +222,14 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         };
     }
 
-    /// Clean up dynamic fields when ejecting
-    public entry fun eject_v2<P>(
+    /// Clean up dynamic fields when ejecting and return the obligation cap
+    public fun eject_with_cleanup<P>(
         mut strategy_cap: StrategyOwnerCap<P>,
         ctx: &TxContext
-    ) {
-        assert!(strategy_wrapper::get_version(&strategy_cap) == CURRENT_VERSION, EIncorrectVersion);
+    ): ObligationOwnerCap<P> {
+        // Auto-migration will happen in borrow_uid_mut
         
-        // clean up any dynamic fields before ejecting
+        // Clean up any dynamic fields before ejecting
         let uid = strategy_wrapper::borrow_uid_mut(&mut strategy_cap);
         
         if (dynamic_field::exists_(uid, AutoRebalanceConfig {})) {
@@ -256,7 +252,16 @@ module strategy_wrapper::strategy_wrapper_v2_example {
             let CustomParams { risk_level: _, auto_compound: _, notification_enabled: _ } = params;
         };
         
-        // Use the base eject function
-        strategy_wrapper::eject(strategy_cap, ctx);
+        // Use the base eject function which returns the ObligationOwnerCap
+        strategy_wrapper::eject(strategy_cap, ctx)
+    }
+
+    /// Entry function version that transfers the obligation cap to sender
+    public entry fun eject_v2<P>(
+        strategy_cap: StrategyOwnerCap<P>,
+        ctx: &TxContext
+    ) {
+        let obligation_cap = eject_with_cleanup(strategy_cap, ctx);
+        transfer::public_transfer(obligation_cap, tx_context::sender(ctx));
     }
 } 
