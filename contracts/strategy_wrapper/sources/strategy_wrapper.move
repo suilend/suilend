@@ -45,7 +45,9 @@ module strategy_wrapper::strategy_wrapper {
         strategy_type == STRATEGY_BTC_LOOPING_WBTC 
     }
 
-    // Public functions
+    // === Public functions ===
+
+    // Create a new strategy owner cap
     public fun create_strategy_owner_cap<P>(
         inner_cap: ObligationOwnerCap<P>,
         strategy_type: u8,
@@ -73,6 +75,7 @@ module strategy_wrapper::strategy_wrapper {
 
     // ===  Public Functions  ===
 
+    // Eject the strategy owner cap and return the inner obligation cap
     public fun eject<P>(
         mut strategy_cap: StrategyOwnerCap<P>,
         _ctx: &TxContext
@@ -120,7 +123,7 @@ module strategy_wrapper::strategy_wrapper {
         &cap.id
     }
 
-        // === Auto-Migration Functions ===
+    // === Auto-Migration Functions ===
     
     /// Automatically migrate a strategy owner cap to the current version if needed
     fun auto_migrate<P>(strategy_cap: &mut StrategyOwnerCap<P>) {
