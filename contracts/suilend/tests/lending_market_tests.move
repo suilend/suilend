@@ -652,6 +652,115 @@ module suilend::lending_market_tests {
     }
 
     #[test]
+    public fun test_flash_borrow_and_repay() {
+        use sui::test_utils::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::test_sui::{TEST_SUI};
+        use suilend::mock_pyth::{Self};
+        use suilend::reserve_config::{Self, default_reserve_config};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        setup_sui_system(&mut scenario);
+        let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
+                let mut bag = bag::new(scenario.ctx());
+                bag::add(
+                    &mut bag,
+                    type_name::get<TEST_USDC>(),
+                    ReserveArgs {
+                        config: {
+                            let config = default_reserve_config(scenario.ctx());
+                            let mut builder = reserve_config::from(
+                                &config,
+                                scenario.ctx(),
+                            );
+                            reserve_config::set_open_ltv_pct(&mut builder, 50);
+                            reserve_config::set_close_ltv_pct(&mut builder, 50);
+                            reserve_config::set_max_close_ltv_pct(&mut builder, 50);
+                            sui::test_utils::destroy(config);
+
+                            reserve_config::build(builder, scenario.ctx())
+                        },
+                        initial_deposit: 100 * 1_000_000,
+                    },
+                );
+                bag::add(
+                    &mut bag,
+                    type_name::get<TEST_SUI>(),
+                    ReserveArgs {
+                        config: {
+                            let config = reserve_config::default_reserve_config(scenario.ctx());
+                            let mut builder = reserve_config::from(
+                                &config,
+                                scenario.ctx(),
+                            );
+
+                            test_utils::destroy(config);
+
+                            reserve_config::set_borrow_fee_bps(&mut builder, 10);
+                            reserve_config::build(builder, scenario.ctx())
+                        },
+                        initial_deposit: 100 * 1_000_000_000,
+                    },
+                );
+
+                bag
+            }, scenario.ctx());
+
+        clock::set_for_testing(&mut clock, 1 * 1000);
+
+        // set reserve parameters and prices
+        mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
+        mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
+
+        let (mut sui, flashloan) = lending_market::flash_loan_borrow<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            1 * 1_000_000_000,
+            scenario.ctx(),
+        );
+
+        assert!(coin::value(&sui) == 1 * 1_000_000_000, 0);
+
+        // state checks
+        let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
+        assert!(
+            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_000_000_000),
+            0,
+        );
+
+        let fees = coin::mint_for_testing<TEST_SUI>(1_000_000, scenario.ctx());
+        coin::join<TEST_SUI>(&mut sui, fees);
+
+        lending_market::flash_loan_repay<LENDING_MARKET, TEST_SUI>(
+            &mut lending_market,
+            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            &clock,
+            flashloan,
+            &mut sui,
+            scenario.ctx(),
+        );
+
+        assert!(coin::value(&sui) == 0, 0);
+        test_utils::destroy(sui);
+
+        let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
+        assert!(
+            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(0),
+            0,
+        );
+
+        test_utils::destroy(owner_cap);
+        test_utils::destroy(lending_market);
+        test_utils::destroy(clock);
+        test_utils::destroy(prices);
+        test_utils::destroy(type_to_index);
+        test_scenario::end(scenario);
+    }
+
+
+    #[test]
     public fun test_withdraw() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
