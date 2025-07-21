@@ -136,6 +136,21 @@ module suilend::lending_market {
         liquidity_amount: u64,
     }
 
+    public struct FlashLoanBorrowEvent has copy, drop {
+        lending_market_id: address,
+        coin_type: TypeName,
+        reserve_id: address,
+        liquidity_amount: u64,
+        origination_fee_amount: u64,
+    }
+
+    public struct FlashLoanRepayEvent has copy, drop {
+        lending_market_id: address,
+        coin_type: TypeName,
+        reserve_id: address,
+        liquidity_amount: u64,
+    }
+
     public struct ForgiveEvent has copy, drop {
         lending_market_id: address,
         coin_type: TypeName,
@@ -402,6 +417,7 @@ module suilend::lending_market {
         max_repay_coins: &mut Coin<T>,
         ctx: &mut TxContext,
     ) {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
@@ -413,15 +429,12 @@ module suilend::lending_market {
         let repay_coins = coin::split(max_repay_coins, amount_to_repay, ctx);
         reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), decimal::from(amount_to_repay));
 
-        // event::emit(RepayEvent {
-        //     lending_market_id,
-        //     coin_type: type_name::get<T>(),
-        //     reserve_id: object::id_address(reserve),
-        //     obligation_id: object::id_address(obligation),
-        //     liquidity_amount: ceil(repay_amount),
-        // });
-
-        // obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
+        event::emit(FlashLoanRepayEvent {
+            lending_market_id,
+            coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
+            liquidity_amount: amount_to_repay,
+        });
     }
 
     // Compound interest for reserve of type T
@@ -505,6 +518,7 @@ module suilend::lending_market {
         clock: &Clock,
         mut amount: u64,
     ): LiquidityRequest<P, T> {
+        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(amount > 0, ETooSmall);
 
@@ -512,7 +526,6 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
-        // reserve::assert_price_is_fresh(reserve, clock);
 
         if (amount == U64_MAX) {
             amount = reserve.available_amount();
@@ -521,26 +534,13 @@ module suilend::lending_market {
 
         let liquidity_request = reserve::flash_loan_borrow_liquidity<P, T>(reserve, amount);
 
-        // let borrow_value = reserve::market_value_upper_bound(
-        //     reserve,
-        //     decimal::from(reserve::liquidity_request_amount(&liquidity_request)),
-        // );
-        // rate_limiter::process_qty(
-        //     &mut lending_market.rate_limiter,
-        //     clock::timestamp_ms(clock) / 1000,
-        //     borrow_value,
-        // );
-
-        // event::emit(BorrowEvent {
-        //     lending_market_id,
-        //     coin_type: type_name::get<T>(),
-        //     reserve_id: object::id_address(reserve),
-        //     obligation_id: object::id_address(obligation),
-        //     liquidity_amount: reserve::liquidity_request_amount(&liquidity_request),
-        //     origination_fee_amount: reserve::liquidity_request_fee(&liquidity_request),
-        // });
-
-        // obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
+        event::emit(FlashLoanBorrowEvent {
+            lending_market_id,
+            coin_type: type_name::get<T>(),
+            reserve_id: object::id_address(reserve),
+            liquidity_amount: reserve::liquidity_request_amount(&liquidity_request),
+            origination_fee_amount: reserve::liquidity_request_fee(&liquidity_request),
+        });
         
         liquidity_request
     }
