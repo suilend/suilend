@@ -76,7 +76,7 @@ module strategy_wrapper::strategy_wrapper {
     // ===  Public Functions  ===
 
     // Eject the strategy owner cap and return the inner obligation cap
-    public fun eject<P>(
+    public(package) fun eject<P>(
         mut strategy_cap: StrategyOwnerCap<P>,
         _ctx: &TxContext
     ): ObligationOwnerCap<P> {
