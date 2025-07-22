@@ -112,7 +112,7 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     // Helper functions for dynamic field access with auto-migration
-    public fun borrow_uid_mut<P>(cap: &mut StrategyOwnerCap<P>): &mut UID {
+    public(package) fun borrow_uid_mut<P>(cap: &mut StrategyOwnerCap<P>): &mut UID {
         assert_version_and_upgrade(cap);
         &mut cap.id
     }
