@@ -118,7 +118,7 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     // Read-only UID access doesn't need migration
-    public fun borrow_uid<P>(cap: &StrategyOwnerCap<P>): &UID {
+    public(package) fun borrow_uid<P>(cap: &StrategyOwnerCap<P>): &UID {
         assert_current_version(cap);
         &cap.id
     }
