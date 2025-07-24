@@ -9,9 +9,13 @@ module strategy_wrapper::strategy_wrapper_tests {
         LendingMarket,
         ObligationOwnerCap};
     use suilend::reserve_config::{default_reserve_config};
-    use strategy_wrapper::strategy_wrapper::{Self};
+    use strategy_wrapper::strategy_wrapper::{Self, WrappedObligationCap, RelayerCap, BorrowReceipt};
     use suilend::lending_market_tests::{Self, LENDING_MARKET};
     use suilend::test_usdc::TEST_USDC;
+
+    const ALICE: address = @0xa11ce;
+    const BACKEND: address = @0xbac;
+    const EVIL: address = @0xe11;
 
     #[test_only]
     public fun setup(ctx: &mut TxContext): (LendingMarket<LENDING_MARKET>, ObligationOwnerCap<LENDING_MARKET>, Clock) {
@@ -171,6 +175,339 @@ module strategy_wrapper::strategy_wrapper_tests {
         // Cleanup
         test_utils::destroy(lending_market);
         strategy_wrapper::destroy_for_testing(strategy_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    // === HOT POTATO PATTERN TESTS ===
+
+    #[test]
+    fun test_convert_to_wrapped_cap() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Create strategy owner cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
+            obligation_cap, 
+            1, // STRATEGY_SUI_LOOPING_SSUI
+            scenario.ctx()
+        );
+        
+        // Convert to wrapped cap
+        let (wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Verify wrapped cap properties
+        assert!(strategy_wrapper::wrapped_cap_strategy_type(&wrapped_cap) == 1, 0);
+        assert!(strategy_wrapper::wrapped_cap_relayer_address(&wrapped_cap) == BACKEND, 1);
+        assert!(!strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 2);
+        assert!(strategy_wrapper::wrapped_cap_version(&wrapped_cap) == 1, 3);
+        
+        // Verify relayer cap properties
+        assert!(strategy_wrapper::relayer_cap_strategy_type(&relayer_cap) == 1, 4);
+        assert!(strategy_wrapper::relayer_cap_wrapped_id(&relayer_cap) == object::id(&wrapped_cap), 5);
+        
+        // Cleanup
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
+        strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_wrapped_cap_properties() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Create and convert to wrapped cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Verify wrapped cap properties without borrowing/returning
+        assert!(strategy_wrapper::wrapped_cap_strategy_type(&wrapped_cap) == 1, 0);
+        assert!(strategy_wrapper::wrapped_cap_relayer_address(&wrapped_cap) == BACKEND, 1);
+        assert!(!strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 2);
+        assert!(strategy_wrapper::wrapped_cap_version(&wrapped_cap) == 1, 3);
+        
+        // Verify relayer cap properties
+        assert!(strategy_wrapper::relayer_cap_strategy_type(&relayer_cap) == 1, 4);
+        assert!(strategy_wrapper::relayer_cap_wrapped_id(&relayer_cap) == object::id(&wrapped_cap), 5);
+        
+        // Cleanup
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
+        strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 3)] // EUnauthorizedRelayer
+    fun test_unauthorized_relayer_borrow() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Create and convert to wrapped cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Evil user tries to borrow with wrong address - this should abort before returning values
+        test_scenario::next_tx(&mut scenario, EVIL);
+        let (borrowed_cap, receipt) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            &relayer_cap,
+            scenario.ctx()
+        );
+        
+        // This shouldn't be reached, but if it is, clean up properly
+        strategy_wrapper::return_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            borrowed_cap,
+            receipt,
+            scenario.ctx()
+        );
+        
+        // Cleanup (won't be reached due to expected failure)
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
+        strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 4)] // EObligationCapAlreadyBorrowed
+    fun test_double_borrow_fails() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Create and convert to wrapped cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Change to backend context
+        test_scenario::next_tx(&mut scenario, BACKEND);
+        
+        // First borrow - should succeed
+        let (obligation_cap, receipt) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            &relayer_cap,
+            scenario.ctx()
+        );
+        
+        // Try to borrow again - should fail and abort
+        let (obligation_cap2, receipt2) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            &relayer_cap,
+            scenario.ctx()
+        );
+        
+        // This shouldn't be reached, but if it is, clean up properly
+        strategy_wrapper::return_obligation_cap(&mut wrapped_cap, obligation_cap2, receipt2, scenario.ctx());
+        strategy_wrapper::return_obligation_cap(&mut wrapped_cap, obligation_cap, receipt, scenario.ctx());
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
+        strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    // Note: Cannot test return_without_borrow because BorrowReceipt is a hot potato
+    // and cannot be created independently - this is the intended security feature
+
+    #[test]
+    fun test_convert_back_to_strategy_cap() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Create and convert to wrapped cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let original_strategy_type = strategy_wrapper::get_strategy_type(&strategy_cap);
+        
+        let (wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Convert back to strategy cap
+        let restored_strategy_cap = strategy_wrapper::convert_back_to_strategy_cap<LENDING_MARKET>(
+            wrapped_cap,
+            relayer_cap,
+            scenario.ctx()
+        );
+        
+        // Verify it's back to normal
+        assert!(strategy_wrapper::get_strategy_type(&restored_strategy_cap) == original_strategy_type, 0);
+        assert!(strategy_wrapper::get_version(&restored_strategy_cap) == 1, 1);
+        
+        // Cleanup
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_for_testing(restored_strategy_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = 4)] // EObligationCapAlreadyBorrowed (cap is currently borrowed)
+    fun test_convert_back_while_borrowed_fails() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Create and convert to wrapped cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Backend borrows the cap
+        test_scenario::next_tx(&mut scenario, BACKEND);
+        let (borrowed_cap, receipt) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            &relayer_cap,
+            scenario.ctx()
+        );
+        
+        // Since we can't drop the hot potato, return it first then immediately borrow again
+        strategy_wrapper::return_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            borrowed_cap,
+            receipt,
+            scenario.ctx()
+        );
+        
+        // Borrow again to put wrapped_cap in borrowed state
+        let (borrowed_cap2, receipt2) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            &relayer_cap,
+            scenario.ctx()
+        );
+        
+        // Try to convert back while borrowed - should fail and abort
+        let restored_strategy_cap = strategy_wrapper::convert_back_to_strategy_cap<LENDING_MARKET>(
+            wrapped_cap,
+            relayer_cap,
+            scenario.ctx()
+        );
+        
+        // This shouldn't be reached due to abort, but handle values properly if it is
+        strategy_wrapper::destroy_for_testing(restored_strategy_cap);
+        lending_market::destroy_for_testing(borrowed_cap2);
+        // receipt2 is a hot potato and cannot be destroyed
+        abort 0 // Force abort to prevent reaching unreachable cleanup
+    }
+
+    #[test]
+    fun test_wrapped_cap_view_functions() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Create and convert to wrapped cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Test all view functions
+        assert!(strategy_wrapper::wrapped_cap_strategy_type(&wrapped_cap) == 1, 0);
+        assert!(strategy_wrapper::wrapped_cap_version(&wrapped_cap) == 1, 1);
+        assert!(strategy_wrapper::wrapped_cap_relayer_address(&wrapped_cap) == BACKEND, 2);
+        assert!(!strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 3);
+        
+        assert!(strategy_wrapper::relayer_cap_strategy_type(&relayer_cap) == 1, 4);
+        assert!(strategy_wrapper::relayer_cap_wrapped_id(&relayer_cap) == object::id(&wrapped_cap), 5);
+        
+        // Cleanup
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
+        strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
+        clock::destroy_for_testing(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_hot_potato_complete_workflow() {
+        let mut scenario = test_scenario::begin(ALICE);
+        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        
+        // Step 1: Create strategy cap
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        
+        // Step 2: Convert to wrapped pattern
+        let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
+            strategy_cap,
+            BACKEND,
+            scenario.ctx()
+        );
+        
+        // Step 3: Backend borrows and returns multiple times
+        test_scenario::next_tx(&mut scenario, BACKEND);
+        
+        // First borrow-return cycle
+        let (obligation_cap1, receipt1) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            &relayer_cap,
+            scenario.ctx()
+        );
+        assert!(strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 0);
+        
+        strategy_wrapper::return_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            obligation_cap1,
+            receipt1,
+            scenario.ctx()
+        );
+        assert!(!strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 1);
+        
+        // Second borrow-return cycle
+        let (obligation_cap2, receipt2) = strategy_wrapper::borrow_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            &relayer_cap,
+            scenario.ctx()
+        );
+        assert!(strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 2);
+        
+        strategy_wrapper::return_obligation_cap<LENDING_MARKET>(
+            &mut wrapped_cap,
+            obligation_cap2,
+            receipt2,
+            scenario.ctx()
+        );
+        assert!(!strategy_wrapper::wrapped_cap_is_borrowed(&wrapped_cap), 3);
+        
+        // Step 4: Convert back to strategy cap
+        let restored_strategy_cap = strategy_wrapper::convert_back_to_strategy_cap<LENDING_MARKET>(
+            wrapped_cap,
+            relayer_cap,
+            scenario.ctx()
+        );
+        
+        // Verify everything is back to normal
+        assert!(strategy_wrapper::get_strategy_type(&restored_strategy_cap) == 1, 4);
+        
+        // Cleanup
+        test_utils::destroy(lending_market);
+        strategy_wrapper::destroy_for_testing(restored_strategy_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
