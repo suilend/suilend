@@ -1,6 +1,6 @@
 module strategy_wrapper::strategy_wrapper {
     use sui::event;
-    use suilend::lending_market::{Self, ObligationOwnerCap};
+    use suilend::lending_market::{Self, ObligationOwnerCap, LendingMarket};
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -93,14 +93,16 @@ module strategy_wrapper::strategy_wrapper {
 
     // === Public functions ===
 
-    // Create a new strategy owner cap
+    // Create a new strategy owner cap with a new obligation
     public fun create_strategy_owner_cap<P>(
-        inner_cap: ObligationOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
         strategy_type: u8,
         ctx: &mut TxContext
     ): StrategyOwnerCap<P> {
         assert!(is_valid_strategy_type(strategy_type), EInvalidStrategyType);
         
+        // Create a new obligation in the lending market
+        let inner_cap = lending_market::create_obligation(lending_market, ctx);
         let obligation_id = lending_market::obligation_id(&inner_cap);
 
         let strategy_cap = StrategyOwnerCap {

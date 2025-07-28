@@ -40,9 +40,10 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_create_strategy_owner_cap() {
         let mut scenario = test_scenario::begin(@0x1);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
-            obligation_cap, 
+            &mut lending_market, 
             1, // STRATEGY_SUI_LOOPING_SSUI
             scenario.ctx()
         );
@@ -63,12 +64,14 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_strategy_types() {
         let mut scenario = test_scenario::begin(@0x1);
-        let (lending_market1, obligation_cap1, clock1) = setup(scenario.ctx());
-        let (lending_market2, obligation_cap2, clock2) = setup(scenario.ctx());
+        let (mut lending_market1, obligation_cap1, clock1) = setup(scenario.ctx());
+        let (mut lending_market2, obligation_cap2, clock2) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap1); // Don't need these anymore
+        test_utils::destroy(obligation_cap2);
         
         // Test creating strategies with different types
-        let sui_strategy = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap1, 1, scenario.ctx());
-        let btc_strategy = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap2, 2, scenario.ctx());
+        let sui_strategy = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market1, 1, scenario.ctx());
+        let btc_strategy = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market2, 2, scenario.ctx());
         
         // Verify strategy types
         assert!(strategy_wrapper::get_strategy_type(&sui_strategy) == 1, 0);
@@ -88,11 +91,12 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[expected_failure(abort_code = 2)] // EInvalidStrategyType
     fun test_invalid_strategy_type() {
         let mut scenario = test_scenario::begin(@0x1);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Try to create with invalid strategy type (99)
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
-            obligation_cap, 
+            &mut lending_market, 
             99, // Invalid strategy type
             scenario.ctx()
         );
@@ -119,8 +123,9 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_eject() {
         let mut scenario = test_scenario::begin(@0x1);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         
         // Test eject returns the obligation cap
         let returned_obligation_cap = strategy_wrapper::eject<LENDING_MARKET>(strategy_cap, scenario.ctx());
@@ -135,8 +140,9 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_version_control() {
         let mut scenario = test_scenario::begin(@0x1);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         
         // Check initial version
         assert!(strategy_wrapper::get_version(&strategy_cap) == 1, 0);
@@ -154,8 +160,9 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_auto_migration_functionality() {
         let mut scenario = test_scenario::begin(@0x1);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        let mut strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
+        let mut strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         
         // Test that functions work regardless of version (auto-migration)
         let initial_version = strategy_wrapper::get_version(&strategy_cap);
@@ -184,11 +191,12 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_convert_to_wrapped_cap() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Create strategy owner cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
-            obligation_cap, 
+            &mut lending_market, 
             1, // STRATEGY_SUI_LOOPING_SSUI
             scenario.ctx()
         );
@@ -221,10 +229,11 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_wrapped_cap_properties() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Create and convert to wrapped cap
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         let (wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
             strategy_cap,
             BACKEND,
@@ -253,10 +262,11 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[expected_failure(abort_code = 3)] // EUnauthorizedRelayer
     fun test_unauthorized_relayer_borrow() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Create and convert to wrapped cap
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
             strategy_cap,
             BACKEND,
@@ -291,10 +301,11 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[expected_failure(abort_code = 4)] // EObligationCapAlreadyBorrowed
     fun test_double_borrow_fails() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Create and convert to wrapped cap
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
             strategy_cap,
             BACKEND,
@@ -334,10 +345,11 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_convert_back_to_strategy_cap() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Create and convert to wrapped cap
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         let original_strategy_type = strategy_wrapper::get_strategy_type(&strategy_cap);
         
         let (wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
@@ -368,10 +380,11 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[expected_failure(abort_code = 4)] // EObligationCapAlreadyBorrowed (cap is currently borrowed)
     fun test_convert_back_while_borrowed_fails() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Create and convert to wrapped cap
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
             strategy_cap,
             BACKEND,
@@ -418,10 +431,11 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_wrapped_cap_view_functions() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Create and convert to wrapped cap
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         let (wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
             strategy_cap,
             BACKEND,
@@ -448,10 +462,11 @@ module strategy_wrapper::strategy_wrapper_tests {
     #[test]
     fun test_hot_potato_complete_workflow() {
         let mut scenario = test_scenario::begin(ALICE);
-        let (lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
+        test_utils::destroy(obligation_cap); // Don't need this anymore
         
         // Step 1: Create strategy cap
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(obligation_cap, 1, scenario.ctx());
+        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
         
         // Step 2: Convert to wrapped pattern
         let (mut wrapped_cap, relayer_cap) = strategy_wrapper::convert_to_wrapped_cap<LENDING_MARKET>(
