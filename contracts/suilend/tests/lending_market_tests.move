@@ -713,11 +713,22 @@ module suilend::lending_market_tests {
         mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
         mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
 
+        // Asserting initial state
+        let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
+        assert!(
+            reserve::available_amount<LENDING_MARKET>(sui_reserve) == 100_000_000_000,
+            0,
+        );
+        assert!(
+            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(0),
+            0,
+        );
+
         let (mut sui, flashloan) = lending_market::flash_loan_borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
-            &clock,
             1 * 1_000_000_000,
+            &clock,
             scenario.ctx(),
         );
 
@@ -726,7 +737,11 @@ module suilend::lending_market_tests {
         // state checks
         let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
         assert!(
-            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_000_000_000),
+            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_001_000_000),
+            0,
+        );
+        assert!(
+            reserve::available_amount<LENDING_MARKET>(sui_reserve) == 100_000_000_000 - 1_001_000_000,
             0,
         );
 
@@ -736,9 +751,9 @@ module suilend::lending_market_tests {
         lending_market::flash_loan_repay<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
-            &clock,
-            flashloan,
             &mut sui,
+            flashloan,
+            &clock,
             scenario.ctx(),
         );
 
@@ -748,6 +763,10 @@ module suilend::lending_market_tests {
         let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
         assert!(
             reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(0),
+            0,
+        );
+        assert!(
+            reserve::available_amount<LENDING_MARKET>(sui_reserve) == 100_000_000_000,
             0,
         );
 
@@ -762,7 +781,7 @@ module suilend::lending_market_tests {
     #[test]
     // should fail in sui::balance because the flash loan expects a coin object with enough in it
     // to repay the flash loan + fees
-    #[expected_failure(abort_code = 2, location = sui::balance)]
+    #[expected_failure(abort_code = suilend::lending_market::EInsufficientRepay)]
     public fun test_flash_borrow_insufficient_repay() {
         use sui::test_utils::{Self};
         use suilend::test_usdc::{TEST_USDC};
@@ -827,8 +846,8 @@ module suilend::lending_market_tests {
         let (mut sui, flashloan) = lending_market::flash_loan_borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
-            &clock,
             1 * 1_000_000_000,
+            &clock,
             scenario.ctx(),
         );
 
@@ -837,7 +856,7 @@ module suilend::lending_market_tests {
         // state checks
         let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
         assert!(
-            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_000_000_000),
+            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_001_000_000),
             0,
         );
 
@@ -845,28 +864,13 @@ module suilend::lending_market_tests {
         lending_market::flash_loan_repay<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
-            &clock,
-            flashloan,
             &mut sui,
+            flashloan,
+            &clock,
             scenario.ctx(),
         );
 
-        // it will fail so none of the sui was taken/repaid
-        assert!(coin::value(&sui) == 1 * 1_000_000_000, 0);
         test_utils::destroy(sui);
-
-        // we can't actually test if the hot potato was dropped because
-        // the compiler won't let us use a "dropped" variable
-        // even though we know that if the tranasction failed *all* state
-        // should have reverted -> we are still holding the hot potato
-        // the compiler is too smart for it's own good :(
-
-        let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
-        assert!(
-            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_000_000_000),
-            0,
-        );
-
         test_utils::destroy(owner_cap);
         test_utils::destroy(lending_market);
         test_utils::destroy(clock);

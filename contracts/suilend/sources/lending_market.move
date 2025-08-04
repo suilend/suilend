@@ -27,6 +27,7 @@ module suilend::lending_market {
     const ECannotClaimReward: u64 = 6;
     const EInvalidObligationId: u64 = 7;
     const EInvalidFeeReceivers: u64 = 8;
+    const EInsufficientRepay: u64 = 9;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 7;
@@ -64,7 +65,7 @@ module suilend::lending_market {
         obligation_id: ID,
     }
 
-    public struct FlashLoan {
+    public struct FlashLoan<phantom T> {
         amount_to_repay: u64
     }
 
@@ -395,26 +396,31 @@ module suilend::lending_market {
     public fun flash_loan_borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
-        clock: &Clock,
         amount: u64,
+        clock: &Clock,
         ctx: &mut TxContext,
-    ): (Coin<T>, FlashLoan) {
+    ): (Coin<T>, FlashLoan<T>) {
         let liquidity_request = flash_loan_request<P, T>(
             lending_market,
             reserve_array_index,
-            clock,
             amount,
+            clock,
         );
 
-        fulfill_flash_loan_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
+        let amount_to_repay = liquidity_request.liquidity_request_amount(); // includes fee
+
+        (
+            fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx),
+            FlashLoan<T> { amount_to_repay }
+        )
     }
 
     public fun flash_loan_repay<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
-        clock: &Clock,
-        flash_loan: FlashLoan,
         max_repay_coins: &mut Coin<T>,
+        flash_loan: FlashLoan<T>,
+        clock: &Clock,
         ctx: &mut TxContext,
     ) {
         let lending_market_id = object::id_address(lending_market);
@@ -423,9 +429,11 @@ module suilend::lending_market {
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
 
+        assert!(max_repay_coins.value() >= flash_loan.amount_to_repay, EInsufficientRepay);
+
         reserve::compound_interest(reserve, clock);
 
-        let FlashLoan{ amount_to_repay } = flash_loan;
+        let FlashLoan { amount_to_repay } = flash_loan;
         let repay_coins = coin::split(max_repay_coins, amount_to_repay, ctx);
         reserve::repay_liquidity<P, T>(reserve, coin::into_balance(repay_coins), decimal::from(amount_to_repay));
 
@@ -515,11 +523,12 @@ module suilend::lending_market {
     public fun flash_loan_request<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
-        clock: &Clock,
         mut amount: u64,
+        clock: &Clock,
     ): LiquidityRequest<P, T> {
-        let lending_market_id = object::id_address(lending_market);
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        
+        let lending_market_id = object::id_address(lending_market);
         assert!(amount > 0, ETooSmall);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
@@ -532,14 +541,14 @@ module suilend::lending_market {
             assert!(amount > 0, ETooSmall);
         };
 
-        let liquidity_request = reserve::flash_loan_borrow_liquidity<P, T>(reserve, amount);
+        let liquidity_request = reserve::borrow_liquidity<P, T>(reserve, amount);
 
         event::emit(FlashLoanBorrowEvent {
             lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
-            liquidity_amount: reserve::liquidity_request_amount(&liquidity_request),
-            origination_fee_amount: reserve::liquidity_request_fee(&liquidity_request),
+            liquidity_amount: liquidity_request.liquidity_request_amount(),
+            origination_fee_amount: liquidity_request.liquidity_request_fee(),
         });
         
         liquidity_request
@@ -559,27 +568,6 @@ module suilend::lending_market {
         coin::from_balance(
             reserve::fulfill_liquidity_request(reserve, liquidity_request),
             ctx,
-        )
-    }
-
-    public fun fulfill_flash_loan_liquidity_request<P, T>(
-        lending_market: &mut LendingMarket<P>,
-        reserve_array_index: u64,
-        liquidity_request: LiquidityRequest<P, T>,
-        ctx: &mut TxContext,
-    ): (Coin<T>, FlashLoan) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-
-        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
-
-        let (balance, amount_to_repay) = reserve::fulfill_flash_loan_liquidity_request(reserve, liquidity_request);
-        (
-            coin::from_balance(
-            balance,
-            ctx,
-            ),
-            FlashLoan {amount_to_repay}
         )
     }
 
