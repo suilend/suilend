@@ -1,5 +1,6 @@
 contracts/build
 contracts/suilend/build
+contracts/strategy_wrapper/build
 contracts/sprungsui/build
 suilend-cli/node_modules
 contracts/oracles/build
