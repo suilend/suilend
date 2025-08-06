@@ -48,6 +48,7 @@ module suilend::reserve {
     // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token amount
     // can never be withdrawn or borrowed.
     const MIN_AVAILABLE_AMOUNT: u64 = 100; 
+    const FLASH_BORROW_FEE_BPS: u64 = 2; 
 
     // === public structs ===
     public struct Reserve<phantom P> has key, store {
@@ -935,6 +936,45 @@ module suilend::reserve {
             fee: borrow_fee
         }
     }
+    
+    /// Flash Borrow tokens from the reserve. A fee is charged on the borrowed amount.
+    /// The difference from `borrow_liquidity` stems from the flash borrow being different
+    public(package) fun flash_borrow_liquidity<P, T>(
+        reserve: &mut Reserve<P>, 
+        amount: u64
+    ): LiquidityRequest<P, T> {
+        let borrow_fee = calculate_flash_borrow_fee(amount);
+        let borrow_amount_with_fees = amount + borrow_fee;
+
+        reserve.available_amount = reserve.available_amount - borrow_amount_with_fees;
+        reserve.borrowed_amount = add(reserve.borrowed_amount, decimal::from(borrow_amount_with_fees));
+
+        assert!(
+            le(reserve.borrowed_amount, decimal::from(borrow_limit(config(reserve)))), 
+            EBorrowLimitExceeded 
+        );
+
+        let borrowed_amount = reserve.borrowed_amount;
+        assert!(
+            le(
+                market_value_upper_bound(reserve, borrowed_amount), 
+                decimal::from(borrow_limit_usd(config(reserve)))
+            ), 
+            EBorrowLimitExceeded
+        );
+
+        assert!(
+            reserve.available_amount >= MIN_AVAILABLE_AMOUNT && reserve.ctoken_supply >= MIN_AVAILABLE_AMOUNT,
+            EMinAvailableAmountViolated
+        );
+
+        log_reserve_data(reserve);
+
+        LiquidityRequest<P, T> {
+            amount: borrow_amount_with_fees,
+            fee: borrow_fee
+        }
+    }
 
     public(package) fun repay_liquidity<P, T>(
         reserve: &mut Reserve<P>, 
@@ -1026,6 +1066,12 @@ module suilend::reserve {
             smoothed_price: reserve.smoothed_price,
             price_last_update_timestamp_s: reserve.price_last_update_timestamp_s,
         });
+    }
+
+    fun calculate_flash_borrow_fee(
+        borrow_amount: u64
+    ): u64 {
+        ceil(mul(decimal::from(borrow_amount), decimal::from_bps(FLASH_BORROW_FEE_BPS)))
     }
 
     // === Test Functions ===

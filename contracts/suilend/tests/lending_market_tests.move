@@ -734,18 +734,21 @@ module suilend::lending_market_tests {
 
         assert!(coin::value(&sui) == 1 * 1_000_000_000, 0);
 
+        assert!(flashloan.flash_loan_amount_to_repay() == 1 * 1_000_200_000, 0);
+        assert!(flashloan.flash_loan_fee_amount() == 1 * 200_000, 0);
+
         // state checks
         let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
         assert!(
-            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_001_000_000),
+            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_000_200_000),
             0,
         );
         assert!(
-            reserve::available_amount<LENDING_MARKET>(sui_reserve) == 100_000_000_000 - 1_001_000_000,
+            reserve::available_amount<LENDING_MARKET>(sui_reserve) == 100_000_000_000 - 1_000_200_000,
             0,
         );
 
-        let fees = coin::mint_for_testing<TEST_SUI>(1_000_000, scenario.ctx());
+        let fees = coin::mint_for_testing<TEST_SUI>(200_000, scenario.ctx());
         coin::join<TEST_SUI>(&mut sui, fees);
 
         lending_market::flash_loan_repay<LENDING_MARKET, TEST_SUI>(
@@ -856,7 +859,7 @@ module suilend::lending_market_tests {
         // state checks
         let sui_reserve = lending_market::reserve<LENDING_MARKET, TEST_SUI>(&lending_market);
         assert!(
-            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_001_000_000),
+            reserve::borrowed_amount<LENDING_MARKET>(sui_reserve) == decimal::from(1_000_200_000),
             0,
         );
 
