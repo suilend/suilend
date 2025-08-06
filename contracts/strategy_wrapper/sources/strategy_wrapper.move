@@ -598,6 +598,29 @@ module strategy_wrapper::strategy_wrapper {
         )
     }
 
+    /// Claim rewards from the strategy's obligation
+    public fun claim_rewards<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        clock: &Clock,
+        reserve_id: u64,
+        reward_index: u64,
+        is_deposit_reward: bool,
+        ctx: &mut TxContext,
+    ): Coin<T> {
+        assert_current_version(strategy_cap);
+        
+        lending_market::claim_rewards<P, T>(
+            lending_market,
+            &strategy_cap.inner_cap,
+            clock,
+            reserve_id,
+            reward_index,
+            is_deposit_reward,
+            ctx,
+        )
+    }
+
     // === Test Functions ===
     #[test_only]
     public fun destroy_for_testing<P>(strategy_cap: StrategyOwnerCap<P>) {
