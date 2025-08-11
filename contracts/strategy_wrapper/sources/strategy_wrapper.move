@@ -24,7 +24,7 @@ module strategy_wrapper::strategy_wrapper {
 
     // === Strategy Type Constants ===
     const STRATEGY_SUI_LOOPING_SSUI: u8 = 1;
-    const STRATEGY_BTC_LOOPING_WBTC: u8 = 2;
+    const STRATEGY_SUI_LOOPING_STRATSUI: u8 = 2;
 
     // Structs
     public struct StrategyOwnerCap<phantom P> has key, store {
@@ -98,7 +98,7 @@ module strategy_wrapper::strategy_wrapper {
     // === Strategy Type Validation ===
     public fun is_valid_strategy_type(strategy_type: u8): bool {
         strategy_type == STRATEGY_SUI_LOOPING_SSUI ||
-        strategy_type == STRATEGY_BTC_LOOPING_WBTC 
+        strategy_type == STRATEGY_SUI_LOOPING_STRATSUI 
     }
 
     // === Public functions ===
@@ -270,26 +270,6 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     // ===  Public Functions  ===
-
-    // Eject the strategy owner cap and return the inner obligation cap
-    public(package) fun eject<P>(
-        mut strategy_cap: StrategyOwnerCap<P>,
-        _ctx: &TxContext
-    ): ObligationOwnerCap<P> {
-        assert_version_and_upgrade(&mut strategy_cap);
-        
-        let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
-        let cap_id_addr = object::uid_to_address(&id);
-        let obligation_id_addr = object::id_to_address(&lending_market::obligation_id(&inner_cap));
-        object::delete(id);
-        
-        event::emit(EjectedInnerCap {
-            cap_id: cap_id_addr,
-            obligation_id: obligation_id_addr,
-        });
-        
-        inner_cap
-    }
 
     // View functions
     public fun get_strategy_type<P>(cap: &StrategyOwnerCap<P>): u8 {
