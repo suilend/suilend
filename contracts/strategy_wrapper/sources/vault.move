@@ -18,7 +18,7 @@ module strategy_wrapper::vault {
     // === Constants ===
     const CURRENT_VERSION: u64 = 1;
     const MAX_FEE_BPS: u64 = 1000; // 10% max fee
-    const MIN_DEPOSIT: u64 = 1000; // Minimum deposit to prevent dust
+    const MIN_DEPOSIT: u64 = 1000000; // Minimum deposit to prevent dust
     const BASIS_POINTS: u64 = 10000;
 
     // === Structs ===
@@ -85,7 +85,6 @@ module strategy_wrapper::vault {
         compounded_amount: u64,
         new_total_value: u64,
     }
-
 
 
     // === Public Functions ===
