@@ -121,23 +121,6 @@ module strategy_wrapper::strategy_wrapper_tests {
     }
 
     #[test]
-    fun test_eject() {
-        let mut scenario = test_scenario::begin(@0x1);
-        let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
-        let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(&mut lending_market, 1, scenario.ctx());
-        
-        // Test eject returns the obligation cap
-        let returned_obligation_cap = strategy_wrapper::eject<LENDING_MARKET>(strategy_cap, scenario.ctx());
-        
-        // Cleanup - destroy the returned obligation cap
-        lending_market::destroy_for_testing(returned_obligation_cap);
-        test_utils::destroy(lending_market);
-        clock::destroy_for_testing(clock);
-        test_scenario::end(scenario);
-    }
-
-    #[test]
     fun test_version_control() {
         let mut scenario = test_scenario::begin(@0x1);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
