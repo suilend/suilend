@@ -221,47 +221,4 @@ module strategy_wrapper::strategy_wrapper_v2_example {
             init_performance_metrics(strategy_cap, ctx);
         };
     }
-
-    /// Clean up dynamic fields when ejecting and return the obligation cap
-    public fun eject_with_cleanup<P>(
-        mut strategy_cap: StrategyOwnerCap<P>,
-        ctx: &TxContext
-    ): ObligationOwnerCap<P> {
-        // Auto-migration will happen in borrow_uid_mut
-        
-        // Clean up any dynamic fields before ejecting
-        let uid = strategy_wrapper::borrow_uid_mut(&mut strategy_cap);
-        
-        if (dynamic_field::exists_(uid, AutoRebalanceConfig {})) {
-            let config: RebalanceSettings = dynamic_field::remove(uid, AutoRebalanceConfig {});
-            let RebalanceSettings { enabled: _, threshold_bps: _, max_frequency_hours: _ } = config;
-        };
-        
-        if (dynamic_field::exists_(uid, PerformanceMetrics {})) {
-            let metrics: Metrics = dynamic_field::remove(uid, PerformanceMetrics {});
-            let Metrics { 
-                total_deposits: _, 
-                total_withdrawals: _, 
-                last_rebalance_timestamp: _, 
-                performance_score: _ 
-            } = metrics;
-        };
-        
-        if (dynamic_field::exists_(uid, CustomParameters {})) {
-            let params: CustomParams = dynamic_field::remove(uid, CustomParameters {});
-            let CustomParams { risk_level: _, auto_compound: _, notification_enabled: _ } = params;
-        };
-        
-        // Use the base eject function which returns the ObligationOwnerCap
-        strategy_wrapper::eject(strategy_cap, ctx)
-    }
-
-    /// Entry function version that transfers the obligation cap to sender
-    public entry fun eject_v2<P>(
-        strategy_cap: StrategyOwnerCap<P>,
-        ctx: &TxContext
-    ) {
-        let obligation_cap = eject_with_cleanup(strategy_cap, ctx);
-        transfer::public_transfer(obligation_cap, tx_context::sender(ctx));
-    }
 } 
