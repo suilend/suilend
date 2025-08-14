@@ -187,4 +187,25 @@ module suilend::staker {
 
         staker.sui_balance.join(sui.into_balance());
     }
+
+    /* Test Functions */
+
+    #[test_only]
+    public fun deposit_for_testing<P>(staker: &mut Staker<P>, sui: Balance<SUI>) {
+        staker.liabilities = staker.liabilities + sui.value();
+        staker.sui_balance.join(sui);
+    }
+    
+    #[test_only]
+    public fun rebalance_for_testing<P: drop>(
+        staker: &mut Staker<P>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext,
+    ) {
+        rebalance(
+            staker,
+            system_state,
+            ctx,
+        );
+    }
 }
