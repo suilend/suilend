@@ -428,6 +428,69 @@ module suilend::liquidity_mining {
     #[test_only]
     const MILLISECONDS_IN_DAY: u64 = 86_400_000;
 
+    #[test_only]
+    public fun create_pool_reward_manager_for_testing(
+        total_shares: u64,
+        pool_rewards: vector<Option<PoolReward>>,
+        last_update_time_ms: u64,
+        ctx: &mut TxContext,
+    ): PoolRewardManager {
+        let pool_reward_manager = PoolRewardManager {
+            id: object::new(ctx),
+            total_shares,
+            pool_rewards,
+            last_update_time_ms,
+        };
+
+        pool_reward_manager
+    }
+    
+    #[test_only]
+    public fun create_user_reward_manager_for_testing(
+        pool_reward_manager_id: ID,
+        share: u64,
+        rewards: vector<Option<UserReward>>,
+        last_update_time_ms: u64,
+    ): UserRewardManager {
+        let user_reward_manager = UserRewardManager {
+            pool_reward_manager_id,
+            share,
+            rewards,
+            last_update_time_ms,
+        };
+
+        user_reward_manager
+    }
+    
+    #[test_only]
+    public fun create_pool_reward(
+        pool_reward_manager_id: ID,
+        coin_type: TypeName,
+        start_time_ms: u64,
+        end_time_ms: u64,
+        total_rewards: u64,
+        allocated_rewards: Decimal,
+        cumulative_rewards_per_share: Decimal,
+        num_user_reward_managers: u64,
+        additional_fields: Bag,
+        ctx: &mut TxContext,
+    ): PoolReward {
+        let pool_reward = PoolReward {
+            id: object::new(ctx),
+            pool_reward_manager_id,
+            coin_type,
+            start_time_ms,
+            end_time_ms,
+            total_rewards,
+            allocated_rewards,
+            cumulative_rewards_per_share,
+            num_user_reward_managers,
+            additional_fields,
+        };
+
+        pool_reward
+    }
+
     #[test]
     fun test_pool_reward_manager_basic() {
         use sui::test_scenario::{Self};

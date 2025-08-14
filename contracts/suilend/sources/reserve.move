@@ -1264,4 +1264,88 @@ module suilend::reserve {
 
         reserve
     }
+
+    #[test_only]
+    public fun borrow_staker_for_testing<P>(
+        reserve: &mut Reserve<P>,
+    ): &mut Staker<SPRUNGSUI> {
+        dynamic_field::borrow_mut(&mut reserve.id, StakerKey {})
+    }
+
+    #[test_only]
+    public fun init_staker_for_testing<P, S: drop>(
+        reserve: &mut Reserve<P>,
+        treasury_cap: TreasuryCap<S>,
+        ctx: &mut TxContext
+    ) {
+        init_staker(reserve, treasury_cap, ctx);
+    }
+    
+    #[test_only]
+    public fun mock_for_testing<P, T>(
+        lending_market_id: ID,
+        config: ReserveConfig,
+        array_index: u64,
+        mint_decimals: u8,
+        price_identifier: vector<u8>,
+        price: Decimal,
+        price_last_update_timestamp_s: u64,
+        available_amount: u64,
+        ctoken_supply: u64,
+        borrowed_amount: Decimal,
+        cumulative_borrow_rate: Decimal,
+        interest_last_update_timestamp_s: u64,
+        unclaimed_spread_fees: Decimal,
+        attributed_borrow_value: Decimal,
+        deposits_pool_reward_manager: PoolRewardManager,
+        borrows_pool_reward_manager: PoolRewardManager,
+        // Balances
+        available_amount_in_balances: u64,
+        balance_fees: u64,
+        ctoken_fees: u64,
+        deposited_ctokens: u64,
+        ctx: &mut TxContext
+    ): Reserve<P> {
+
+        let mut reserve = Reserve<P> {
+            id: object::new(ctx),
+            lending_market_id,
+            array_index,
+            coin_type: type_name::get<T>(),
+            config: cell::new(config),
+            mint_decimals,
+            price_identifier: price_identifier::from_byte_vec(price_identifier),
+            price,
+            smoothed_price: price,
+            price_last_update_timestamp_s,
+            available_amount,
+            ctoken_supply,
+            borrowed_amount,
+            cumulative_borrow_rate,
+            interest_last_update_timestamp_s,
+            unclaimed_spread_fees,
+            attributed_borrow_value,
+            deposits_pool_reward_manager,
+            borrows_pool_reward_manager,
+        };
+
+        dynamic_field::add(
+            &mut reserve.id,
+            BalanceKey {},
+            Balances<P, T> {
+                available_amount: balance::create_for_testing(available_amount_in_balances),
+                ctoken_supply: {
+                    let mut supply = balance::create_supply(CToken<P, T> {});
+                    let tokens = balance::increase_supply(&mut supply, ctoken_supply);
+                    sui::test_utils::destroy(tokens);
+                    supply
+                },
+                fees: balance::create_for_testing(balance_fees),
+                ctoken_fees: balance::create_for_testing(ctoken_fees),
+                deposited_ctokens: balance::create_for_testing(deposited_ctokens),
+            }
+        );
+
+        reserve
+    }
 }
