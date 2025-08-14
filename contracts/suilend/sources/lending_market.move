@@ -444,7 +444,7 @@ module suilend::lending_market {
             lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
-            liquidity_amount: amount_to_repay - fee_amount,
+            liquidity_amount: amount_to_repay,
             fee_amount: fee_amount,
         });
     }
@@ -1427,7 +1427,7 @@ module suilend::lending_market {
             lending_market_id,
             coin_type: type_name::get<T>(),
             reserve_id: object::id_address(reserve),
-            liquidity_amount: liquidity_request.liquidity_request_amount() - fee_amount,
+            liquidity_amount: liquidity_request.liquidity_request_amount(),
             fee_amount,
         });
         
