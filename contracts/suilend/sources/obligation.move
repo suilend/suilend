@@ -43,7 +43,7 @@ module suilend::obligation {
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
-    const MAX_DEPOSITS: u64 = 5;
+    const MAX_DEPOSITS: u64 = 7;
     const MAX_BORROWS: u64 = 5;
 
     // === public structs ===
