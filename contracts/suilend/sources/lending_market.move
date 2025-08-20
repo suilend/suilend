@@ -1,6 +1,5 @@
 module suilend::lending_market {
     use pyth::price_info::PriceInfoObject;
-    use std::ascii;
     use std::type_name::{Self, TypeName};
     use sui::balance;
     use sui::clock::{Self, Clock};
@@ -24,9 +23,8 @@ module suilend::lending_market {
     const EWrongType: u64 = 3; // I don't think these assertions are necessary
     const EDuplicateReserve: u64 = 4;
     const ERewardPeriodNotOver: u64 = 5;
-    const ECannotClaimReward: u64 = 6;
-    const EInvalidObligationId: u64 = 7;
-    const EInvalidFeeReceivers: u64 = 8;
+    const EInvalidObligationId: u64 = 6;
+    const EInvalidFeeReceivers: u64 = 7;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 7;
@@ -164,6 +162,26 @@ module suilend::lending_market {
     }
 
     // === Public-Mutative Functions ===
+    
+    /// Creates a new lending market, and sets the fee receivers.
+    ///
+    /// The function initializes a `LendingMarket` object with empty reserves
+    /// and obligations, a default rate limiter, and the sender as the fee receiver.
+    ///
+    /// It then calls the `set_fee_receivers` function to set the initial fee receiver to the creator of the market with a weight of 100.
+    ///
+    /// # Returns
+    ///
+    /// * `LendingMarketOwnerCap<P>` - The ownership capability for the newly created lending market.
+    /// * `LendingMarket<P>` - The newly created lending market object.
+    ///
+    /// # Panics
+    ///
+    /// This function calls `set_fee_receivers`, which can panic under the following conditions:
+    /// 
+    /// * If the `receivers` and `weights` vectors do not have the same length (EInvalidFeeReceivers).
+    /// * If the `receivers` vector is empty (EInvalidFeeReceivers).
+    /// * If the sum of `weights` is zero (EInvalidFeeReceivers).
     public(package) fun create_lending_market<P>(
         ctx: &mut TxContext,
     ): (LendingMarketOwnerCap<P>, LendingMarket<P>) {
@@ -196,8 +214,27 @@ module suilend::lending_market {
         (owner_cap, lending_market)
     }
 
-    /// Cache the price from pyth onto the reserve object. this needs to be done for all
-    /// relevant reserves used by an Obligation before any borrow/withdraw/liquidate can be performed.
+    /// Updates a reserve's price and timestamp from a Pyth price feed.
+    ///
+    /// This function is crucial for ensuring that the lending market has the most recent price
+    /// for a given asset before performing any operations that depend on the asset's value,
+    /// such as borrowing, withdrawing, or liquidating. It calls the `update_price` function
+    /// in the `reserve` module.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to update in the lending market's reserves vector.
+    /// * `clock` - A reference to the `Clock` object to get the current timestamp.
+    /// * `price_info` - A reference to the `PriceInfoObject` from Pyth, containing the new price information.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `reserve_array_index` is out of bounds.
+    /// * The `price_identifier` from the `price_info` object does not match the reserve's price identifier (`EPriceIdentifierMismatch` from the `reserve` module).
+    /// * The price from the `price_info` object is invalid (`EInvalidPrice` from the `reserve` module).
     public fun refresh_reserve_price<P>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -210,6 +247,7 @@ module suilend::lending_market {
         reserve::update_price<P>(reserve, clock, price_info);
     }
 
+    /// Creates a new obligation.
     public fun create_obligation<P>(
         lending_market: &mut LendingMarket<P>,
         ctx: &mut TxContext,
@@ -227,6 +265,33 @@ module suilend::lending_market {
         cap
     }
 
+    /// Deposits liquidity into a reserve and mints cTokens in return.
+    ///
+    /// This function allows a user to deposit a certain amount of a token into a reserve
+    /// and receive cTokens, which represent their share of the reserve's assets.
+    /// The amount of cTokens minted is proportional to the amount of liquidity deposited
+    /// and the current cToken ratio of the reserve.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to deposit into.
+    /// * `clock` - A reference to the `Clock` to compound interest before depositing.
+    /// * `deposit` - The `Coin` object representing the liquidity to deposit.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<CToken<P, T>>` - A `Coin` of cTokens representing the deposited liquidity and accrued interest.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The deposit amount is zero (ETooSmall).
+    /// * The `coin_type` of the reserve does not match the type of the deposited coin (EWrongType).
+    /// * The deposit would exceed the reserve's deposit limit (`EDepositLimitExceeded` from the `reserve` module).
+    /// * The minted cToken amount is zero (ETooSmall).
+    /// * `reserve_array_index` is out of bounds.
     public fun deposit_liquidity_and_mint_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -261,6 +326,33 @@ module suilend::lending_market {
         coin::from_balance(ctokens, ctx)
     }
 
+    /// Redeems cTokens for the underlying liquidity.
+    ///
+    /// This function allows a user to redeem their cTokens for the underlying asset.
+    /// The amount of the underlying asset received depends on the amount of cTokens redeemed
+    /// and the current cToken ratio of the reserve.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to redeem from.
+    /// * `clock` - A reference to the `Clock` to compound interest before redeeming.
+    /// * `ctokens` - The `Coin` of cTokens to redeem.
+    /// * `rate_limiter_exemption` - An optional exemption from the rate limiter.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<T>` - A `Coin` of the underlying asset.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The amount of cTokens to redeem is zero (ETooSmall).
+    /// * The `coin_type` of the reserve does not match the type of the cTokens (EWrongType).
+    /// * The redemption would violate the minimum available amount of the reserve (`EMinAvailableAmountViolated` from the `reserve` module).
+    /// * The withdrawal amount exceeds the rate limit, and no exemption is provided.
+    /// * `reserve_array_index` is out of bounds.
     public fun redeem_ctokens_and_withdraw_liquidity<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -281,6 +373,34 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
+    /// Creates a liquidity request to withdraw liquidity by redeeming cTokens.
+    ///
+    /// Initiates the process of redeeming cTokens for the underlying asset.
+    /// It checks for rate limit exemptions, processes the withdrawal against the rate limiter if necessary,
+    /// and then creates a `LiquidityRequest` by calling the `redeem_ctokens` function in the `reserve` module.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to redeem from.
+    /// * `clock` - A reference to the `Clock` to compound interest before redeeming.
+    /// * `ctokens` - The `Coin` of cTokens to redeem.
+    /// * `rate_limiter_exemption` - An optional exemption from the rate limiter.
+    ///
+    /// # Returns
+    ///
+    /// * `LiquidityRequest<P, T>` - A request to withdraw liquidity from the reserve.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The amount of cTokens to redeem is zero (ETooSmall).
+    /// * The `coin_type` of the reserve does not match the type of the cTokens (EWrongType).
+    /// * The redemption would violate the minimum available amount of the reserve (`EMinAvailableAmountViolated` from the `reserve` module).
+    /// * The withdrawal amount exceeds the rate limit, and no exemption is provided.
+    /// * The amount of liquidity requested is zero (ETooSmall).
+    /// * `reserve_array_index` is out of bounds.
     public fun redeem_ctokens_and_withdraw_liquidity_request<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -334,6 +454,24 @@ module suilend::lending_market {
         liquidity_request
     }
 
+    /// Deposits cTokens into an obligation, which can be used as collateral for borrowing.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve corresponding to the cTokens being deposited.
+    /// * `obligation_owner_cap` - The ownership capability for the obligation.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `deposit` - The `Coin` of cTokens to deposit.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The deposit amount is zero (ETooSmall).
+    /// * The `coin_type` of the reserve does not match the type of the deposited cTokens (EWrongType).
+    /// * `reserve_array_index` is out of bounds.
+    /// * `obligation_id` is not a valid key in the `obligations` table.
     public fun deposit_ctokens_into_obligation<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -353,7 +491,33 @@ module suilend::lending_market {
         )
     }
 
-    /// Borrow tokens of type T. A fee is charged.
+    /// Borrows a specified amount of a token from a reserve. A fee is charged on the borrowed amount.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to borrow from.
+    /// * `obligation_owner_cap` - The ownership capability for the obligation.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `amount` - The amount to borrow.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<T>` - A `Coin` of the borrowed asset.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The borrow amount is zero (ETooSmall).
+    /// * The `coin_type` of the reserve does not match the type of the asset being borrowed (EWrongType).
+    /// * The reserve's price is stale (`EPriceStale` from the `reserve` module).
+    /// * The borrow would exceed the reserve's borrow limit (`EBorrowLimitExceeded` from the `reserve` module).
+    /// * The borrow would violate the minimum available amount of the reserve (`EMinAvailableAmountViolated` from the `reserve` module).
+    /// * The obligation has stale oracle prices.
+    /// * The borrow amount exceeds the rate limit.
+    /// * `reserve_array_index` is out of bounds.
+    /// * `obligation_id` is not a valid key in the `obligations` table.
     public fun borrow<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -373,7 +537,7 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
-    // Compound interest for reserve of type T
+    /// Compound interest for reserve of type T
     public fun compound_interest<P>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -385,7 +549,33 @@ module suilend::lending_market {
         reserve.compound_interest(clock);
     }
 
-    /// Borrow tokens of type T. A fee is charged.
+    /// Borrows a specified amount of a token from a reserve. A fee is charged on the borrowed amount.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to borrow from.
+    /// * `obligation_owner_cap` - The ownership capability for the obligation.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `amount` - The amount to borrow.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<T>` - A `Coin` of the borrowed asset.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The borrow amount is zero (ETooSmall).
+    /// * The `coin_type` of the reserve does not match the type of the asset being borrowed (EWrongType).
+    /// * The reserve's price is stale (`EPriceStale` from the `reserve` module).
+    /// * The borrow would exceed the reserve's borrow limit (`EBorrowLimitExceeded` from the `reserve` module).
+    /// * The borrow would violate the minimum available amount of the reserve (`EMinAvailableAmountViolated` from the `reserve` module).
+    /// * The obligation has stale oracle prices.
+    /// * The borrow amount exceeds the rate limit.
+    /// * `reserve_array_index` is out of bounds.
+    /// * `obligation_id` is not a valid key in the `obligations` table.
     public fun borrow_request<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -447,6 +637,29 @@ module suilend::lending_market {
         liquidity_request
     }
 
+    /// Fulfills a liquidity request from a reserve.
+    ///
+    /// This function is called after a liquidity request has been created by either
+    /// `redeem_ctokens_and_withdraw_liquidity_request` or `borrow_request`. It takes the
+    /// `LiquidityRequest` and processes it, returning the requested amount of the
+    /// underlying asset as a `Coin`.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to fulfill the request from.
+    /// * `liquidity_request` - The `LiquidityRequest` to be fulfilled.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<T>` - A `Coin` of the underlying asset.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The `coin_type` of the reserve does not match the type of the liquidity request (EWrongType).
+    /// * `reserve_array_index` is out of bounds.
     public fun fulfill_liquidity_request<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -464,6 +677,33 @@ module suilend::lending_market {
         )
     }
 
+    /// Withdraws cTokens from an obligation.
+    ///
+    /// This function allows a user to withdraw their cTokens from an obligation,
+    /// making them available for redemption or transfer.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve corresponding to the cTokens being withdrawn.
+    /// * `obligation_owner_cap` - The ownership capability for the obligation.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `amount` - The amount of cTokens to withdraw. If `U64_MAX` is provided, the maximum possible amount will be withdrawn.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<CToken<P, T>>` - A `Coin` of the withdrawn cTokens.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The withdraw amount is zero (ETooSmall).
+    /// * The `coin_type` of the reserve does not match the type of the cTokens being withdrawn (EWrongType).
+    /// * The obligation has stale oracle prices.
+    /// * The withdrawal would leave the obligation in an unhealthy state.
+    /// * `reserve_array_index` is out of bounds.
+    /// * `obligation_id` is not a valid key in the `obligations` table.
     public fun withdraw_ctokens<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -507,7 +747,36 @@ module suilend::lending_market {
         coin::from_balance(ctoken_balance, ctx)
     }
 
-    /// Liquidate an unhealthy obligation. Leftover repay coins are returned.
+    /// Liquidates an unhealthy obligation by repaying a borrow and seizing collateral.
+    ///
+    /// This function allows a liquidator to repay a portion of an unhealthy obligation's
+    /// debt in exchange for a discounted amount of their collateral. Any leftover repay
+    /// coins are returned to the liquidator.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `obligation_id` - The ID of the obligation to liquidate.
+    /// * `repay_reserve_array_index` - The index of the reserve to repay the debt to.
+    /// * `withdraw_reserve_array_index` - The index of the reserve to withdraw collateral from.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `repay_coins` - A mutable reference to the `Coin` used to repay the debt.
+    ///
+    /// # Returns
+    ///
+    /// * `(Coin<CToken<P, Withdraw>>, RateLimiterExemption<P, Withdraw>)` - A tuple containing the withdrawn collateral as cTokens and a rate limiter exemption.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The repay amount is zero (ETooSmall).
+    /// * The obligation is not unhealthy.
+    /// * The obligation has stale oracle prices.
+    /// * The `coin_type` of the repay reserve does not match the type of the repay coin.
+    /// * The `coin_type` of the withdraw reserve does not match the type of the withdrawn cTokens.
+    /// * `repay_reserve_array_index` or `withdraw_reserve_array_index` are out of bounds.
+    /// * `obligation_id` is not a valid key in the `obligations` table.
     public fun liquidate<P, Repay, Withdraw>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
@@ -591,6 +860,25 @@ module suilend::lending_market {
         (coin::from_balance(ctokens, ctx), exemption)
     }
 
+    /// Repays a borrow, reducing the obligation's debt and increasing the reserve's liquidity.
+    ///
+    /// Any leftover repay coins are returned to the caller.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to repay the debt to.
+    /// * `obligation_id` - The ID of the obligation to repay.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `max_repay_coins` - A mutable reference to the `Coin` used to repay the debt.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The `coin_type` of the reserve does not match the type of the repay coin (EWrongType).
+    /// * `reserve_array_index` is out of bounds.
+    /// * `obligation_id` is not a valid key in the `obligations` table.
     public fun repay<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -634,6 +922,28 @@ module suilend::lending_market {
         obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
     }
 
+    /// Forgives a debt on an obligation, effectively reducing the borrow amount without requiring repayment.
+    ///
+    /// This is an admin-only function that can be used to handle bad debt or other special circumstances.
+    /// It reduces the borrowed amount for a specific reserve within an obligation.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve for which to forgive the debt.
+    /// * `obligation_id` - The ID of the obligation to forgive the debt for.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `max_forgive_amount` - The maximum amount of debt to forgive.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `obligation_id` is not a valid key in the `obligations` table.
+    /// * The obligation has stale oracle prices.
+    /// * The `coin_type` of the reserve does not match the type of the debt being forgiven (EWrongType).
+    /// * `reserve_array_index` is out of bounds.
     public fun forgive<P, T>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -674,6 +984,29 @@ module suilend::lending_market {
         });
     }
 
+    /// Claims rewards earned by an obligation.
+    ///
+    /// This function allows an obligation owner to claim rewards that have accrued
+    /// from either depositing or borrowing on a reserve.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `cap` - The `ObligationOwnerCap` to authorize the operation.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `reserve_id` - The array index of the reserve that is giving out the rewards.
+    /// * `reward_index` - The index of the reward pool to claim from.
+    /// * `is_deposit_reward` - A boolean indicating whether to claim deposit rewards (true) or borrow rewards (false).
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<RewardType>` - A `Coin` containing the claimed rewards.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * It will also panic if the underlying `claim_rewards_by_obligation_id` panics.
     public fun claim_rewards<P, RewardType>(
         lending_market: &mut LendingMarket<P>,
         cap: &ObligationOwnerCap<P>,
@@ -696,8 +1029,29 @@ module suilend::lending_market {
         )
     }
 
-    /// Permissionless function. Anyone can call this function to claim the rewards
-    /// and deposit into the same obligation. This is useful to "crank" rewards for users
+    /// Claims rewards earned by an obligation and deposits them back into the obligation.
+    ///
+    /// This is a permissionless function that can be called by anyone to "crank" rewards for a given obligation.
+    /// It first claims the rewards from the specified reward pool and then, if the obligation has a borrow of the
+    /// same asset, it repays the borrow. Otherwise, it deposits the rewards into the specified reserve.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `obligation_id` - The ID of the obligation to claim rewards for and deposit into.
+    /// * `clock` - A reference to the `Clock`.
+    /// * `reward_reserve_id` - The array index of the reserve that is giving out the rewards.
+    /// * `reward_index` - The index of the reward pool to claim from.
+    /// * `is_deposit_reward` - A boolean indicating whether to claim deposit rewards (true) or borrow rewards (false).
+    /// * `deposit_reserve_id` - The array index of the reserve to deposit the claimed rewards into.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The reward period is not over.
+    /// * The `coin_type` of the deposit reserve does not match the type of the reward.
+    /// * It will also panic if the underlying `claim_rewards_by_obligation_id` or `repay` or `deposit_liquidity_and_mint_ctokens` panics.
     public fun claim_rewards_and_deposit<P, RewardType>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
@@ -773,6 +1127,26 @@ module suilend::lending_market {
     }
 
     /* Staker operations */
+
+    /// Initializes a staker for a SUI reserve.
+    ///
+    /// This function is used to set up a staker for a SUI reserve, which allows the reserve
+    /// to participate in staking and earn rewards. It can only be called by the owner of the
+    /// lending market.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `sui_reserve_array_index` - The index of the SUI reserve to initialize the staker for.
+    /// * `treasury_cap` - The `TreasuryCap` for the staker.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The reserve at `sui_reserve_array_index` is not a SUI reserve (EWrongType).
+    /// * `sui_reserve_array_index` is out of bounds.
     public fun init_staker<P, S: drop>(
         lending_market: &mut LendingMarket<P>,
         _: &LendingMarketOwnerCap<P>,
@@ -788,6 +1162,24 @@ module suilend::lending_market {
         reserve::init_staker<P, S>(reserve, treasury_cap, ctx);
     }
 
+    /// Rebalances a staker by staking or unstaking SUI to match the target staking amount.
+    ///
+    /// This function is a wrapper around `reserve::rebalance_staker`. It ensures that the
+    /// lending market is on the correct version and that the specified reserve is a SUI
+    /// reserve before proceeding with the rebalancing.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `sui_reserve_array_index` - The index of the SUI reserve to rebalance.
+    /// * `system_state` - A mutable reference to the `SuiSystemState`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The reserve at `sui_reserve_array_index` is not a SUI reserve (EWrongType).
+    /// * `sui_reserve_array_index` is out of bounds.
     public fun rebalance_staker<P>(
         lending_market: &mut LendingMarket<P>,
         sui_reserve_array_index: u64,
@@ -802,6 +1194,24 @@ module suilend::lending_market {
         reserve::rebalance_staker<P>(reserve, system_state, ctx);
     }
 
+    /// Unstakes SUI from a staker.
+    ///
+    /// This function is a wrapper around `reserve::unstake_sui_from_staker`. It ensures that the
+    /// lending market is on the correct version and that the specified reserve is a SUI
+    /// reserve before proceeding with the unstaking.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `sui_reserve_array_index` - The index of the SUI reserve to unstake from.
+    /// * `liquidity_request` - A reference to the `LiquidityRequest` for the unstake.
+    /// * `system_state` - A mutable reference to the `SuiSystemState`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `sui_reserve_array_index` is out of bounds.
     public fun unstake_sui_from_staker<P>(
         lending_market: &mut LendingMarket<P>,
         sui_reserve_array_index: u64,
@@ -821,6 +1231,7 @@ module suilend::lending_market {
 
     // === Public-View Functions ===
 
+    /// Get a reference to the lending market's reserves vector.
     public fun reserves<P>(lending_market: &LendingMarket<P>): &vector<Reserve<P>> {
         &lending_market.reserves
     }
@@ -908,11 +1319,13 @@ module suilend::lending_market {
         )
     }
 
+    /// Get the obligation ID from an `ObligationOwnerCap`.
     public fun obligation_id<P>(cap: &ObligationOwnerCap<P>): ID {
         cap.obligation_id
     }
 
-    // slow function. use sparingly.
+    /// Get the array index of a reserve by its coin type.
+    /// slow function. use sparingly.
     public fun reserve_array_index<P, T>(lending_market: &LendingMarket<P>): u64 {
         let mut i = 0;
         while (i < vector::length(&lending_market.reserves)) {
@@ -927,31 +1340,56 @@ module suilend::lending_market {
         i
     }
 
+    /// Get a reference to a reserve by its coin type.
     public fun reserve<P, T>(lending_market: &LendingMarket<P>): &Reserve<P> {
         let i = reserve_array_index<P, T>(lending_market);
         vector::borrow(&lending_market.reserves, i)
     }
 
+    /// Get a reference to an obligation by its ID.
     public fun obligation<P>(lending_market: &LendingMarket<P>, obligation_id: ID): &Obligation<P> {
         object_table::borrow(&lending_market.obligations, obligation_id)
     }
 
+    /// Get the fee receiver address.
     public fun fee_receiver<P>(lending_market: &LendingMarket<P>): address {
         lending_market.fee_receiver
     }
 
     public use fun rate_limiter_exemption_amount as RateLimiterExemption.amount;
 
+    /// Get the amount of a rate limiter exemption.
     public fun rate_limiter_exemption_amount<P, T>(exemption: &RateLimiterExemption<P, T>): u64 {
         exemption.amount
     }
 
     // === Admin Functions ===
+
+    /// Migrates the lending market to the current version.
     entry fun migrate<P>(_: &LendingMarketOwnerCap<P>, lending_market: &mut LendingMarket<P>) {
         assert!(lending_market.version <= CURRENT_VERSION - 1, EIncorrectVersion);
         lending_market.version = CURRENT_VERSION;
     }
 
+    /// Adds a new reserve to the lending market.
+    ///
+    /// This function creates a new reserve and adds it to the lending market's reserves vector.
+    /// It can only be called by the owner of the lending market.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `price_info` - The initial Pyth price feed for the new reserve.
+    /// * `config` - The configuration for the new reserve.
+    /// * `coin_metadata` - The metadata for the coin type of the new reserve.
+    /// * `clock` - A reference to the `Clock`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * A reserve for the same coin type already exists (EDuplicateReserve).
     public fun add_reserve<P, T>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -980,6 +1418,24 @@ module suilend::lending_market {
         vector::push_back(&mut lending_market.reserves, reserve);
     }
 
+    /// Updates the configuration of a reserve.
+    ///
+    /// This function allows the owner of the lending market to update the configuration of a specific reserve.
+    /// It can only be called by the owner of the lending market.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to update.
+    /// * `config` - The new configuration for the reserve.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `reserve_array_index` is out of bounds.
+    /// * The `coin_type` of the reserve does not match the type `T` (EWrongType).
     public fun update_reserve_config<P, T>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -994,6 +1450,25 @@ module suilend::lending_market {
         reserve::update_reserve_config<P>(reserve, config);
     }
 
+    /// Changes the price feed of a reserve.
+    ///
+    /// This function allows the owner of the lending market to update the Pyth price feed for a specific reserve.
+    /// It can only be called by the owner of the lending market.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to update the price feed for.
+    /// * `price_info_obj` - The new Pyth price feed object.
+    /// * `clock` - A reference to the `Clock`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `reserve_array_index` is out of bounds.
+    /// * The `coin_type` of the reserve does not match the type `T` (EWrongType).
     public fun change_reserve_price_feed<P, T>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -1009,6 +1484,28 @@ module suilend::lending_market {
         reserve::change_price_feed<P>(reserve, price_info_obj, clock);
     }
 
+    /// Adds a new reward pool to a reserve for either deposits or borrows.
+    ///
+    /// This function allows the owner of the lending market to incentivize users by adding rewards
+    /// to a specific reserve. The rewards are distributed over a specified time period.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to add the reward pool to.
+    /// * `is_deposit_reward` - A boolean indicating whether the reward is for deposits (`true`) or borrows (`false`).
+    /// * `rewards` - The `Coin` containing the total amount of rewards to be distributed.
+    /// * `start_time_ms` - The timestamp in milliseconds when the reward distribution starts.
+    /// * `end_time_ms` - The timestamp in milliseconds when the reward distribution ends.
+    /// * `clock` - A reference to the `Clock`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `reserve_array_index` is out of bounds.
+    /// * The underlying `liquidity_mining::add_pool_reward` function panics (e.g., if `start_time_ms` >= `end_time_ms` or reward amount is zero).
     public fun add_pool_reward<P, RewardType>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -1038,6 +1535,31 @@ module suilend::lending_market {
         );
     }
 
+    /// Cancels a reward pool from a reserve.
+    ///
+    /// This is an admin-only function that allows the lending market owner to cancel a reward pool
+    /// that is currently active. When a reward pool is cancelled, any unallocated rewards are
+    /// returned to the owner.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to cancel the reward pool from.
+    /// * `is_deposit_reward` - A boolean indicating whether the reward is for deposits (`true`) or borrows (`false`).
+    /// * `reward_index` - The index of the reward pool to cancel.
+    /// * `clock` - A reference to the `Clock`.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<RewardType>` - A `Coin` containing the unallocated rewards from the cancelled pool.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `reserve_array_index` is out of bounds.
+    /// * The underlying `liquidity_mining::cancel_pool_reward` function panics.
     public fun cancel_pool_reward<P, RewardType>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -1064,6 +1586,32 @@ module suilend::lending_market {
         coin::from_balance(unallocated_rewards, ctx)
     }
 
+    /// Closes a reward pool from a reserve after its distribution period has ended.
+    ///
+    /// This is an admin-only function that allows the lending market owner to close a reward pool
+    /// that has finished distributing rewards. When a reward pool is closed, any unallocated rewards
+    /// due to rounding or other factors are returned to the owner. This function can only be called
+    /// after the pool's `end_time_ms` has passed.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to close the reward pool from.
+    /// * `is_deposit_reward` - A boolean indicating whether the reward is for deposits (`true`) or borrows (`false`).
+    /// * `reward_index` - The index of the reward pool to close.
+    /// * `clock` - A reference to the `Clock`.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<RewardType>` - A `Coin` containing the unallocated rewards from the closed pool.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * `reserve_array_index` is out of bounds.
+    /// * The underlying `liquidity_mining::close_pool_reward` function panics (e.g., if the reward period is not over).
     public fun close_pool_reward<P, RewardType>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -1090,6 +1638,22 @@ module suilend::lending_market {
         coin::from_balance(unallocated_rewards, ctx)
     }
 
+    /// Updates the rate limiter configuration.
+    ///
+    /// This is an admin-only function that allows the lending market owner to update the rate
+    /// limiter configuration. The new configuration will replace the existing one.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `clock` - A reference to the `Clock` to get the current timestamp.
+    /// * `config` - The new `RateLimiterConfig` to apply.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
     public fun update_rate_limiter_config<P>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -1100,6 +1664,26 @@ module suilend::lending_market {
         lending_market.rate_limiter = rate_limiter::new(config, clock::timestamp_ms(clock) / 1000);
     }
 
+    /// Sets the fee receivers for the lending market.
+    ///
+    /// This is an admin-only function that allows the lending market owner to set the fee receivers
+    /// and their respective weights for distributing protocol fees. The fees are distributed
+    /// proportionally based on these weights.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `receivers` - A vector of addresses that will receive the fees.
+    /// * `weights` - A vector of weights corresponding to each receiver.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The `receivers` and `weights` vectors do not have the same length (EInvalidFeeReceivers).
+    /// * The `receivers` vector is empty (EInvalidFeeReceivers).
+    /// * The sum of `weights` is zero (EInvalidFeeReceivers).
     public fun set_fee_receivers<P>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
@@ -1128,6 +1712,26 @@ module suilend::lending_market {
         );
     }
 
+    /// Claims the fees from a reserve and distributes them to the fee receivers.
+    ///
+    /// This is a permissionless entry function that can be called by anyone to trigger the
+    /// distribution of accumulated protocol fees from a specific reserve. The fees, which
+    /// can be in both the underlying asset and cTokens, are transferred to the fee receivers
+    /// according to the weights configured via `set_fee_receivers`.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to claim fees from.
+    /// * `system_state` - A mutable reference to the `SuiSystemState`, required for claiming staking rewards.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The generic type `T` does not match the coin type of the reserve at `reserve_array_index` (EWrongType).
+    /// * `reserve_array_index` is out of bounds.
+    /// * The `FeeReceivers` dynamic field has not been set on the lending market.
     entry fun claim_fees<P, T>(
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
@@ -1186,6 +1790,27 @@ module suilend::lending_market {
         balance::destroy_zero(ctoken_fees);
     }
 
+    /// Creates a new obligation owner cap for an existing obligation.
+    ///
+    /// This is an admin-only function that allows the lending market owner to create a new
+    /// `ObligationOwnerCap` for an obligation that already exists. This can be useful for
+    /// recovery purposes or administrative actions where a new capability object is needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `_` - The `LendingMarketOwnerCap` to authorize the operation.
+    /// * `lending_market` - A reference to the `LendingMarket`.
+    /// * `obligation_id` - The ID of the obligation to create a new owner cap for.
+    ///
+    /// # Returns
+    ///
+    /// * `ObligationOwnerCap<P>` - The newly created ownership capability for the specified obligation.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `lending_market` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * The `obligation_id` is not found in the lending market's obligations (EInvalidObligationId).
     public fun new_obligation_owner_cap<P>(
         _: &LendingMarketOwnerCap<P>,
         lending_market: &LendingMarket<P>,
