@@ -25,6 +25,8 @@ module strategy_wrapper::strategy_wrapper {
     // === Strategy Type Constants ===
     const STRATEGY_SUI_LOOPING_SSUI: u8 = 1;
     const STRATEGY_SUI_LOOPING_STRATSUI: u8 = 2;
+    const STRATEGY_SUI_LOOPING_USDC: u8 = 3;
+
 
     // Structs
     public struct StrategyOwnerCap<phantom P> has key, store {
@@ -98,7 +100,8 @@ module strategy_wrapper::strategy_wrapper {
     // === Strategy Type Validation ===
     public fun is_valid_strategy_type(strategy_type: u8): bool {
         strategy_type == STRATEGY_SUI_LOOPING_SSUI ||
-        strategy_type == STRATEGY_SUI_LOOPING_STRATSUI 
+        strategy_type == STRATEGY_SUI_LOOPING_STRATSUI ||
+        strategy_type == STRATEGY_SUI_LOOPING_USDC
     }
 
     // === Public functions ===
