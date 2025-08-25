@@ -80,7 +80,7 @@ module vaults::vault_tests {
         let deposit_amount = 1000000; // 1000 * 1e6
         let deposit_coin = mint_test_coin(deposit_amount, ts::ctx(&mut scenario));
         
-        let mut vault_shares = vault::deposit(&mut vault, deposit_coin, &clock, ts::ctx(&mut scenario));
+        let mut vault_shares = vault::deposit_for_testing(&mut vault, deposit_coin, &clock, ts::ctx(&mut scenario));
         
         // Check shares minted (first deposit should be 1:1 after fees)
         let expected_fee = deposit_amount * DEPOSIT_FEE_BPS / 10000; // 5%
@@ -89,7 +89,7 @@ module vaults::vault_tests {
         
         // Test withdrawal
         let withdraw_shares = coin::split(&mut vault_shares, expected_net / 2, ts::ctx(&mut scenario));
-        let withdrawn_coins = vault::withdraw(&mut vault, withdraw_shares, &clock, ts::ctx(&mut scenario));
+        let withdrawn_coins = vault::withdraw_for_testing(&mut vault, withdraw_shares, &clock, ts::ctx(&mut scenario));
         
         // Should get back approximately half (minus withdrawal fees)
         let withdrawn_amount = coin::value(&withdrawn_coins);
@@ -120,10 +120,10 @@ module vaults::vault_tests {
         // User deposits 1000 tokens
         let deposit_amount = 1000000;
         let deposit_coin = mint_test_coin(deposit_amount, ts::ctx(&mut scenario));
-        let vault_shares = vault::deposit(&mut vault, deposit_coin, &clock, ts::ctx(&mut scenario));
+        let vault_shares = vault::deposit_for_testing(&mut vault, deposit_coin, &clock, ts::ctx(&mut scenario));
         
         // Withdraw and check withdrawal fee
-        let withdrawn_coins = vault::withdraw(&mut vault, vault_shares, &clock, ts::ctx(&mut scenario));
+        let withdrawn_coins = vault::withdraw_for_testing(&mut vault, vault_shares, &clock, ts::ctx(&mut scenario));
         
         // Clean up
         coin::burn_for_testing(withdrawn_coins);
@@ -148,12 +148,12 @@ module vaults::vault_tests {
         // User 1 deposits
         ts::next_tx(&mut scenario, USER1);
         let deposit1 = mint_test_coin(1000000, ts::ctx(&mut scenario));
-        let shares1 = vault::deposit(&mut vault, deposit1, &clock, ts::ctx(&mut scenario));
+        let shares1 = vault::deposit_for_testing(&mut vault, deposit1, &clock, ts::ctx(&mut scenario));
         
         // User 2 deposits
         ts::next_tx(&mut scenario, USER2);
         let deposit2 = mint_test_coin(2000000, ts::ctx(&mut scenario)); // Above MIN_DEPOSIT
-        let shares2 = vault::deposit(&mut vault, deposit2, &clock, ts::ctx(&mut scenario));
+        let shares2 = vault::deposit_for_testing(&mut vault, deposit2, &clock, ts::ctx(&mut scenario));
         
         // Both users should have shares
         assert!(coin::value(&shares1) > 0);
@@ -161,12 +161,12 @@ module vaults::vault_tests {
         
         // User 1 withdraws
         ts::next_tx(&mut scenario, USER1);
-        let withdrawn1 = vault::withdraw(&mut vault, shares1, &clock, ts::ctx(&mut scenario));
+        let withdrawn1 = vault::withdraw_for_testing(&mut vault, shares1, &clock, ts::ctx(&mut scenario));
         assert!(coin::value(&withdrawn1) > 0);
         
         // User 2 withdraws
         ts::next_tx(&mut scenario, USER2);
-        let withdrawn2 = vault::withdraw(&mut vault, shares2, &clock, ts::ctx(&mut scenario));
+        let withdrawn2 = vault::withdraw_for_testing(&mut vault, shares2, &clock, ts::ctx(&mut scenario));
         assert!(coin::value(&withdrawn2) > 0);
         
         // Clean up
@@ -214,7 +214,7 @@ module vaults::vault_tests {
         
         // Try to deposit amount below minimum (should fail)
         let small_deposit = mint_test_coin(100, ts::ctx(&mut scenario)); // Much less than MIN_DEPOSIT
-        let _shares = vault::deposit(&mut vault, small_deposit, &clock, ts::ctx(&mut scenario));
+        let _shares = vault::deposit_for_testing(&mut vault, small_deposit, &clock, ts::ctx(&mut scenario));
         
         // Should not reach here - test should abort above
         abort 0
@@ -234,7 +234,7 @@ module vaults::vault_tests {
         
         // Try to withdraw with zero shares (should fail)
         let zero_shares = coin::zero<VaultShare<TEST_COIN>>(ts::ctx(&mut scenario));
-        let _withdrawn = vault::withdraw(&mut vault, zero_shares, &clock, ts::ctx(&mut scenario));
+        let _withdrawn = vault::withdraw_for_testing(&mut vault, zero_shares, &clock, ts::ctx(&mut scenario));
         
         // Should not reach here - test should abort above
         abort 0
