@@ -57,24 +57,30 @@ module suilend::liquidity_mining {
     }
 
     // === Public-View Functions ===
+
+    /// Retrieves the ID of the pool reward manager associated with a user reward manager.
     public fun pool_reward_manager_id(user_reward_manager: &UserRewardManager): ID {
         user_reward_manager.pool_reward_manager_id
     }
 
+    /// Retrieves the share amount of a user reward manager.
     public fun shares(user_reward_manager: &UserRewardManager): u64 {
         user_reward_manager.share
     }
 
+    /// Retrieves the last update time in milliseconds for a user reward manager.
     public fun last_update_time_ms(user_reward_manager: &UserRewardManager): u64 {
         user_reward_manager.last_update_time_ms
     }
 
+    /// Retrieves the ID of a pool reward at a specified index in the pool reward manager.
     public fun pool_reward_id(pool_reward_manager: &PoolRewardManager, index: u64): ID {
         let optional_pool_reward = vector::borrow(&pool_reward_manager.pool_rewards, index);
         let pool_reward = option::borrow(optional_pool_reward);
         object::id(pool_reward)
     }
 
+    /// Retrieves a reference to a pool reward option at a specified index in the pool reward manager.
     public fun pool_reward(
         pool_reward_manager: &PoolRewardManager,
         index: u64,
@@ -82,11 +88,18 @@ module suilend::liquidity_mining {
         vector::borrow(&pool_reward_manager.pool_rewards, index)
     }
 
+    /// Retrieves the end time in milliseconds of a pool reward.
     public fun end_time_ms(pool_reward: &PoolReward): u64 {
         pool_reward.end_time_ms
     }
 
     // === Public-Friend functions
+
+    /// Creates a new pool reward manager with an empty rewards vector and zero shares.
+    ///
+    /// # Returns
+    ///
+    /// * `PoolRewardManager` - A new `PoolRewardManager` instance.
     public(package) fun new_pool_reward_manager(ctx: &mut TxContext): PoolRewardManager {
         PoolRewardManager {
             id: object::new(ctx),
@@ -96,6 +109,23 @@ module suilend::liquidity_mining {
         }
     }
 
+    /// Adds a new pool reward to the pool reward manager with the specified parameters.
+    ///
+    /// The function ensures the reward period is valid and adds the reward to an available index
+    /// in the `pool_rewards` vector. The reward is stored with its associated balance in a `Bag`.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to modify.
+    /// * `rewards` - The `Balance<T>` containing the reward amount.
+    /// * `start_time_ms` - The start time (in milliseconds) of the reward period.
+    /// * `end_time_ms` - The end time (in milliseconds) of the reward period.
+    /// * `clock` - A reference to the `Clock` for timestamp-based validation.
+    ///
+    /// # Panics
+    ///
+    /// * If the reward period is less than `MIN_REWARD_PERIOD_MS`.
+    /// * If the maximum number of concurrent pool rewards (`MAX_REWARDS`) is exceeded.
     public(package) fun add_pool_reward<T>(
         pool_reward_manager: &mut PoolRewardManager,
         rewards: Balance<T>,
@@ -131,8 +161,25 @@ module suilend::liquidity_mining {
         option::fill(optional_pool_reward, pool_reward);
     }
 
-    /// Close pool_reward campaign, claim dust amounts of rewards, and destroy object.
-    /// This can only be called if the pool_reward period is over and all rewards have been claimed.
+    /// Closes a pool reward campaign, claims remaining rewards, and destroys the pool reward object.
+    ///
+    /// This function can only be called after the reward period has ended and all user rewards
+    /// have been claimed. It extracts and returns any remaining reward balance.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to modify.
+    /// * `index` - The index of the pool reward to close.
+    /// * `clock` - A reference to the `Clock` for timestamp validation.
+    ///
+    /// # Returns
+    ///
+    /// * `Balance<T>` - The remaining reward balance from the closed pool reward.
+    ///
+    /// # Panics
+    ///
+    /// * If the current time is before the pool reward's end time.
+    /// * If there are still user reward managers associated with the pool reward.
     public(package) fun close_pool_reward<T>(
         pool_reward_manager: &mut PoolRewardManager,
         index: u64,
@@ -169,8 +216,20 @@ module suilend::liquidity_mining {
         reward_balance
     }
 
-    /// Cancel pool_reward campaign and claim unallocated rewards. Effectively sets the
-    /// end time of the pool_reward campaign to the current time.
+    /// Cancels a pool reward campaign, claims unallocated rewards, and sets the end time to the current time.
+    ///
+    /// The function updates the pool reward manager, calculates unallocated rewards, and returns
+    /// them as a balance. The pool reward's total rewards are set to zero.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to modify.
+    /// * `index` - The index of the pool reward to cancel.
+    /// * `clock` - A reference to the `Clock` for timestamp-based calculations.
+    ///
+    /// # Returns
+    ///
+    /// * `Balance<T>` - The unallocated rewards from the canceled pool reward.
     public(package) fun cancel_pool_reward<T>(
         pool_reward_manager: &mut PoolRewardManager,
         index: u64,
@@ -201,6 +260,15 @@ module suilend::liquidity_mining {
         balance::split(reward_balance, unallocated_rewards)
     }
 
+    /// Updates the pool reward manager's state based on the current time and reward schedules.
+    ///
+    /// This function calculates unlocked rewards for each active pool reward based on the time
+    /// elapsed since the last update and updates the cumulative rewards per share.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to update.
+    /// * `clock` - A reference to the `Clock` for timestamp-based calculations.
     fun update_pool_reward_manager(pool_reward_manager: &mut PoolRewardManager, clock: &Clock) {
         let cur_time_ms = clock::timestamp_ms(clock);
 
@@ -258,6 +326,21 @@ module suilend::liquidity_mining {
         pool_reward_manager.last_update_time_ms = cur_time_ms;
     }
 
+    /// Updates a user reward manager's state, synchronizing rewards with the pool reward manager.
+    ///
+    /// This function ensures the user reward manager's rewards vector is aligned with the pool
+    /// reward manager's rewards and calculates any new rewards earned based on the user's share.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to synchronize with.
+    /// * `user_reward_manager` - A mutable reference to the `UserRewardManager` to update.
+    /// * `clock` - A reference to the `Clock` for timestamp-based calculations.
+    /// * `new_user_reward_manager` - A boolean indicating if this is a new user reward manager.
+    ///
+    /// # Panics
+    ///
+    /// * If the `pool_reward_manager` ID does not match the `user_reward_manager`'s ID.
     fun update_user_reward_manager(
         pool_reward_manager: &mut PoolRewardManager,
         user_reward_manager: &mut UserRewardManager,
@@ -334,7 +417,19 @@ module suilend::liquidity_mining {
         user_reward_manager.last_update_time_ms = cur_time_ms;
     }
 
-    /// Create a new user_reward_manager object with zero share.
+    /// Creates a new user reward manager with zero share and initializes its rewards vector.
+    ///
+    /// The function synchronizes the new user reward manager with the pool reward manager to
+    /// populate the rewards vector.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to associate with.
+    /// * `clock` - A reference to the `Clock` for timestamp-based initialization.
+    ///
+    /// # Returns
+    ///
+    /// * `UserRewardManager` - A new `UserRewardManager` instance.
     public(package) fun new_user_reward_manager(
         pool_reward_manager: &mut PoolRewardManager,
         clock: &Clock,
@@ -352,6 +447,17 @@ module suilend::liquidity_mining {
         user_reward_manager
     }
 
+    /// Updates the share amount for a user reward manager and adjusts the total shares in the pool.
+    ///
+    /// The function first updates the user reward manager's state and then adjusts the share
+    /// amounts in both the user and pool reward managers.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to update.
+    /// * `user_reward_manager` - A mutable reference to the `UserRewardManager` to update.
+    /// * `new_share` - The new share amount for the user reward manager.
+    /// * `clock` - A reference to the `Clock` for timestamp-based updates.
     public(package) fun change_user_reward_manager_share(
         pool_reward_manager: &mut PoolRewardManager,
         user_reward_manager: &mut UserRewardManager,
@@ -365,6 +471,25 @@ module suilend::liquidity_mining {
         user_reward_manager.share = new_share;
     }
 
+    /// Claims rewards for a user from a specific pool reward and updates the reward state.
+    ///
+    /// The function updates the user reward manager, claims the earned rewards, and reduces the
+    /// number of user reward managers if the reward period has ended.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to update.
+    /// * `user_reward_manager` - A mutable reference to the `UserRewardManager` to update.
+    /// * `clock` - A reference to the `Clock` for timestamp-based updates.
+    /// * `reward_index` - The index of the pool reward from which to claim rewards.
+    ///
+    /// # Returns
+    ///
+    /// * `Balance<T>` - The claimed reward amount.
+    ///
+    /// # Panics
+    ///
+    /// * If the coin type of the pool reward does not match the expected type `T`.
     public(package) fun claim_rewards<T>(
         pool_reward_manager: &mut PoolRewardManager,
         user_reward_manager: &mut UserRewardManager,
@@ -403,6 +528,18 @@ module suilend::liquidity_mining {
     }
 
     // === Private Functions ===
+
+    /// Finds an available index in the pool reward manager's rewards vector for a new pool reward.
+    ///
+    /// If no empty slot is found, a new `Option<PoolReward>` is appended to the vector.
+    ///
+    /// # Arguments
+    ///
+    /// * `pool_reward_manager` - A mutable reference to the `PoolRewardManager` to search.
+    ///
+    /// # Returns
+    ///
+    /// * `u64` - The index of an available slot or the newly appended slot.
     fun find_available_index(pool_reward_manager: &mut PoolRewardManager): u64 {
         let mut i = 0;
         while (i < vector::length(&pool_reward_manager.pool_rewards)) {

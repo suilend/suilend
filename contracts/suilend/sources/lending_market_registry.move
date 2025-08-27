@@ -28,6 +28,28 @@ module suilend::lending_market_registry {
         transfer::share_object(registry);
     }
 
+    /// Creates a new lending market and registers it.
+    ///
+    /// This function allows anyone to create a new `LendingMarket` of a specific type `P`.
+    /// It ensures that a lending market for the given type `P` does not already exist in the
+    /// registry before creating a new one. The newly created lending market's ID is then
+    /// added to the registry.
+    ///
+    /// # Arguments
+    ///
+    /// * `registry` - A mutable reference to the `Registry` object.
+    ///
+    /// # Returns
+    ///
+    /// * `(LendingMarketOwnerCap<P>, LendingMarket<P>)` - A tuple containing the ownership
+    ///   capability and the newly created `LendingMarket` object.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if:
+    /// * The `registry` version is not `CURRENT_VERSION` (EIncorrectVersion).
+    /// * A lending market of type `P` already exists in the registry. This will cause an
+    ///   abort from the underlying `table::add` call.
     public fun create_lending_market<P>(
         registry: &mut Registry,
         ctx: &mut TxContext,

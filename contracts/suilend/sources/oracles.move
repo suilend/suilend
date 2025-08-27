@@ -12,10 +12,29 @@ module suilend::oracles {
     const MIN_CONFIDENCE_RATIO: u64 = 10;
     const MAX_STALENESS_SECONDS: u64 = 60;
 
-    /// parse the pyth price info object to get a price and identifier. This function returns an None if the
-    /// price is invalid due to confidence interval checks or staleness checks. It returns None instead of aborting
-    /// so the caller can handle invalid prices gracefully by eg falling back to a different oracle
-    /// return type: (spot price, ema price, price identifier)
+    /// Parses a Pyth `PriceInfoObject` to extract the price, EMA price, and price identifier.
+    ///
+    /// This function validates the Pyth price feed against two criteria:
+    /// 1. **Confidence Interval Check**: The confidence interval must be less than a certain
+    ///    percentage of the price, defined by `MIN_CONFIDENCE_RATIO`.
+    /// 2. **Staleness Check**: The price timestamp must not be older than `MAX_STALENESS_SECONDS`
+    ///    compared to the on-chain clock time.
+    ///
+    /// If either of these checks fails, the function returns `None` for the spot price,
+    /// allowing the caller to handle the invalid price gracefully (e.g., by falling back to
+    /// a different oracle).
+    ///
+    /// # Arguments
+    ///
+    /// * `price_info_obj` - A reference to the `PriceInfoObject` from Pyth.
+    /// * `clock` - A reference to the `Clock` to check for price staleness.
+    ///
+    /// # Returns
+    ///
+    /// * `(Option<Decimal>, Decimal, PriceIdentifier)` - A tuple containing:
+    ///   - An `Option<Decimal>` for the spot price. `None` if the price is invalid.
+    ///   - The EMA (Exponential Moving Average) price as a `Decimal`.
+    ///   - The `PriceIdentifier` for the given price feed.
     public fun get_pyth_price_and_identifier(
         price_info_obj: &PriceInfoObject,
         clock: &Clock,

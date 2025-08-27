@@ -29,28 +29,91 @@ module suilend::staker {
     }
 
     /* Public-View Functions */
+
+    /// Gets the total liabilities of the staker.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A reference to the `Staker` to query.
+    ///
+    /// # Returns
+    ///
+    /// * `u64` - The total amount of SUI owed to the reserve.
     public(package) fun liabilities<P>(staker: &Staker<P>): u64 {
         staker.liabilities
     }
 
+    /// Gets the balance of liquid staking tokens (LST).
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A reference to the `Staker` to query.
+    ///
+    /// # Returns
+    ///
+    /// * `&Balance<P>` - A reference to the LST balance.
     public(package) fun lst_balance<P>(staker: &Staker<P>): &Balance<P> {
         &staker.lst_balance
     }
 
+    /// Gets the balance of SUI held by the staker.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A reference to the `Staker` to query.
+    ///
+    /// # Returns
+    ///
+    /// * `&Balance<SUI>` - A reference to the SUI balance.
     public(package) fun sui_balance<P>(staker: &Staker<P>): &Balance<SUI> {
         &staker.sui_balance
     }
 
-    // this value can be stale if the staker hasn't refreshed the liquid_staking_info
+    /// Gets the total SUI supply, including staked and unstaked amounts.
+    ///
+    /// Note: This value can be stale if the `liquid_staking_info` has not been refreshed.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A reference to the `Staker` to query.
+    ///
+    /// # Returns
+    ///
+    /// * `u64` - The total SUI supply, including both staked and unstaked SUI.
     public(package) fun total_sui_supply<P>(staker: &Staker<P>): u64 {
         staker.liquid_staking_info.total_sui_supply() + staker.sui_balance.value()
     }
 
+    /// Gets the liquid staking information.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A reference to the `Staker` to query.
+    ///
+    /// # Returns
+    ///
+    /// * `&LiquidStakingInfo<P>` - A reference to the liquid staking information.
     public(package) fun liquid_staking_info<P>(staker: &Staker<P>): &LiquidStakingInfo<P> {
         &staker.liquid_staking_info
     }
 
     /* Public Mutative Functions */
+
+    /// Creates a new staker with the provided treasury cap.
+    ///
+    /// Initializes a staker with a new liquid staking configuration and zero balances.
+    ///
+    /// # Arguments
+    ///
+    /// * `treasury_cap` - The treasury cap for the liquid staking token type.
+    ///
+    /// # Returns
+    ///
+    /// * `Staker<P>` - A new staker instance.
+    ///
+    /// # Panics
+    ///
+    /// * If the treasury cap has a non-zero supply (`ETreasuryCapNonZeroSupply`).
     public(package) fun create_staker<P: drop>(
         treasury_cap: TreasuryCap<P>,
         ctx: &mut TxContext,
@@ -72,11 +135,32 @@ module suilend::staker {
         }
     }
 
+    /// Deposits SUI into the staker.
+    ///
+    /// Increases the staker's SUI balance and liabilities.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A mutable reference to the `Staker` to modify.
+    /// * `sui` - The SUI balance to deposit.
     public(package) fun deposit<P>(staker: &mut Staker<P>, sui: Balance<SUI>) {
         staker.liabilities = staker.liabilities + sui.value();
         staker.sui_balance.join(sui);
     }
 
+    /// Withdraws SUI from the staker.
+    ///
+    /// Unstakes SUI if necessary to fulfill the withdrawal request and updates liabilities.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A mutable reference to the `Staker` to modify.
+    /// * `withdraw_amount` - The amount of SUI to withdraw.
+    /// * `system_state` - A mutable reference to the `SuiSystemState` for staking operations.
+    ///
+    /// # Returns
+    ///
+    /// * `Balance<SUI>` - The withdrawn SUI balance.
     public(package) fun withdraw<P: drop>(
         staker: &mut Staker<P>,
         withdraw_amount: u64,
@@ -96,6 +180,14 @@ module suilend::staker {
         sui
     }
 
+    /// Rebalances the staker by staking available SUI.
+    ///
+    /// Converts available SUI to liquid staking tokens (LST) and increases validator stake.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A mutable reference to the `Staker` to modify.
+    /// * `system_state` - A mutable reference to the `SuiSystemState` for staking operations.
     public(package) fun rebalance<P: drop>(
         staker: &mut Staker<P>,
         system_state: &mut SuiSystemState,
@@ -128,6 +220,22 @@ module suilend::staker {
             );
     }
 
+    /// Claims excess SUI as fees from the staker.
+    ///
+    /// Withdraws any SUI in excess of liabilities plus a buffer, unstaking if necessary.
+    ///
+    /// # Arguments
+    ///
+    /// * `staker` - A mutable reference to the `Staker` to modify.
+    /// * `system_state` - A mutable reference to the `SuiSystemState` for staking operations.
+    ///
+    /// # Returns
+    ///
+    /// * `Balance<SUI>` - The claimed SUI fees.
+    ///
+    /// # Panics
+    ///
+    /// * If the total SUI supply is less than the liabilities after claiming (`EInvariantViolation`).
     public(package) fun claim_fees<P: drop>(
         staker: &mut Staker<P>,
         system_state: &mut SuiSystemState,
