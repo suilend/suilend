@@ -1,12 +1,7 @@
 #[test_only]
 module vaults::vault_tests;
 
-use sui::{
-    clock::{Self, Clock},
-    coin::{Self, Coin},
-    test_scenario::{Self as ts, Scenario},
-    transfer
-};
+use sui::{clock::{Self, Clock}, coin::{Self, Coin}, test_scenario::{Self as ts, Scenario}};
 use vaults::vault::{Self, Vault, VaultManagerCap, VaultShare};
 
 // Test coin type

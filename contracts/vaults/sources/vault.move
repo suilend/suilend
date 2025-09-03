@@ -112,6 +112,7 @@ public fun create_vault<P>(
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
+    treasury_cap: TreasuryCap<VaultShare<P>>,
     ctx: &mut tx_context::TxContext,
 ): (Vault<P>, VaultManagerCap<P>) {
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
@@ -119,14 +120,12 @@ public fun create_vault<P>(
     assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
     assert!(withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS, EInvalidWithdrawalFeeBps);
 
-    let share_treasury_cap = coin::create_treasury_cap_for_testing<VaultShare<P>>(ctx);
-
     // Create vault
     let vault = Vault {
         id: object::new(ctx),
         version: CURRENT_VERSION,
         obligations: vector::empty(),
-        treasury_cap: share_treasury_cap,
+        treasury_cap,
         deposit_asset: balance::zero<P>(),
         total_shares: 0,
         users: vector::empty(),
@@ -159,7 +158,7 @@ public fun create_vault<P>(
 
 public fun deposit<P>(
     vault: &mut Vault<P>,
-    deposit: Coin<P>,
+    mut deposit: Coin<P>,
     lending_market: &LendingMarket<P>,
     clock: &Clock,
     ctx: &mut TxContext,
@@ -169,17 +168,17 @@ public fun deposit<P>(
 
     let deposit_amount = coin::value(&deposit);
     let current_time = clock::timestamp_ms(clock);
-    let user = tx_context::sender(ctx);
+    let user = ctx.sender();
 
     // Calculate deposit fee
     let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
     let net_deposit_amount = deposit_amount - deposit_fee;
 
     // Split out fee
-    let mut deposit = deposit;
     let fee_coins = coin::split(&mut deposit, deposit_fee, ctx);
 
     // Send fee to collector
+    // TODO: Might be better to autoclaim
     sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
 
     // Add deposited coins to vault's asset balance
@@ -269,7 +268,7 @@ public fun withdraw<P>(
     assert!(coin::value(&shares) > 0, EInsufficientShares);
 
     let shares_amount = coin::value(&shares);
-    let user = tx_context::sender(ctx);
+    let user = ctx.sender();
     let current_time = clock::timestamp_ms(clock);
 
     assert!(vault.total_shares >= shares_amount, EInsufficientShares);
@@ -886,7 +885,6 @@ public fun deposit_for_testing<P>(
 
     let deposit_amount = coin::value(&deposit);
     let current_time = clock::timestamp_ms(clock);
-    let user = tx_context::sender(ctx);
 
     let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
     let net_deposit_amount = deposit_amount - deposit_fee;
@@ -957,46 +955,15 @@ public fun create_vault_for_testing<P>(
     withdrawal_fee_bps: u64,
     ctx: &mut TxContext,
 ): (Vault<P>, VaultManagerCap<P>) {
-    assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
-    assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);
-    assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
-    assert!(withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS, EInvalidWithdrawalFeeBps);
-
-    // Create treasury cap for testing
     let share_treasury_cap = coin::create_treasury_cap_for_testing<VaultShare<P>>(ctx);
 
-    // Create vault
-    let vault = Vault {
-        id: object::new(ctx),
-        version: CURRENT_VERSION,
-        obligations: vector::empty(),
-        treasury_cap: share_treasury_cap,
-        deposit_asset: balance::zero<P>(),
-        total_shares: 0,
-        users: vector::empty(),
-        user_entries: object_table::new(ctx),
+    create_vault(
         fee_receiver,
         management_fee_bps,
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
-        last_update_time_ms: 0,
-        utilization_rate_bps: 0,
-    };
-
-    let vault_manager_cap = VaultManagerCap {
-        id: object::new(ctx),
-        vault_id: object::id(&vault),
-    };
-
-    event::emit(VaultCreated {
-        vault_id: object::id(&vault),
-        fee_receiver,
-        management_fee_bps,
-        performance_fee_bps,
-        deposit_fee_bps,
-        withdrawal_fee_bps,
-    });
-
-    (vault, vault_manager_cap)
+        share_treasury_cap,
+        ctx,
+    )
 }
