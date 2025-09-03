@@ -1,14 +1,18 @@
 module vaults::vault {
-    use sui::event;
-    use suilend::lending_market::{Self, ObligationOwnerCap, LendingMarket};
-    use sui::coin::{Self, TreasuryCap, Coin};
-    use sui::balance::{Self, Balance};
-    use sui::clock::{Self, Clock};
-    use sui::object_table::{Self, ObjectTable};
     use pyth::price_info::PriceInfoObject;
-    use suilend::decimal::{Self};
-    use suilend::reserve::{Self};
-    use suilend::obligation::{Self, Obligation};
+    use sui::{
+        balance::{Self, Balance},
+        clock::{Self, Clock},
+        coin::{Self, TreasuryCap, Coin},
+        event,
+        object_table::{Self, ObjectTable}
+    };
+    use suilend::{
+        decimal,
+        lending_market::{Self, ObligationOwnerCap, LendingMarket},
+        obligation::{Self, Obligation},
+        reserve
+    };
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -51,13 +55,13 @@ module vaults::vault {
         utilization_rate_bps: u64, // Current utilization rate in basis points
     }
 
-    public struct VaultShare<phantom P> has store, drop {}
+    public struct VaultShare<phantom P> has drop, store {}
 
     public struct UserEntry has key, store {
         id: object::UID,
         shares: u64,
         entry_nav_per_share: u64, // NAV per share when user first deposited (scaled by 1e9)
-        total_deposited: u64,     // Total amount deposited by user
+        total_deposited: u64, // Total amount deposited by user
         last_deposit_time_ms: u64,
     }
 
@@ -75,7 +79,6 @@ module vaults::vault {
         deposit_fee_bps: u64,
         withdrawal_fee_bps: u64,
     }
-
 
     public struct Deposit has copy, drop {
         vault_id: object::ID,
@@ -136,7 +139,6 @@ module vaults::vault {
             utilization_rate_bps: 0,
         };
 
-
         let vault_manager_cap = VaultManagerCap {
             id: object::new(ctx),
             vault_id: object::id(&vault),
@@ -154,7 +156,6 @@ module vaults::vault {
         (vault, vault_manager_cap)
     }
 
-
     public fun deposit<P>(
         vault: &mut Vault<P>,
         deposit: Coin<P>,
@@ -168,21 +169,21 @@ module vaults::vault {
         let deposit_amount = coin::value(&deposit);
         let current_time = clock::timestamp_ms(clock);
         let user = tx_context::sender(ctx);
-        
+
         // Calculate deposit fee
         let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
         let net_deposit_amount = deposit_amount - deposit_fee;
-        
+
         // Split out fee
         let mut deposit = deposit;
         let fee_coins = coin::split(&mut deposit, deposit_fee, ctx);
-        
+
         // Send fee to collector
         sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
-        
+
         // Add deposited coins to vault's asset balance
         balance::join(&mut vault.deposit_asset, coin::into_balance(deposit));
-        
+
         // Calculate shares to mint based on current NAV
         let shares_to_mint = if (vault.total_shares == 0) {
             // First deposit - 1:1 ratio with net amount
@@ -191,16 +192,16 @@ module vaults::vault {
             let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
             (net_deposit_amount * NAV_PRECISION) / nav_per_share
         };
-        
+
         assert!(shares_to_mint > 0, EInvalidDeposit);
-        
+
         // Update user entry for performance fee tracking
         let current_nav_per_share = if (vault.total_shares == 0) {
             NAV_PRECISION
         } else {
             calculate_nav_per_share(vault, lending_market, clock)
         };
-        
+
         if (!object_table::contains(&vault.user_entries, user)) {
             // New user
             let user_entry = UserEntry {
@@ -219,19 +220,19 @@ module vaults::vault {
             let new_value = net_deposit_amount;
             let total_value = old_value + new_value;
             let total_shares = user_entry.shares + shares_to_mint;
-            
+
             // Update weighted average entry NAV
             user_entry.entry_nav_per_share = (total_value * NAV_PRECISION) / total_shares;
             user_entry.shares = total_shares;
             user_entry.total_deposited = user_entry.total_deposited + net_deposit_amount;
             user_entry.last_deposit_time_ms = current_time;
         };
-                
+
         // Mint vault shares to user
         let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
         vault.total_shares = vault.total_shares + shares_to_mint;
         vault.last_update_time_ms = current_time;
-        
+
         // Emit fee collection event
         if (deposit_fee > 0) {
             event::emit(FeesAccrued {
@@ -242,7 +243,7 @@ module vaults::vault {
                 timestamp_ms: current_time,
             });
         };
-        
+
         // Emit deposit event
         event::emit(Deposit {
             vault_id: object::id(vault),
@@ -251,7 +252,7 @@ module vaults::vault {
             shares_minted: shares_to_mint,
             timestamp_ms: current_time,
         });
-        
+
         vault_shares
     }
 
@@ -269,19 +270,19 @@ module vaults::vault {
         let shares_amount = coin::value(&shares);
         let user = tx_context::sender(ctx);
         let current_time = clock::timestamp_ms(clock);
-        
+
         assert!(vault.total_shares >= shares_amount, EInsufficientShares);
         assert!(object_table::contains(&vault.user_entries, user), EInsufficientShares);
-        
+
         let current_nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
         let user_entry = object_table::borrow_mut(&mut vault.user_entries, user);
         assert!(user_entry.shares >= shares_amount, EInsufficientShares);
-        
+
         let entry_nav_per_share = user_entry.entry_nav_per_share;
-        
+
         // Calculate withdrawal amount based on current NAV
         let withdraw_amount = (shares_amount * current_nav_per_share) / NAV_PRECISION;
-        
+
         // Calculate realized gain and performance fee
         let mut performance_fee = 0;
         if (current_nav_per_share > entry_nav_per_share) {
@@ -289,23 +290,28 @@ module vaults::vault {
             let total_gain = (shares_amount * gain_per_share) / NAV_PRECISION;
             performance_fee = (total_gain * vault.performance_fee_bps) / BASIS_POINTS;
         };
-        
+
         // Calculate withdrawal fee on the gross amount
         let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
-        
+
         // Total fees to deduct
         let total_fees = performance_fee + withdrawal_fee;
         let net_withdraw_amount = withdraw_amount - total_fees;
-        
+
         // Update user entry
         user_entry.shares = user_entry.shares - shares_amount;
         if (user_entry.shares == 0) {
             // Remove user entry if no shares left
-            let UserEntry { id, shares: _, entry_nav_per_share: _, total_deposited: _, last_deposit_time_ms: _ } = 
-                object_table::remove(&mut vault.user_entries, user);
+            let UserEntry {
+                id,
+                shares: _,
+                entry_nav_per_share: _,
+                total_deposited: _,
+                last_deposit_time_ms: _,
+            } = object_table::remove(&mut vault.user_entries, user);
             object::delete(id);
         };
-        
+
         // Burn the shares
         coin::burn(&mut vault.treasury_cap, shares);
         vault.total_shares = vault.total_shares - shares_amount;
@@ -313,19 +319,19 @@ module vaults::vault {
 
         // Withdraw full amount from vault's asset balance
         let mut withdrawn_balance = balance::split(&mut vault.deposit_asset, withdraw_amount);
-        
+
         // Split out fees
         if (total_fees > 0) {
             let fee_balance = balance::split(&mut withdrawn_balance, total_fees);
             let fee_coins = coin::from_balance(fee_balance, ctx);
-            
+
             // Send fees to collector
             sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
         };
-        
+
         // Return net amount to user
         let coins = coin::from_balance(withdrawn_balance, ctx);
-        
+
         // Emit performance fee event
         if (performance_fee > 0) {
             event::emit(FeesAccrued {
@@ -336,7 +342,7 @@ module vaults::vault {
                 timestamp_ms: current_time,
             });
         };
-        
+
         // Emit withdrawal fee event
         if (withdrawal_fee > 0) {
             event::emit(FeesAccrued {
@@ -347,7 +353,7 @@ module vaults::vault {
                 timestamp_ms: current_time,
             });
         };
-        
+
         // Emit withdrawal event
         event::emit(Withdraw {
             vault_id: object::id(vault),
@@ -356,7 +362,7 @@ module vaults::vault {
             shares_burned: shares_amount,
             timestamp_ms: current_time,
         });
-        
+
         coins
     }
 
@@ -420,7 +426,7 @@ module vaults::vault {
         amount: u64,
     ): bool {
         let liquid_value = balance::value(&vault.deposit_asset);
-        
+
         if (amount > liquid_value) {
             false
         } else {
@@ -446,7 +452,7 @@ module vaults::vault {
                 user_entry.shares,
                 user_entry.entry_nav_per_share,
                 user_entry.total_deposited,
-                user_entry.last_deposit_time_ms
+                user_entry.last_deposit_time_ms,
             )
         }
     }
@@ -460,7 +466,7 @@ module vaults::vault {
         calculate_utilization_rate(vault, lending_market, clock)
     }
 
-    /// Convert assets to shares 
+    /// Convert assets to shares
     public fun convert_to_shares<P>(
         vault: &Vault<P>,
         assets: u64,
@@ -475,7 +481,7 @@ module vaults::vault {
         }
     }
 
-    /// Convert shares to assets 
+    /// Convert shares to assets
     public fun convert_to_assets<P>(
         vault: &Vault<P>,
         shares: u64,
@@ -500,7 +506,7 @@ module vaults::vault {
         convert_to_shares(vault, assets, lending_market, clock)
     }
 
-    /// Preview redeem (shares → assets, no fees)  
+    /// Preview redeem (shares → assets, no fees)
     public fun preview_redeem<P>(
         vault: &Vault<P>,
         shares: u64,
@@ -532,21 +538,21 @@ module vaults::vault {
         _clock: &Clock,
     ): u64 {
         let mut total_value = balance::value(&vault.deposit_asset);
-        
+
         // Add value from all lending positions
         let mut i = 0;
         while (i < vector::length(&vault.obligations)) {
             let obligation_cap = vector::borrow(&vault.obligations, i);
             let obligation_id = lending_market::obligation_id(obligation_cap);
             let obligation = lending_market::obligation(lending_market, obligation_id);
-            
+
             // Get net value from this obligation (deposits - borrows in asset terms)
             let net_value = calculate_obligation_net_value<P>(obligation, lending_market);
             total_value = total_value + net_value;
-            
+
             i = i + 1;
         };
-        
+
         total_value
     }
 
@@ -557,7 +563,7 @@ module vaults::vault {
         lending_market: &LendingMarket<P>,
     ): u64 {
         let mut net_value = 0;
-        
+
         // Add collateral deposits (converted from cTokens to underlying)
         let deposits = obligation::deposits(obligation);
         let mut i = 0;
@@ -566,21 +572,21 @@ module vaults::vault {
             let reserve_index = deposit.reserve_array_index();
             let reserves = lending_market::reserves(lending_market);
             let reserve = vector::borrow(reserves, reserve_index);
-            
+
             // Check if this deposit is in our base asset P
             if (reserve::coin_type(reserve) == std::type_name::get<P>()) {
                 let ctoken_amount = deposit.deposited_ctoken_amount();
                 let ctoken_ratio = reserve::ctoken_ratio(reserve);
                 // Convert cTokens to underlying asset amount
                 let underlying_amount = decimal::floor(
-                    decimal::mul(decimal::from(ctoken_amount), ctoken_ratio)
+                    decimal::mul(decimal::from(ctoken_amount), ctoken_ratio),
                 );
                 net_value = net_value + underlying_amount;
             };
-            
+
             i = i + 1;
         };
-        
+
         // Subtract borrowed amounts (if borrowed in base asset P)
         let borrows = obligation::borrows(obligation);
         let mut j = 0;
@@ -589,7 +595,7 @@ module vaults::vault {
             let reserve_index = borrow.reserve_array_index();
             let reserves = lending_market::reserves(lending_market);
             let reserve = vector::borrow(reserves, reserve_index);
-            
+
             // Check if this borrow is in our base asset P
             if (reserve::coin_type(reserve) == std::type_name::get<P>()) {
                 let borrowed_amount = decimal::floor(borrow.borrowed_amount());
@@ -599,10 +605,10 @@ module vaults::vault {
                     0
                 };
             };
-            
+
             j = j + 1;
         };
-        
+
         net_value
     }
 
@@ -628,7 +634,7 @@ module vaults::vault {
     ): u64 {
         let total_value = calculate_total_vault_value(vault, lending_market, clock);
         let liquid_value = balance::value(&vault.deposit_asset);
-        
+
         if (total_value == 0) {
             0
         } else {
@@ -636,7 +642,6 @@ module vaults::vault {
             (deployed_value * BASIS_POINTS) / total_value
         }
     }
-
 
     // === Vault Manager Functions ===
 
@@ -704,7 +709,7 @@ module vaults::vault {
             ctoken_amount,
             ctx,
         );
-        
+
         // Then redeem cTokens for underlying asset
         let withdrawn_coins = lending_market::redeem_ctokens_and_withdraw_liquidity(
             lending_market,
@@ -731,7 +736,7 @@ module vaults::vault {
     ): Coin<T> {
         assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
         validate_manager_cap(vault, vault_manager_cap);
-        
+
         lending_market::borrow<P, T>(
             lending_market,
             reserve_array_index,
@@ -755,7 +760,7 @@ module vaults::vault {
     ) {
         assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
         validate_manager_cap(vault, vault_manager_cap);
-        
+
         lending_market::repay<P, T>(
             lending_market,
             reserve_array_index,
@@ -777,7 +782,7 @@ module vaults::vault {
     ) {
         assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
         validate_manager_cap(vault, vault_manager_cap);
-        
+
         lending_market::refresh_reserve_price<P>(
             lending_market,
             reserve_array_index,
@@ -796,7 +801,7 @@ module vaults::vault {
     ) {
         assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
         validate_manager_cap(vault, vault_manager_cap);
-        
+
         lending_market::compound_interest<P>(
             lending_market,
             reserve_array_index,
@@ -818,7 +823,7 @@ module vaults::vault {
     ): Coin<RewardType> {
         assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
         validate_manager_cap(vault, vault_manager_cap);
-        
+
         lending_market::claim_rewards<P, RewardType>(
             lending_market,
             obligation_cap,
@@ -839,10 +844,10 @@ module vaults::vault {
     ): u64 {
         assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
         validate_manager_cap(vault, vault_manager_cap);
-        
+
         let obligation_cap = lending_market::create_obligation<P>(lending_market, ctx);
         vector::push_back(&mut vault.obligations, obligation_cap);
-        
+
         // Return the index of the newly created obligation
         vector::length(&vault.obligations) - 1
     }
@@ -881,27 +886,27 @@ module vaults::vault {
         let deposit_amount = coin::value(&deposit);
         let current_time = clock::timestamp_ms(clock);
         let user = tx_context::sender(ctx);
-        
+
         let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
         let net_deposit_amount = deposit_amount - deposit_fee;
-        
+
         let mut deposit = deposit;
         let fee_coins = coin::split(&mut deposit, deposit_fee, ctx);
         sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
-        
+
         balance::join(&mut vault.deposit_asset, coin::into_balance(deposit));
-        
+
         let shares_to_mint = if (vault.total_shares == 0) {
             net_deposit_amount
         } else {
             // Simple proportional calculation for testing
             (net_deposit_amount * vault.total_shares) / balance::value(&vault.deposit_asset)
         };
-        
+
         let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
         vault.total_shares = vault.total_shares + shares_to_mint;
         vault.last_update_time_ms = current_time;
-        
+
         vault_shares
     }
 
@@ -917,27 +922,27 @@ module vaults::vault {
 
         let shares_amount = coin::value(&shares);
         let current_time = clock::timestamp_ms(clock);
-        
+
         assert!(vault.total_shares >= shares_amount, EInsufficientShares);
         assert!(vault.total_shares > 0, EInsufficientShares);
-        
+
         // Calculate withdrawal amount BEFORE burning shares
         let total_assets = balance::value(&vault.deposit_asset);
         let withdraw_amount = (shares_amount * total_assets) / vault.total_shares;
-        
+
         // Now burn the shares
         coin::burn(&mut vault.treasury_cap, shares);
         vault.total_shares = vault.total_shares - shares_amount;
-        
+
         let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
         let mut withdrawn_balance = balance::split(&mut vault.deposit_asset, withdraw_amount);
-        
+
         if (withdrawal_fee > 0) {
             let fee_balance = balance::split(&mut withdrawn_balance, withdrawal_fee);
             let fee_coins = coin::from_balance(fee_balance, ctx);
             sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
         };
-        
+
         vault.last_update_time_ms = current_time;
         coin::from_balance(withdrawn_balance, ctx)
     }
