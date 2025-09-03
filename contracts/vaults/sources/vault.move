@@ -23,6 +23,7 @@ const EInvalidPerformanceFeeBps: u64 = 8;
 const EInvalidManagementFeeBps: u64 = 9;
 const EInvalidDeposit: u64 = 10;
 const EInsufficientShares: u64 = 12;
+const EInsufficientLiquidity: u64 = 13;
 
 // === Constants ===
 const CURRENT_VERSION: u64 = 1;
@@ -291,6 +292,10 @@ public fun withdraw<P>(
 
     // Calculate withdrawal fee on the gross amount
     let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
+
+    // Check if vault has sufficient liquidity for withdrawal
+    let available_amount = vault.deposit_asset.value();
+    assert!(withdraw_amount <= available_amount, EInsufficientLiquidity);
 
     // Total fees to deduct
     let total_fees = performance_fee + withdrawal_fee;
