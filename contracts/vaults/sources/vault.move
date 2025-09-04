@@ -96,9 +96,16 @@ public struct Withdraw has copy, drop {
     timestamp_ms: u64,
 }
 
+public enum FeeType has copy, drop {
+    DepositFee,
+    WithdrawalFee,
+    PerformanceFee,
+    ManagementFee,
+}
+
 public struct FeesAccrued has copy, drop {
     vault_id: object::ID,
-    fee_type: u64, // 1: deposit fee, 2: withdrawal fee, 3: performance fee, 4: management fee
+    fee_type: FeeType,
     fee_amount: u64,
     fee_receiver: address,
     timestamp_ms: u64,
@@ -236,7 +243,7 @@ public fun deposit<P>(
     if (deposit_fee > 0) {
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
-            fee_type: 1, // deposit fee
+            fee_type: FeeType::DepositFee,
             fee_amount: deposit_fee,
             fee_receiver: vault.fee_receiver,
             timestamp_ms: current_time,
@@ -339,7 +346,7 @@ public fun withdraw<P>(
     if (performance_fee > 0) {
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
-            fee_type: 3, // performance fee
+            fee_type: FeeType::PerformanceFee,
             fee_amount: performance_fee,
             fee_receiver: vault.fee_receiver,
             timestamp_ms: current_time,
@@ -350,7 +357,7 @@ public fun withdraw<P>(
     if (withdrawal_fee > 0) {
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
-            fee_type: 2, // withdrawal fee
+            fee_type: FeeType::WithdrawalFee,
             fee_amount: withdrawal_fee,
             fee_receiver: vault.fee_receiver,
             timestamp_ms: current_time,
