@@ -238,6 +238,7 @@ public fun deposit<P>(
     let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
     vault.total_shares = vault.total_shares + shares_to_mint;
     vault.last_update_time_ms = current_time;
+    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market, clock);
 
     // Emit fee collection event
     if (deposit_fee > 0) {
@@ -326,6 +327,7 @@ public fun withdraw<P>(
     coin::burn(&mut vault.treasury_cap, shares);
     vault.total_shares = vault.total_shares - shares_amount;
     vault.last_update_time_ms = current_time;
+    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market, clock);
 
     // Withdraw full amount from vault's asset balance
     let mut withdrawn_balance = balance::split(&mut vault.deposit_asset, withdraw_amount);
@@ -730,6 +732,7 @@ public fun deposit_for_testing<P>(
     let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
     vault.total_shares = vault.total_shares + shares_to_mint;
     vault.last_update_time_ms = current_time;
+    vault.utilization_rate_bps = 0;
 
     vault_shares
 }
@@ -768,6 +771,7 @@ public fun withdraw_for_testing<P>(
     };
 
     vault.last_update_time_ms = current_time;
+    vault.utilization_rate_bps = 0;
     coin::from_balance(withdrawn_balance, ctx)
 }
 
