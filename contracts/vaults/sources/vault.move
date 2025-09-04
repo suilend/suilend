@@ -10,8 +10,7 @@ use sui::{
 use suilend::{
     decimal,
     lending_market::{Self, ObligationOwnerCap, LendingMarket},
-    obligation::{Self, Obligation},
-    reserve
+    obligation::Obligation
 };
 
 // === Errors ===
@@ -549,21 +548,17 @@ public fun calculate_total_vault_value<P>(
     lending_market: &LendingMarket<P>,
     _clock: &Clock,
 ): u64 {
-    let mut total_value = balance::value(&vault.deposit_asset);
+    let mut total_value = vault.deposit_asset.value();
 
     // Add value from all lending positions
-    let mut i = 0;
-    while (i < vector::length(&vault.obligations)) {
-        let obligation_cap = vector::borrow(&vault.obligations, i);
-        let obligation_id = lending_market::obligation_id(obligation_cap);
-        let obligation = lending_market::obligation(lending_market, obligation_id);
+    vault.obligations.do_ref!(|obligation_cap| {
+        let obligation_id = obligation_cap.obligation_id();
+        let obligation = lending_market.obligation(obligation_id);
 
         // Get net value from this obligation (deposits - borrows in asset terms)
         let net_value = calculate_obligation_net_value<P>(obligation, lending_market);
         total_value = total_value + net_value;
-
-        i = i + 1;
-    };
+    });
 
     total_value
 }
@@ -577,49 +572,42 @@ fun calculate_obligation_net_value<P>(
     let mut net_value = 0;
 
     // Add collateral deposits (converted from cTokens to underlying)
-    let deposits = obligation::deposits(obligation);
-    let mut i = 0;
-    while (i < vector::length(deposits)) {
-        let deposit = vector::borrow(deposits, i);
+    let deposits = obligation.deposits();
+    deposits.do_ref!(|deposit| {
         let reserve_index = deposit.reserve_array_index();
-        let reserves = lending_market::reserves(lending_market);
-        let reserve = vector::borrow(reserves, reserve_index);
+        let reserves = lending_market.reserves();
+        let reserve = reserves.borrow(reserve_index);
 
         // Check if this deposit is in our base asset P
-        if (reserve::coin_type(reserve) == std::type_name::get<P>()) {
+        if (reserve.coin_type() == std::type_name::get<P>()) {
             let ctoken_amount = deposit.deposited_ctoken_amount();
-            let ctoken_ratio = reserve::ctoken_ratio(reserve);
+            let ctoken_ratio = reserve.ctoken_ratio();
             // Convert cTokens to underlying asset amount
-            let underlying_amount = decimal::floor(
-                decimal::mul(decimal::from(ctoken_amount), ctoken_ratio),
-            );
+            let underlying_amount = decimal::mul(
+                decimal::from(ctoken_amount),
+                ctoken_ratio,
+            ).floor();
             net_value = net_value + underlying_amount;
         };
-
-        i = i + 1;
-    };
+    });
 
     // Subtract borrowed amounts (if borrowed in base asset P)
-    let borrows = obligation::borrows(obligation);
-    let mut j = 0;
-    while (j < vector::length(borrows)) {
-        let borrow = vector::borrow(borrows, j);
+    let borrows = obligation.borrows();
+    borrows.do_ref!(|borrow| {
         let reserve_index = borrow.reserve_array_index();
-        let reserves = lending_market::reserves(lending_market);
-        let reserve = vector::borrow(reserves, reserve_index);
+        let reserves = lending_market.reserves();
+        let reserve = reserves.borrow(reserve_index);
 
         // Check if this borrow is in our base asset P
-        if (reserve::coin_type(reserve) == std::type_name::get<P>()) {
-            let borrowed_amount = decimal::floor(borrow.borrowed_amount());
+        if (reserve.coin_type() == std::type_name::get<P>()) {
+            let borrowed_amount = borrow.borrowed_amount().floor();
             net_value = if (net_value >= borrowed_amount) {
                 net_value - borrowed_amount
             } else {
                 0
             };
         };
-
-        j = j + 1;
-    };
+    });
 
     net_value
 }
