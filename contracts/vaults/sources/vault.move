@@ -44,6 +44,7 @@ public struct Vault<phantom P> has key, store {
     treasury_cap: TreasuryCap<VaultShare<P>>,
     deposit_asset: Balance<P>,
     total_shares: u64,
+    // TODO: unbounded array
     users: vector<address>,
     user_entries: ObjectTable<address, UserEntry>,
     fee_receiver: address,
