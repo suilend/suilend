@@ -32,7 +32,7 @@ const MAX_PERFORMANCE_FEE_BPS: u64 = 5000; // 50% max performance fee
 const MAX_MANAGEMENT_FEE_BPS: u64 = 1000; // 10% max management fee
 const MIN_DEPOSIT: u64 = 1000000; // Minimum deposit 0.001 SUI to prevent dust
 const BASIS_POINTS: u64 = 10000; // 100%
-const NAV_PRECISION: u64 = 1_000_000_000; // 1e9 for NAV per share calculations
+const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
 const MAX_UTILIZATION_RATE_BPS: u64 = 7000; // 70% max utilization
 const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 * 24 * 60 * 60
 
@@ -198,14 +198,14 @@ public fun deposit<P>(
         net_deposit_amount
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        (net_deposit_amount * NAV_PRECISION) / nav_per_share
+        ((net_deposit_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
     };
 
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
     // Update user entry for performance fee tracking
     let current_nav_per_share = if (vault.total_shares == 0) {
-        NAV_PRECISION
+        NAV_PRECISION as u64
     } else {
         calculate_nav_per_share(vault, lending_market, clock)
     };
@@ -235,13 +235,17 @@ public fun deposit<P>(
              (shares_to_mint * current_time)) / total_shares_after
         };
 
-        let old_value = (user_entry.shares * user_entry.entry_nav_per_share) / NAV_PRECISION;
+        let old_value = (
+            (user_entry.shares as u128) * (user_entry.entry_nav_per_share as u128) / NAV_PRECISION as u64,
+        );
         let new_value = net_deposit_amount;
         let total_value = old_value + new_value;
         let total_shares = user_entry.shares + shares_to_mint;
 
         // Update weighted average entry NAV
-        user_entry.entry_nav_per_share = (total_value * NAV_PRECISION) / total_shares;
+        user_entry.entry_nav_per_share = (
+            (total_value as u128) * NAV_PRECISION / (total_shares as u128) as u64,
+        );
         user_entry.shares = total_shares;
         user_entry.total_deposited = user_entry.total_deposited + net_deposit_amount;
         user_entry.last_deposit_time_ms = current_time;
@@ -309,13 +313,17 @@ public fun withdraw<P>(
     let entry_nav_per_share = user_entry.entry_nav_per_share;
 
     // Calculate withdrawal amount based on current NAV
-    let withdraw_amount = (shares_amount * current_nav_per_share) / NAV_PRECISION;
+    let withdraw_amount = (
+        (shares_amount as u128) * (current_nav_per_share as u128) / NAV_PRECISION as u64,
+    );
 
     // Calculate realized gain and performance fee
     let mut performance_fee = 0;
     if (current_nav_per_share > entry_nav_per_share) {
         let gain_per_share = current_nav_per_share - entry_nav_per_share;
-        let total_gain = (shares_amount * gain_per_share) / NAV_PRECISION;
+        let total_gain = (
+            (shares_amount as u128) * (gain_per_share as u128) / NAV_PRECISION as u64,
+        );
         performance_fee = (total_gain * vault.performance_fee_bps) / BASIS_POINTS;
     };
 
@@ -438,7 +446,7 @@ public(package) fun calculate_shares_to_mint<P>(
         deposit_amount
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        (deposit_amount * NAV_PRECISION) / nav_per_share
+        ((deposit_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
     }
 }
 
@@ -452,7 +460,7 @@ public(package) fun calculate_shares_to_burn<P>(
         0
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        (withdraw_amount * NAV_PRECISION) / nav_per_share
+        ((withdraw_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
     }
 }
 
@@ -466,7 +474,7 @@ public(package) fun calculate_withdraw_amount<P>(
         0
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        (shares_amount * nav_per_share) / NAV_PRECISION
+        ((shares_amount as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
     }
 }
 
@@ -477,7 +485,7 @@ public(package) fun calculate_deposit_amount<P>(
     clock: &Clock,
 ): u64 {
     let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-    (shares_amount * nav_per_share) / NAV_PRECISION
+    ((shares_amount as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
 }
 
 /// Check if vault can deploy more funds (under 70% utilization)
@@ -540,7 +548,7 @@ public fun convert_to_shares<P>(
         assets
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        (assets * NAV_PRECISION) / nav_per_share
+        ((assets as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
     }
 }
 
@@ -555,7 +563,7 @@ public fun convert_to_assets<P>(
         0
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        (shares * nav_per_share) / NAV_PRECISION
+        ((shares as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
     }
 }
 
@@ -671,10 +679,10 @@ public fun calculate_nav_per_share<P>(
     clock: &Clock,
 ): u64 {
     if (vault.total_shares == 0) {
-        NAV_PRECISION // 1.0 scaled
+        NAV_PRECISION as u64 // 1.0 scaled
     } else {
         let total_value = calculate_total_vault_value(vault, lending_market, clock);
-        (total_value * NAV_PRECISION) / vault.total_shares
+        ((total_value as u128) * NAV_PRECISION / (vault.total_shares as u128) as u64)
     }
 }
 
@@ -698,13 +706,16 @@ fun calculate_user_management_fees(
     };
 
     // Calculate user's share value in asset terms
-    let user_asset_value = (user_entry.shares * current_nav_per_share) / NAV_PRECISION;
+    let user_asset_value = (
+        (user_entry.shares as u128) * (current_nav_per_share as u128) / NAV_PRECISION as u64,
+    );
 
     // Calculate total management fee debt from entry to now
     // fee_debt = (asset_value * management_fee_bps * elapsed_seconds) / (BASIS_POINTS * SECONDS_PER_YEAR)
-    let total_fee_debt =
-        (user_asset_value * management_fee_bps * elapsed_seconds) / 
-                         (BASIS_POINTS * SECONDS_PER_YEAR);
+    let total_fee_debt = (
+        (user_asset_value as u128) * (management_fee_bps as u128) * (elapsed_seconds as u128) / 
+                         ((BASIS_POINTS as u128) * (SECONDS_PER_YEAR as u128)) as u64,
+    );
 
     total_fee_debt
 }
