@@ -34,6 +34,7 @@ const MIN_DEPOSIT: u64 = 1000000; // Minimum deposit 0.001 SUI to prevent dust
 const BASIS_POINTS: u64 = 10000; // 100%
 const NAV_PRECISION: u64 = 1_000_000_000; // 1e9 for NAV per share calculations
 const MAX_UTILIZATION_RATE_BPS: u64 = 7000; // 70% max utilization
+const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 * 24 * 60 * 60
 
 // === Structs ===
 public struct Vault<phantom P> has key, store {
@@ -62,6 +63,7 @@ public struct UserEntry has key, store {
     entry_nav_per_share: u64, // NAV per share when user first deposited (scaled by 1e9)
     total_deposited: u64, // Total amount deposited by user
     last_deposit_time_ms: u64,
+    weighted_average_entry_time_ms: u64, // Weighted average time when assets entered vault
 }
 
 public struct VaultManagerCap<phantom P> has key, store {
@@ -215,12 +217,23 @@ public fun deposit<P>(
             entry_nav_per_share: current_nav_per_share,
             total_deposited: net_deposit_amount,
             last_deposit_time_ms: current_time,
+            weighted_average_entry_time_ms: current_time,
         };
         object_table::add(&mut vault.user_entries, user, user_entry);
         vector::push_back(&mut vault.users, user);
     } else {
         // Existing user - weighted average entry price
         let user_entry = object_table::borrow_mut(&mut vault.user_entries, user);
+
+        // Calculate weighted average entry time based on shares (preserves fee history)
+        let total_shares_after = user_entry.shares + shares_to_mint;
+        let weighted_entry_time = if (total_shares_after == 0) {
+            current_time
+        } else {
+            ((user_entry.shares * user_entry.weighted_average_entry_time_ms) + 
+             (shares_to_mint * current_time)) / total_shares_after
+        };
+
         let old_value = (user_entry.shares * user_entry.entry_nav_per_share) / NAV_PRECISION;
         let new_value = net_deposit_amount;
         let total_value = old_value + new_value;
@@ -231,6 +244,7 @@ public fun deposit<P>(
         user_entry.shares = total_shares;
         user_entry.total_deposited = user_entry.total_deposited + net_deposit_amount;
         user_entry.last_deposit_time_ms = current_time;
+        user_entry.weighted_average_entry_time_ms = weighted_entry_time;
     };
 
     // Mint vault shares to user
@@ -284,6 +298,13 @@ public fun withdraw<P>(
     let user_entry = object_table::borrow_mut(&mut vault.user_entries, user);
     assert!(user_entry.shares >= shares_amount, EInsufficientShares);
 
+    let accrued_management_fee_debt = calculate_user_management_fees(
+        user_entry,
+        current_time,
+        vault.management_fee_bps,
+        current_nav_per_share,
+    );
+
     let entry_nav_per_share = user_entry.entry_nav_per_share;
 
     // Calculate withdrawal amount based on current NAV
@@ -300,16 +321,33 @@ public fun withdraw<P>(
     // Calculate withdrawal fee on the gross amount
     let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
 
+    // Calculate proportional management fees for the shares being withdrawn
+    let proportional_management_fee = if (user_entry.shares == 0) {
+        0
+    } else {
+        (accrued_management_fee_debt * shares_amount) / user_entry.shares
+    };
+
     // Check if vault has sufficient liquidity for withdrawal
     let available_amount = vault.deposit_asset.value();
     assert!(withdraw_amount <= available_amount, EInsufficientLiquidity);
 
     // Total fees to deduct
-    let total_fees = performance_fee + withdrawal_fee;
+    let total_fees = performance_fee + withdrawal_fee + proportional_management_fee;
     let net_withdraw_amount = withdraw_amount - total_fees;
 
     // Update user entry
     user_entry.shares = user_entry.shares - shares_amount;
+
+    // Advance weighted_average_entry_time_ms proportionally to account for fees collected
+    if (user_entry.shares > 0) {
+        let original_shares = user_entry.shares + shares_amount;
+        let time_advance =
+            ((current_time - user_entry.weighted_average_entry_time_ms) * shares_amount) / original_shares;
+        user_entry.weighted_average_entry_time_ms =
+            user_entry.weighted_average_entry_time_ms + time_advance;
+    };
+
     if (user_entry.shares == 0) {
         // Remove user entry if no shares left
         let UserEntry {
@@ -318,6 +356,7 @@ public fun withdraw<P>(
             entry_nav_per_share: _,
             total_deposited: _,
             last_deposit_time_ms: _,
+            weighted_average_entry_time_ms: _,
         } = object_table::remove(&mut vault.user_entries, user);
         object::delete(id);
     };
@@ -360,6 +399,17 @@ public fun withdraw<P>(
             vault_id: object::id(vault),
             fee_type: FeeType::WithdrawalFee,
             fee_amount: withdrawal_fee,
+            fee_receiver: vault.fee_receiver,
+            timestamp_ms: current_time,
+        });
+    };
+
+    // Emit management fee event
+    if (proportional_management_fee > 0) {
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::ManagementFee,
+            fee_amount: proportional_management_fee,
             fee_receiver: vault.fee_receiver,
             timestamp_ms: current_time,
         });
@@ -454,9 +504,9 @@ public fun can_deploy_funds<P>(
 }
 
 /// Get user's current position info
-public fun get_user_position<P>(vault: &Vault<P>, user: address): (u64, u64, u64, u64) {
+public fun get_user_position<P>(vault: &Vault<P>, user: address): (u64, u64, u64, u64, u64) {
     if (!object_table::contains(&vault.user_entries, user)) {
-        (0, 0, 0, 0)
+        (0, 0, 0, 0, 0)
     } else {
         let user_entry = object_table::borrow(&vault.user_entries, user);
         (
@@ -464,6 +514,7 @@ public fun get_user_position<P>(vault: &Vault<P>, user: address): (u64, u64, u64
             user_entry.entry_nav_per_share,
             user_entry.total_deposited,
             user_entry.last_deposit_time_ms,
+            user_entry.weighted_average_entry_time_ms,
         )
     }
 }
@@ -624,6 +675,37 @@ public fun calculate_nav_per_share<P>(
         let total_value = calculate_total_vault_value(vault, lending_market, clock);
         (total_value * NAV_PRECISION) / vault.total_shares
     }
+}
+
+/// Calculate management fees for a specific user based on their weighted average holding time
+fun calculate_user_management_fees(
+    user_entry: &UserEntry,
+    current_time_ms: u64,
+    management_fee_bps: u64,
+    current_nav_per_share: u64,
+): u64 {
+    if (
+        management_fee_bps == 0 || user_entry.weighted_average_entry_time_ms == 0 || user_entry.shares == 0
+    ) {
+        return 0
+    };
+
+    // Calculate total elapsed time from weighted average entry time to now
+    let elapsed_seconds = (current_time_ms - user_entry.weighted_average_entry_time_ms) / 1000;
+    if (elapsed_seconds == 0) {
+        return 0
+    };
+
+    // Calculate user's share value in asset terms
+    let user_asset_value = (user_entry.shares * current_nav_per_share) / NAV_PRECISION;
+
+    // Calculate total management fee debt from entry to now
+    // fee_debt = (asset_value * management_fee_bps * elapsed_seconds) / (BASIS_POINTS * SECONDS_PER_YEAR)
+    let total_fee_debt =
+        (user_asset_value * management_fee_bps * elapsed_seconds) / 
+                         (BASIS_POINTS * SECONDS_PER_YEAR);
+
+    total_fee_debt
 }
 
 /// Calculate utilization rate in basis points
