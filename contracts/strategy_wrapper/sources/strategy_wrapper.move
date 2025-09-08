@@ -26,6 +26,8 @@ module strategy_wrapper::strategy_wrapper {
     const STRATEGY_SUI_LOOPING_SSUI: u8 = 1;
     const STRATEGY_SUI_LOOPING_STRATSUI: u8 = 2;
     const STRATEGY_SUI_LOOPING_USDC: u8 = 3;
+    const SLUSH_WAL_STRATEGY: u8 = 100;
+    const SLUSH_DEEP_STRATEGY: u8 = 101;
 
 
     // Structs
@@ -101,7 +103,9 @@ module strategy_wrapper::strategy_wrapper {
     public fun is_valid_strategy_type(strategy_type: u8): bool {
         strategy_type == STRATEGY_SUI_LOOPING_SSUI ||
         strategy_type == STRATEGY_SUI_LOOPING_STRATSUI ||
-        strategy_type == STRATEGY_SUI_LOOPING_USDC
+        strategy_type == STRATEGY_SUI_LOOPING_USDC ||
+        strategy_type == SLUSH_WAL_STRATEGY ||
+        strategy_type == SLUSH_DEEP_STRATEGY
     }
 
     // === Public functions ===
