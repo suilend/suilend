@@ -4,3 +4,5 @@ contracts/strategy_wrapper/build
 contracts/sprungsui/build
 suilend-cli/node_modules
 contracts/oracles/build
+
+.DS_Store
