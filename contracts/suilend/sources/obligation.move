@@ -43,7 +43,7 @@ module suilend::obligation {
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
-    const MAX_DEPOSITS: u64 = 5;
+    const MAX_DEPOSITS: u64 = 7;
     const MAX_BORROWS: u64 = 5;
 
     // === public structs ===
@@ -142,6 +142,19 @@ module suilend::obligation {
     }
 
     // === Public-Friend Functions
+
+    /// Creates a new obligation for a lending market.
+    ///
+    /// Initializes an `Obligation` with empty deposits and borrows, zeroed financial metrics,
+    /// and associates it with the specified lending market.
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market_id` - The ID of the lending market to associate with the obligation.
+    ///
+    /// # Returns
+    ///
+    /// * `Obligation<P>` - A new `Obligation` instance.
     public(package) fun create_obligation<P>(
         lending_market_id: ID,
         ctx: &mut TxContext,
@@ -165,8 +178,30 @@ module suilend::obligation {
         }
     }
 
-    /// update the obligation's borrowed amounts and health values. this is
-    /// called by the lending market prior to any borrow, withdraw, or liquidate operation.
+    /// Refreshes the obligation's health status by updating deposit and borrow values.
+    ///
+    /// This function is called by the lending market before any borrow, withdraw, or liquidate
+    /// operation to ensure the obligation's state is up-to-date. It iterates through
+    /// all deposits and borrows, compounding interest, updating market values based on the
+    /// latest oracle prices, and recalculating various health metrics like
+    /// `deposited_value_usd`, `allowed_borrow_value_usd`, and `weighted_borrowed_value_usd`.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` to be refreshed.
+    /// * `reserves`: A mutable reference to the `vector<Reserve<P>>` from the lending market.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    ///
+    /// # Returns
+    ///
+    /// * `Option<ExistStaleOracles>`: Returns `Some(ExistStaleOracles)` if any of the oracle
+    ///   prices for the involved reserves are stale, indicating that the calculated values
+    ///   may not be reliable. Otherwise, it returns `None`.
+    /// 
+    /// # Panics
+    ///
+    /// * If any `reserve_array_index` in the obligation's deposits or borrows is out
+    /// of bounds for the `reserves` vector.
     public(package) fun refresh<P>(
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
@@ -288,7 +323,32 @@ module suilend::obligation {
         option::none()
     }
 
-    /// Process a deposit action
+    /// Processes a deposit into the obligation.
+    ///
+    /// This function handles the logic for depositing a specified amount of ctokens into a
+    /// reserve. It finds or creates a deposit entry for the given reserve, updates the
+    ///
+    /// (`deposited_value_usd`, `allowed_borrow_value_usd`, `unhealthy_borrow_value_usd`).
+    /// It also updates the user's reward manager to reflect the new deposit amount for
+    /// liquidity mining purposes.
+    ///
+    /// Note: This function does not enforce price freshness for oracle prices. It is expected
+    /// that any operation requiring up-to-date prices (e.g., withdraw, borrow, liquidate)
+    /// will call `refresh` beforehand.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` being deposited into.
+    /// * `reserve`: A mutable reference to the `Reserve` corresponding to the deposit asset.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    /// * `ctoken_amount`: The amount of ctokens to be deposited.
+    /// 
+    /// # Panics
+    ///
+    /// * If the number of deposits exceeds `MAX_DEPOSITS`.
+    /// * If the obligation already has a borrow for the same asset as the deposit (`ECannotDepositAndBorrowSameAsset`).
+    /// * If the `reserve_array_index` of the deposit is invalid or out of bounds for the `reserves` vector.
+    /// * If the `user_reward_manager_index` is invalid or out of bounds for the `user_reward_managers` vector.
     public(package) fun deposit<P>(
         obligation: &mut Obligation<P>,
         reserve: &mut Reserve<P>,
@@ -345,7 +405,36 @@ module suilend::obligation {
         log_obligation_data(obligation);
     }
 
-    /// Process a borrow action. Makes sure that the obligation is healthy after the borrow.
+    /// Processes a borrow action from the obligation, ensuring the obligation remains healthy.
+    ///
+    /// This function manages the borrowing of a specified amount from a reserve. It performs
+    /// several checks and updates to maintain the integrity of the obligation's financial
+    /// status. Key actions include:
+    /// - Finding or creating a borrow entry for the specified reserve.
+    /// - Ensuring the user is not borrowing and depositing the same asset.
+    /// - Updating the obligation's health metrics, including `unweighted_borrowed_value_usd`,
+    ///   `weighted_borrowed_value_usd`, and `weighted_borrowed_value_upper_bound_usd`.
+    /// - Updating the user's reward manager for liquidity mining incentives.
+    /// - Asserting that the obligation remains healthy (`is_healthy`) after the borrow.
+    /// - Enforcing rules for isolated assets to prevent co-mingling of borrows.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` from which to borrow.
+    /// * `reserve`: A mutable reference to the `Reserve` from which the asset is borrowed.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    /// * `amount`: The amount of the asset to borrow.
+    /// 
+    /// # Panics
+    ///
+    /// * If the number of borrows exceeds `MAX_BORROWS`.
+    /// * If the obligation already has a deposit for the same asset as the
+    /// borrow (`ECannotDepositAndBorrowSameAsset`).
+    /// * If the obligation is not healthy after the borrow (`EObligationIsNotHealthy`).
+    /// * If borrowing an isolated asset when other borrows exist, or borrowing a
+    /// non-isolated asset when an isolated asset is already borrowed (`EIsolatedAssetViolation`).
+    /// * If the `reserve_array_index` of the borrow is invalid or out of bounds for the `reserves` vector.
+    /// * If the `user_reward_manager_index` is invalid or out of bounds for the `user_reward_managers` vector.
     public(package) fun borrow<P>(
         obligation: &mut Obligation<P>,
         reserve: &mut Reserve<P>,
@@ -407,7 +496,36 @@ module suilend::obligation {
         log_obligation_data(obligation);
     }
 
-    /// Process a repay action. The reserve's interest must have been refreshed before calling this.
+    /// Processes a repay action on a borrow within the obligation.
+    ///
+    /// This function handles the repayment of a borrowed asset. It first ensures that the
+    /// reserve's interest is up-to-date before proceeding. The function locates the
+    /// corresponding borrow in the obligation, compounds the debt to the current time,
+    /// and then calculates the amount to be repaid, capped by `max_repay_amount`.
+    ///
+    /// After reducing the borrowed amount, it updates the obligation's health metrics.
+    /// If the full borrow is repaid, the borrow entry is removed from the obligation.
+    /// The user's reward manager share is also updated to reflect the change in their
+    /// liability.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` containing the borrow.
+    /// * `reserve`: A mutable reference to the `Reserve` of the asset being repaid.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    /// * `max_repay_amount`: The maximum amount to repay, specified as a `Decimal`.
+    ///
+    /// # Returns
+    ///
+    /// * `Decimal`: The actual amount that was repaid.
+    /// 
+    /// # Panics
+    ///
+    /// * If the obligation does not have a borrow for the specified reserve (`EBorrowNotFound`).
+    /// * If the `reserve_array_index` of the borrow is invalid or out of bounds
+    /// for the `reserves` vector.
+    /// * If the `user_reward_manager_index` is invalid or out of bounds for the
+    /// `user_reward_managers` vector.
     public(package) fun repay<P>(
         obligation: &mut Obligation<P>,
         reserve: &mut Reserve<P>,
@@ -503,7 +621,32 @@ module suilend::obligation {
         repay_amount
     }
 
-    /// Process a withdraw action. Makes sure that the obligation is healthy after the withdraw.
+    /// Processes a withdrawal from the obligation, ensuring the obligation remains healthy.
+    ///
+    /// This function handles the withdrawal of a specified amount of ctokens from a reserve.
+    /// It first checks for stale oracle prices, allowing the withdrawal to proceed without
+    /// fresh prices only if the obligation has no borrows. Otherwise, it asserts that
+    /// oracle prices are not stale.
+    ///
+    /// The core withdrawal logic is handled by `withdraw_unchecked`, which updates the
+    /// obligation's health metrics. After the withdrawal, this function asserts that the
+    /// obligation is still healthy (`is_healthy`) to prevent under-collateralization.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` from which to withdraw.
+    /// * `reserve`: A mutable reference to the `Reserve` of the asset being withdrawn.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    /// * `ctoken_amount`: The amount of ctokens to withdraw.
+    /// * `stale_oracles`: An `Option<ExistStaleOracles>` indicating if oracle prices are stale.
+    /// 
+    /// # Panics
+    ///
+    /// * If `stale_oracles` is `Some` and the obligation has borrows (`EOraclesAreStale`).
+    /// * If the obligation does not have a deposit for the specified reserve (`EDepositNotFound`).
+    /// * If the obligation is not healthy after the withdrawal (`EObligationIsNotHealthy`).
+    /// * If the `reserve_array_index` of the deposit is invalid or out of bounds for the `reserves` vector.
+    /// * If the `user_reward_manager_index` is invalid or out of bounds for the `user_reward_managers` vector.
     public(package) fun withdraw<P>(
         obligation: &mut Obligation<P>,
         reserve: &mut Reserve<P>,
@@ -523,8 +666,39 @@ module suilend::obligation {
         log_obligation_data(obligation);
     }
 
-    /// Process a liquidate action.
-    /// Returns the amount of ctokens to withdraw, and the amount of tokens to repay.
+    /// Liquidates a portion of an unhealthy obligation, repaying a borrowed asset and seizing
+    /// collateral.
+    ///
+    /// This function is called by a liquidator when an obligation's health factor falls below
+    /// the liquidation threshold (`is_liquidatable` returns `true`). The liquidator repays a
+    /// portion of a borrowed asset and receives a discounted amount of collateral in return.
+    /// The amount of collateral seized includes a liquidation bonus and a protocol fee.
+    ///
+    /// The amount to be repaid is capped by a close factor, ensuring that only a portion of
+    /// the debt can be liquidated in a single transaction, unless the borrow value is very small.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` being liquidated.
+    /// * `reserves`: A mutable reference to the `vector<Reserve<P>>` from the lending market.
+    /// * `repay_reserve_array_index`: The array index of the reserve for the asset being repaid.
+    /// * `withdraw_reserve_array_index`: The array index of the reserve for the collateral being seized.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    /// * `repay_amount`: The amount of the borrowed asset that the liquidator intends to repay.
+    ///
+    /// # Returns
+    ///
+    /// * `(u64, Decimal)`: A tuple containing:
+    ///   - The amount of ctokens withdrawn from the collateral reserve.
+    ///   - The actual amount of the borrowed asset that was repaid.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic under the following conditions:
+    /// * If the obligation is not liquidatable (i.e., `is_liquidatable` is `false`).
+    /// * If the `repay_reserve_array_index` or `withdraw_reserve_array_index` are out of bounds for the `reserves` vector.
+    /// * If the obligation does not have a borrow for the specified repay reserve.
+    /// * If the obligation does not have a deposit for the specified withdraw reserve.
     public(package) fun liquidate<P>(
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
@@ -613,6 +787,29 @@ module suilend::obligation {
         (final_withdraw_amount, final_settle_amount)
     }
 
+    /// Forgives a portion of a borrow for an obligation that has no deposits.
+    ///
+    /// This function is used to handle bad debt, where an obligation has outstanding borrows
+    /// but no collateral (deposits) to seize. It effectively allows for the reduction of
+    /// a borrow amount without requiring repayment from the borrower. The forgiven amount
+    /// is capped by `max_forgive_amount`.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` whose debt is being forgiven.
+    /// * `reserve`: A mutable reference to the `Reserve` of the asset being forgiven.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    /// * `max_forgive_amount`: The maximum amount to forgive, specified as a `Decimal`.
+    ///
+    /// # Returns
+    ///
+    /// * `Decimal`: The actual amount that was forgiven.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic under the following conditions:
+    /// * If the obligation is not forgivable (i.e., it still has deposits).
+    /// * If the obligation does not have a borrow for the specified reserve.
     public(package) fun forgive<P>(
         obligation: &mut Obligation<P>,
         reserve: &mut Reserve<P>,
@@ -629,6 +826,31 @@ module suilend::obligation {
         )
     }
 
+    /// Claims liquidity mining rewards for an obligation from a specific reward pool.
+    ///
+    /// This function locates the user's reward manager corresponding to the provided
+    /// `pool_reward_manager` within the obligation. It then calls the `claim_rewards`
+    /// function from the `liquidity_mining` module to process the reward claim.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` for which to claim rewards.
+    /// * `pool_reward_manager`: A mutable reference to the `PoolRewardManager` from which
+    ///   rewards are being claimed.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    /// * `reward_index`: The index of the reward to claim within the pool.
+    ///
+    /// # Returns
+    ///
+    /// * `Balance<T>`: A `Balance` object containing the claimed reward tokens of type `T`.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic under the following conditions:
+    /// * If a `user_reward_manager` corresponding to the `pool_reward_manager` is not found
+    ///   in the obligation.
+    /// * If the `reward_index` is out of bounds for the rewards in the `pool_reward_manager`.
+    /// * It will also propagate any panics from `liquidity_mining::claim_rewards`.
     public(package) fun claim_rewards<P, T>(
         obligation: &mut Obligation<P>,
         pool_reward_manager: &mut PoolRewardManager,
@@ -653,112 +875,135 @@ module suilend::obligation {
     }
 
     // === Public-View Functions
+
+    /// Get the deposits of the obligation.
     public fun deposits<P>(obligation: &Obligation<P>): &vector<Deposit> {
         &obligation.deposits
     }
 
+    /// Get the borrows of the obligation.
     public fun borrows<P>(obligation: &Obligation<P>): &vector<Borrow> {
         &obligation.borrows
     }
 
+    /// Get the deposited value in USD.
     public fun deposited_value_usd<P>(obligation: &Obligation<P>): Decimal {
         obligation.deposited_value_usd
     }
 
+    /// Get the allowed borrow value in USD.
     public fun allowed_borrow_value_usd<P>(obligation: &Obligation<P>): Decimal {
         obligation.allowed_borrow_value_usd
     }
 
+    /// Get the unhealthy borrow value in USD.
     public fun unhealthy_borrow_value_usd<P>(obligation: &Obligation<P>): Decimal {
         obligation.unhealthy_borrow_value_usd
     }
 
+    /// Get the unweighted borrowed value in USD.
     public fun unweighted_borrowed_value_usd<P>(obligation: &Obligation<P>): Decimal {
         obligation.unweighted_borrowed_value_usd
     }
 
+    /// Get the weighted borrowed value in USD.
     public fun weighted_borrowed_value_usd<P>(obligation: &Obligation<P>): Decimal {
         obligation.weighted_borrowed_value_usd
     }
 
+    /// Get the weighted borrowed value upper bound in USD.
     public fun weighted_borrowed_value_upper_bound_usd<P>(obligation: &Obligation<P>): Decimal {
         obligation.weighted_borrowed_value_upper_bound_usd
     }
 
+    /// Whether the obligation is borrowing an isolated asset.
     public fun borrowing_isolated_asset<P>(obligation: &Obligation<P>): bool {
         obligation.borrowing_isolated_asset
     }
 
+    /// Get the user reward managers of the obligation.
     public fun user_reward_managers<P>(obligation: &Obligation<P>): &vector<UserRewardManager> {
         &obligation.user_reward_managers
     }
 
     public use fun deposit_coin_type as Deposit.coin_type;
 
+    /// Get the coin type of the deposit.
     public fun deposit_coin_type(deposit: &Deposit): TypeName {
         deposit.coin_type
     }
 
     public use fun deposit_reserve_array_index as Deposit.reserve_array_index;
 
+    /// Get the reserve array index of the deposit.
     public fun deposit_reserve_array_index(deposit: &Deposit): u64 {
         deposit.reserve_array_index
     }
 
     public use fun deposit_deposited_ctoken_amount as Deposit.deposited_ctoken_amount;
 
+    /// Get the deposited ctoken amount of the deposit.
     public fun deposit_deposited_ctoken_amount(deposit: &Deposit): u64 {
         deposit.deposited_ctoken_amount
     }
 
     public use fun deposit_market_value as Deposit.market_value;
 
+    /// Get the market value of the deposit.
     public fun deposit_market_value(deposit: &Deposit): Decimal {
         deposit.market_value
     }
 
     public use fun deposit_user_reward_manager_index as Deposit.user_reward_manager_index;
 
+    /// Get the user reward manager index of the deposit.
     public fun deposit_user_reward_manager_index(deposit: &Deposit): u64 {
         deposit.user_reward_manager_index
     }
 
     public use fun borrow_coin_type as Borrow.coin_type;
 
+    /// Get the coin type of the borrow.
     public fun borrow_coin_type(borrow: &Borrow): TypeName {
         borrow.coin_type
     }
 
     public use fun borrow_reserve_array_index as Borrow.reserve_array_index;
 
+    /// Get the reserve array index of the borrow.
     public fun borrow_reserve_array_index(borrow: &Borrow): u64 {
         borrow.reserve_array_index
     }
 
     public use fun borrow_borrowed_amount as Borrow.borrowed_amount;
 
+    /// Get the borrowed amount of the borrow.
     public fun borrow_borrowed_amount(borrow: &Borrow): Decimal {
         borrow.borrowed_amount
     }
 
     public use fun borrow_cumulative_borrow_rate as Borrow.cumulative_borrow_rate;
 
+    /// Get the cumulative borrow rate of the borrow.
     public fun borrow_cumulative_borrow_rate(borrow: &Borrow): Decimal {
         borrow.cumulative_borrow_rate
     }
 
     public use fun borrow_market_value as Borrow.market_value;
 
+    /// Get the market value of the borrow.
     public fun borrow_market_value(borrow: &Borrow): Decimal {
         borrow.market_value
     }
 
     public use fun borrow_user_reward_manager_index as Borrow.user_reward_manager_index;
 
+    /// Get the user reward manager index of the borrow.
     public fun borrow_user_reward_manager_index(borrow: &Borrow): u64 {
         borrow.user_reward_manager_index
     }
 
+    /// Get the deposited ctoken amount of a specific coin type.
     public fun deposited_ctoken_amount<P, T>(obligation: &Obligation<P>): u64 {
         let mut i = 0;
         while (i < vector::length(&obligation.deposits)) {
@@ -773,6 +1018,7 @@ module suilend::obligation {
         0
     }
 
+    /// Get the borrowed amount of a specific coin type.
     public fun borrowed_amount<P, T>(obligation: &Obligation<P>): Decimal {
         let mut i = 0;
         while (i < vector::length(&obligation.borrows)) {
@@ -787,19 +1033,40 @@ module suilend::obligation {
         decimal::from(0)
     }
 
+    /// Whether the obligation is healthy.
     public fun is_healthy<P>(obligation: &Obligation<P>): bool {
         le(obligation.weighted_borrowed_value_upper_bound_usd, obligation.allowed_borrow_value_usd)
     }
 
+    /// Whether the obligation is liquidatable.
     public fun is_liquidatable<P>(obligation: &Obligation<P>): bool {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
     }
 
+    /// Whether the obligation is forgivable.
     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
         vector::length(&obligation.deposits) == 0
     }
 
-    // calculate the maximum amount that can be borrowed within an obligation
+    /// Calculates the maximum amount of a token that can be borrowed from a reserve
+    /// without exceeding the obligation's borrowing limit.
+    ///
+    /// This function determines the remaining borrowing capacity in USD, adjusts it by the
+    /// asset's borrow weight, and converts it to the corresponding token amount using a
+    /// conservative price estimate.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A reference to the `Obligation` for which to calculate the borrow limit.
+    /// * `reserve`: A reference to the `Reserve` of the asset to be borrowed.
+    ///
+    /// # Returns
+    ///
+    /// * `u64`: The maximum amount of the token that can be borrowed, floored to the nearest integer.
+    ///
+    /// # Panics
+    ///
+    /// * If the `borrow_weight` of the reserve is zero, as this would lead to division by zero.
     public(package) fun max_borrow_amount<P>(
         obligation: &Obligation<P>,
         reserve: &Reserve<P>,
@@ -818,7 +1085,27 @@ module suilend::obligation {
         )
     }
 
-    // calculate the maximum amount that can be withdrawn from an obligation
+    /// Calculates the maximum amount of ctokens that can be withdrawn from a reserve
+    /// without making the obligation unhealthy.
+    ///
+    /// This function determines the remaining borrowing capacity in USD, converts it to the
+    /// equivalent value of the collateral asset, and then finds the corresponding ctoken amount.
+    /// The result is capped by the actual amount of ctokens deposited. If the obligation has
+    /// no borrows, the full deposit amount can be withdrawn.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A reference to the `Obligation` from which to withdraw.
+    /// * `reserve`: A reference to the `Reserve` of the asset being withdrawn.
+    ///
+    /// # Returns
+    ///
+    /// * `u64`: The maximum amount of ctokens that can be withdrawn.
+    ///
+    /// # Panics
+    ///
+    /// * Panics with `EDepositNotFound` if the obligation does not have a deposit for the
+    ///   specified `reserve`.
     public(package) fun max_withdraw_amount<P>(
         obligation: &Obligation<P>,
         reserve: &Reserve<P>,
@@ -858,11 +1145,46 @@ module suilend::obligation {
         )
     }
 
+    /// Asserts that no stale oracles were detected during an obligation refresh.
+    ///
+    /// This function is a utility to ensure that operations requiring fresh oracle prices
+    /// do not proceed if any of the relevant prices are stale. It takes an `Option<ExistStaleOracles>`
+    /// which is returned by the `refresh` function.
+    ///
+    /// # Arguments
+    ///
+    /// * `exist_stale_oracles`: An `Option<ExistStaleOracles>` which is `Some` if stale oracles
+    ///   were found, and `None` otherwise.
+    ///
+    /// # Panics
+    ///
+    /// * Panics with `EOraclesAreStale` if `exist_stale_oracles` is `Some`.
     public(package) fun assert_no_stale_oracles(exist_stale_oracles: Option<ExistStaleOracles>) {
         assert!(option::is_none(&exist_stale_oracles), EOraclesAreStale);
         option::destroy_none(exist_stale_oracles);
     }
 
+    /// Checks if an obligation is in a "looped" state and zeroes out its liquidity mining
+    /// rewards if it is.
+    ///
+    /// A looped state is defined by specific pairings of deposits and borrows that are
+    /// disallowed to prevent reward farming exploits. This function calls `is_looped` to
+    /// determine if the obligation matches any of these patterns. If it does, it calls
+    /// `zero_out_rewards` to set the reward shares for all deposits and borrows in the
+    /// obligation to zero.
+    ///
+    /// # Arguments
+    ///
+    /// * `obligation`: A mutable reference to the `Obligation` to be checked.
+    /// * `reserves`: A mutable reference to the `vector<Reserve<P>>` from the lending market.
+    /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
+    ///
+    /// # Panics
+    ///
+    /// * This function will propagate panics from `zero_out_rewards`. This can occur if a
+    ///   deposit or borrow in the obligation has an invalid `reserve_array_index` or
+    ///   `user_reward_manager_index` that is out of bounds for the `reserves` or
+    ///   `user_reward_managers` vectors, respectively.
     public(package) fun zero_out_rewards_if_looped<P>(
         obligation: &mut Obligation<P>,
         reserves: &mut vector<Reserve<P>>,
@@ -874,6 +1196,16 @@ module suilend::obligation {
     }
 
     // === Private Functions ===
+
+    /// Checks if an obligation is in a "looped" state.
+    ///
+    /// A looped state is defined as having a deposit and borrow of the same asset,
+    /// or having a deposit and borrow of a disabled pair of assets. This is to prevent
+    /// reward farming exploits.
+    ///
+    /// # Panics
+    /// * If the internal `target_reserve_array_indices` and `disabled_pairings_map` vectors
+    ///   have inconsistent lengths, leading to an out-of-bounds access.
     public(package) fun is_looped<P>(obligation: &Obligation<P>): bool {
         let target_reserve_array_indices = vector[1, 2, 5, 7, 19, 20, 3, 9];
 
@@ -1300,7 +1632,7 @@ module suilend::obligation {
     }
 
     #[test_only]
-    public(package) fun create_borrow_for_testing(
+    public fun create_borrow_for_testing(
         coin_type: TypeName,
         reserve_array_index: u64,
         borrowed_amount: Decimal,
@@ -1316,5 +1648,64 @@ module suilend::obligation {
             market_value,
             user_reward_manager_index,
         }
+    }
+    
+    #[test_only]
+    public fun create_deposit_for_testing(
+        coin_type: TypeName,
+        reserve_array_index: u64,
+        deposited_ctoken_amount: u64,
+        market_value: Decimal,
+        user_reward_manager_index: u64,
+        attributed_borrow_value: Decimal,
+    ): Deposit {
+        Deposit {
+            coin_type,
+            reserve_array_index,
+            deposited_ctoken_amount,
+            market_value,
+            user_reward_manager_index,
+            attributed_borrow_value,
+        }
+    }
+
+    #[test_only]
+    public fun mock_for_testing<P>(
+        lending_market_id: ID,
+        deposits: vector<Deposit>,
+        borrows: vector<Borrow>,
+        deposited_value_usd: Decimal,
+        allowed_borrow_value_usd: Decimal,
+        unhealthy_borrow_value_usd: Decimal,
+        super_unhealthy_borrow_value_usd: Decimal, // unused
+        unweighted_borrowed_value_usd: Decimal,
+        weighted_borrowed_value_usd: Decimal,
+        weighted_borrowed_value_upper_bound_usd: Decimal,
+        borrowing_isolated_asset: bool,
+        user_reward_managers: vector<UserRewardManager>,
+        bad_debt_usd: Decimal,
+        closable: bool,
+        ctx: &mut TxContext,
+    ): Obligation<P> {
+        let obligation = Obligation {
+            id: object::new(ctx),
+            lending_market_id,
+            deposits,
+            borrows,
+            deposited_value_usd,
+            allowed_borrow_value_usd,
+            unhealthy_borrow_value_usd,
+            super_unhealthy_borrow_value_usd,
+            unweighted_borrowed_value_usd,
+            weighted_borrowed_value_usd,
+            weighted_borrowed_value_upper_bound_usd,
+            borrowing_isolated_asset,
+            user_reward_managers,
+            bad_debt_usd,
+            closable,
+        };
+
+        obligation
+
     }
 }

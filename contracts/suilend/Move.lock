@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "6781C6A6706E7547FDDE140BD7880B44DD07AF42D5F3EDB94B61E8433A04AF59"
+manifest_digest = "7A43BACB237E0CBC7FC867CB1A27F60C804CC99044BB0C9F56143B045B3C9B6A"
 deps_digest = "CAFAD8A7CF51067FB4358215BECB86BD100DD64E57C2AC8A7AE7D74B688F5965"
 dependencies = [
   { id = "Bridge", name = "Bridge" },
@@ -16,7 +16,7 @@ dependencies = [
 
 [[move.package]]
 id = "Bridge"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "3802482bd4e3", subdir = "crates/sui-framework/packages/bridge" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "79918a3f1357", subdir = "crates/sui-framework/packages/bridge" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
@@ -26,11 +26,11 @@ dependencies = [
 
 [[move.package]]
 id = "MoveStdlib"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "3802482bd4e3", subdir = "crates/sui-framework/packages/move-stdlib" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "79918a3f1357", subdir = "crates/sui-framework/packages/move-stdlib" }
 
 [[move.package]]
 id = "Pyth"
-source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62", subdir = "target_chains/sui/contracts" }
+source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "73b2a5a9786d54ca1341f43bcddd90040a325b4c", subdir = "target_chains/sui/contracts" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -39,7 +39,7 @@ dependencies = [
 
 [[move.package]]
 id = "Sui"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "3802482bd4e3", subdir = "crates/sui-framework/packages/sui-framework" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "79918a3f1357", subdir = "crates/sui-framework/packages/sui-framework" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
@@ -47,7 +47,7 @@ dependencies = [
 
 [[move.package]]
 id = "SuiSystem"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "3802482bd4e3", subdir = "crates/sui-framework/packages/sui-system" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "79918a3f1357", subdir = "crates/sui-framework/packages/sui-system" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
@@ -56,7 +56,7 @@ dependencies = [
 
 [[move.package]]
 id = "Wormhole"
-source = { git = "https://github.com/solendprotocol/wormhole.git", rev = "e1698d3c72b15cdddd7da98ad43e151f83b72a0a", subdir = "sui/wormhole" }
+source = { git = "https://github.com/suilend/wormhole.git", rev = "be7f3c862925d1dd4c55cbca35e7693dc562284d", subdir = "sui/wormhole" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -83,6 +83,6 @@ dependencies = [
 ]
 
 [move.toolchain-version]
-compiler-version = "1.48.4"
+compiler-version = "1.52.3"
 edition = "2024.beta"
 flavor = "sui"

@@ -1,13 +1,13 @@
 [package]
 name = "suilend"
 version = "0.0.1"
-published-at = "0x43d25be6a55db4e7cc08dd914b8326e7d56fb64c67f0fb961a349e2872f4cc08"
+published-at = "0xdf6df8a1e16c58b66d5c432cc6a5a8981c9982f111723ec0894d152be57b3e7e"
 edition = "2024.beta"
  
 [dependencies.Pyth]
 git = "https://github.com/solendprotocol/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
-rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62"
+rev = "73b2a5a9786d54ca1341f43bcddd90040a325b4c"
 
 [dependencies.liquid_staking]
 git = "https://github.com/solendprotocol/liquid-staking.git"
