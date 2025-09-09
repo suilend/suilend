@@ -1,6 +1,16 @@
 module strategy_wrapper::strategy_wrapper {
     use sui::event;
-    use suilend::lending_market::{Self, ObligationOwnerCap, LendingMarket};
+    use suilend::lending_market::{Self, ObligationOwnerCap, LendingMarket, RateLimiterExemption};
+    use suilend::obligation::Obligation;
+    use suilend::reserve::CToken;
+    use sui::coin::{Self, Coin};
+    use sui::clock::Clock;
+    use sui::object::{Self, UID, ID};
+    use sui::tx_context::{Self, TxContext};
+    use sui::sui::SUI;
+    use sui_system::sui_system::SuiSystemState;
+    use std::option::{Self, Option};
+
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -14,7 +24,11 @@ module strategy_wrapper::strategy_wrapper {
 
     // === Strategy Type Constants ===
     const STRATEGY_SUI_LOOPING_SSUI: u8 = 1;
-    const STRATEGY_BTC_LOOPING_WBTC: u8 = 2;
+    const STRATEGY_SUI_LOOPING_STRATSUI: u8 = 2;
+    const STRATEGY_SUI_LOOPING_USDC: u8 = 3;
+    const SLUSH_WAL_STRATEGY: u8 = 100;
+    const SLUSH_DEEP_STRATEGY: u8 = 101;
+
 
     // Structs
     public struct StrategyOwnerCap<phantom P> has key, store {
@@ -88,7 +102,10 @@ module strategy_wrapper::strategy_wrapper {
     // === Strategy Type Validation ===
     public fun is_valid_strategy_type(strategy_type: u8): bool {
         strategy_type == STRATEGY_SUI_LOOPING_SSUI ||
-        strategy_type == STRATEGY_BTC_LOOPING_WBTC 
+        strategy_type == STRATEGY_SUI_LOOPING_STRATSUI ||
+        strategy_type == STRATEGY_SUI_LOOPING_USDC ||
+        strategy_type == SLUSH_WAL_STRATEGY ||
+        strategy_type == SLUSH_DEEP_STRATEGY
     }
 
     // === Public functions ===
@@ -261,26 +278,6 @@ module strategy_wrapper::strategy_wrapper {
 
     // ===  Public Functions  ===
 
-    // Eject the strategy owner cap and return the inner obligation cap
-    public(package) fun eject<P>(
-        mut strategy_cap: StrategyOwnerCap<P>,
-        _ctx: &TxContext
-    ): ObligationOwnerCap<P> {
-        assert_version_and_upgrade(&mut strategy_cap);
-        
-        let StrategyOwnerCap { id, version: _, inner_cap, strategy_type: _ } = strategy_cap;
-        let cap_id_addr = object::uid_to_address(&id);
-        let obligation_id_addr = object::id_to_address(&lending_market::obligation_id(&inner_cap));
-        object::delete(id);
-        
-        event::emit(EjectedInnerCap {
-            cap_id: cap_id_addr,
-            obligation_id: obligation_id_addr,
-        });
-        
-        inner_cap
-    }
-
     // View functions
     public fun get_strategy_type<P>(cap: &StrategyOwnerCap<P>): u8 {
         assert_current_version(cap);
@@ -295,6 +292,22 @@ module strategy_wrapper::strategy_wrapper {
     public fun inner_cap<P>(cap: &StrategyOwnerCap<P>): &ObligationOwnerCap<P> {
         assert_current_version(cap);
         &cap.inner_cap
+    }
+
+    // Get the obligation ID from the strategy cap
+    public fun obligation_id<P>(cap: &StrategyOwnerCap<P>): ID {
+        assert_current_version(cap);
+        lending_market::obligation_id(&cap.inner_cap)
+    }
+
+    // Get a reference to the obligation from the lending market
+    public fun get_obligation<P>(
+        cap: &StrategyOwnerCap<P>,
+        lending_market: &LendingMarket<P>
+    ): &Obligation<P> {
+        assert_current_version(cap);
+        let obligation_id = lending_market::obligation_id(&cap.inner_cap);
+        lending_market::obligation(lending_market, obligation_id)
     }
 
     // === New View Functions for Wrapped Cap ===
@@ -360,6 +373,239 @@ module strategy_wrapper::strategy_wrapper {
     /// Assert that the strategy cap is at the current version (read-only check)
     public fun assert_current_version<P>(cap: &StrategyOwnerCap<P>) {
         assert!(cap.version == CURRENT_VERSION, EIncorrectVersion);
+    }
+
+    // === Convenience Functions for PTB Compatibility ===
+    
+    /// Deposit liquidity and mint cTokens, then deposit into the strategy's obligation
+    /// This is PTB-compatible since it doesn't expose references
+    public fun deposit_liquidity_and_deposit_into_obligation<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        deposit: Coin<T>,
+        ctx: &mut TxContext,
+    ) {
+        assert_current_version(strategy_cap);
+        
+        // First mint cTokens
+        let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
+            lending_market,
+            reserve_array_index,
+            clock,
+            deposit,
+            ctx,
+        );
+        
+        // Then deposit cTokens into obligation using our inner cap
+        lending_market::deposit_ctokens_into_obligation<P, T>(
+            lending_market,
+            reserve_array_index,
+            &strategy_cap.inner_cap,
+            clock,
+            ctokens,
+            ctx,
+        );
+        
+    }
+    
+    /// Borrow from the strategy's obligation
+    public fun borrow_from_obligation<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        amount: u64,
+        ctx: &mut TxContext,
+    ): Coin<T> {
+        assert_current_version(strategy_cap);
+        
+        lending_market::borrow<P, T>(
+            lending_market,
+            reserve_array_index,
+            &strategy_cap.inner_cap,
+            clock,
+            amount,
+            ctx,
+        )
+    }
+
+    /// Borrow SUI from the strategy's obligation (handles staker unstaking)
+    public fun borrow_sui_from_obligation<P>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        amount: u64,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext,
+    ): Coin<SUI> {
+        assert_current_version(strategy_cap);
+        
+        // Create the borrow request first
+        let liquidity_request = lending_market::borrow_request<P, SUI>(
+            lending_market,
+            reserve_array_index,
+            &strategy_cap.inner_cap,
+            clock,
+            amount,
+        );
+        
+        // Unstake from staker if needed to ensure liquidity
+        lending_market::unstake_sui_from_staker<P>(
+            lending_market,
+            reserve_array_index,
+            &liquidity_request,
+            system_state,
+            ctx,
+        );
+        
+        // Fulfill the liquidity request
+        lending_market::fulfill_liquidity_request<P, SUI>(
+            lending_market,
+            reserve_array_index,
+            liquidity_request,
+            ctx,
+        )
+    }
+
+    /// Withdraw cTokens from obligation and redeem for underlying asset
+    public fun withdraw_from_obligation_and_redeem<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        ctoken_amount: u64,
+        ctx: &mut TxContext,
+    ): Coin<T> {
+        assert_current_version(strategy_cap);
+        
+        // First withdraw cTokens from obligation
+        let ctokens = lending_market::withdraw_ctokens<P, T>(
+            lending_market,
+            reserve_array_index,
+            &strategy_cap.inner_cap,
+            clock,
+            ctoken_amount,
+            ctx,
+        );
+        
+        // Then redeem cTokens for underlying asset
+        lending_market::redeem_ctokens_and_withdraw_liquidity<P, T>(
+            lending_market,
+            reserve_array_index,
+            clock,
+            ctokens,
+            option::none<RateLimiterExemption<P, T>>(),
+            ctx,
+        )
+    }
+
+    /// Withdraw cTokens from obligation (without redeeming)
+    public fun withdraw_ctokens_from_obligation<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        ctoken_amount: u64,
+        ctx: &mut TxContext,
+    ): Coin<CToken<P, T>> {
+        assert_current_version(strategy_cap);
+        
+        lending_market::withdraw_ctokens<P, T>(
+            lending_market,
+            reserve_array_index,
+            &strategy_cap.inner_cap,
+            clock,
+            ctoken_amount,
+            ctx,
+        )
+    }
+
+    /// Deposit cTokens directly into obligation (for when you already have cTokens)
+    public fun deposit_ctokens_into_obligation<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        ctokens: Coin<CToken<P, T>>,
+        ctx: &mut TxContext,
+    ) {
+        assert_current_version(strategy_cap);
+        
+        lending_market::deposit_ctokens_into_obligation<P, T>(
+            lending_market,
+            reserve_array_index,
+            &strategy_cap.inner_cap,
+            clock,
+            ctokens,
+            ctx,
+        )
+    }
+
+    /// Mint cTokens from underlying asset (without depositing into obligation)
+    public fun mint_ctokens<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        deposit: Coin<T>,
+        ctx: &mut TxContext,
+    ): Coin<CToken<P, T>> {
+        assert_current_version(strategy_cap);
+        
+        lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
+            lending_market,
+            reserve_array_index,
+            clock,
+            deposit,
+            ctx,
+        )
+    }
+
+    /// Redeem cTokens for underlying asset (without withdrawing from obligation)
+    public fun redeem_ctokens<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        ctokens: Coin<CToken<P, T>>,
+        ctx: &mut TxContext,
+    ): Coin<T> {
+        assert_current_version(strategy_cap);
+        
+        lending_market::redeem_ctokens_and_withdraw_liquidity<P, T>(
+            lending_market,
+            reserve_array_index,
+            clock,
+            ctokens,
+            option::none<RateLimiterExemption<P, T>>(),
+            ctx,
+        )
+    }
+
+    /// Claim rewards from the strategy's obligation
+    public fun claim_rewards<P, T>(
+        strategy_cap: &StrategyOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        clock: &Clock,
+        reserve_id: u64,
+        reward_index: u64,
+        is_deposit_reward: bool,
+        ctx: &mut TxContext,
+    ): Coin<T> {
+        assert_current_version(strategy_cap);
+        
+        lending_market::claim_rewards<P, T>(
+            lending_market,
+            &strategy_cap.inner_cap,
+            clock,
+            reserve_id,
+            reward_index,
+            is_deposit_reward,
+            ctx,
+        )
     }
 
     // === Test Functions ===
