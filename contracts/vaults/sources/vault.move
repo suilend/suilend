@@ -4,7 +4,8 @@ use sui::{balance::{Self, Balance}, clock::{Self, Clock}, coin::{Self, TreasuryC
 use suilend::{
     decimal,
     lending_market::{Self, ObligationOwnerCap, LendingMarket},
-    obligation::Obligation
+    obligation::Obligation,
+    reserve
 };
 
 // === Errors ===
@@ -17,6 +18,7 @@ const EInvalidManagementFeeBps: u64 = 9;
 const EInvalidDeposit: u64 = 10;
 const EInsufficientShares: u64 = 12;
 const EInsufficientLiquidity: u64 = 13;
+const ENoReserveForAsset: u64 = 15;
 
 // === Constants ===
 const CURRENT_VERSION: u64 = 1;
@@ -178,14 +180,14 @@ public fun deposit<P>(
     // Add deposited coins to vault's asset balance
     balance::join(&mut vault.deposit_asset, coin::into_balance(deposit));
 
-    // Calculate shares to mint based on current NAV
-    let shares_to_mint = if (vault.total_shares == 0) {
-        // First deposit - 1:1 ratio with net amount
-        net_deposit_amount
-    } else {
-        let nav_per_share = apply_management_fee_to_nav(vault, lending_market, clock);
-        ((net_deposit_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
-    };
+    // Calculate shares to mint based on current USD NAV
+    let nav_per_share = apply_management_fee_to_nav(vault, lending_market, clock);
+    let deposit_usd_value = decimal::mul(
+        decimal::from(net_deposit_amount),
+        get_usd_price_for_asset<P>(lending_market),
+    ).floor();
+    let shares_to_mint =
+        (((deposit_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64;
 
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
@@ -235,10 +237,12 @@ public fun withdraw<P>(
     assert!(vault.total_shares >= shares_amount, EInsufficientShares);
 
     let current_nav_per_share = apply_management_fee_to_nav(vault, lending_market, clock);
-    // Calculate withdrawal amount based on current NAV (which already includes management fee reduction)
-    let withdraw_amount = (
-        (shares_amount as u128) * (current_nav_per_share as u128) / NAV_PRECISION as u64,
+    // Calculate withdrawal amount based on current USD NAV
+    let withdraw_usd_value = (
+        ((shares_amount as u128) * (current_nav_per_share as u128)) / NAV_PRECISION,
     );
+    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let withdraw_amount = decimal::div(decimal::from(withdraw_usd_value as u64), usd_price).floor();
 
     // Calculate withdrawal fee on the gross amount
     let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
@@ -298,12 +302,12 @@ public fun calculate_shares_to_mint<P>(
     deposit_amount: u64,
     lending_market: &LendingMarket<P>,
 ): u64 {
-    if (vault.total_shares == 0) {
-        deposit_amount
-    } else {
-        let nav_per_share = calculate_nav_per_share(vault, lending_market);
-        ((deposit_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
-    }
+    let nav_per_share = calculate_nav_per_share(vault, lending_market);
+    let deposit_usd_value = decimal::mul(
+        decimal::from(deposit_amount),
+        get_usd_price_for_asset<P>(lending_market),
+    ).floor();
+    (((deposit_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
 }
 
 public fun calculate_shares_to_burn<P>(
@@ -315,7 +319,11 @@ public fun calculate_shares_to_burn<P>(
         0
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market);
-        ((withdraw_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
+        let withdraw_usd_value = decimal::mul(
+            decimal::from(withdraw_amount),
+            get_usd_price_for_asset<P>(lending_market),
+        ).floor();
+        (((withdraw_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
     }
 }
 
@@ -328,7 +336,11 @@ public fun calculate_withdraw_amount<P>(
         0
     } else {
         let nav_per_share = calculate_nav_per_share(vault, lending_market);
-        ((shares_amount as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
+        let withdraw_usd_value = (
+            ((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION,
+        );
+        let usd_price = get_usd_price_for_asset<P>(lending_market);
+        decimal::div(decimal::from(withdraw_usd_value as u64), usd_price).floor()
     }
 }
 
@@ -338,7 +350,9 @@ public fun calculate_deposit_amount<P>(
     lending_market: &LendingMarket<P>,
 ): u64 {
     let nav_per_share = calculate_nav_per_share(vault, lending_market);
-    ((shares_amount as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
+    let deposit_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
+    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    decimal::div(decimal::from(deposit_usd_value as u64), usd_price).floor()
 }
 
 /// Check if vault can deploy more funds (under 70% utilization)
@@ -347,7 +361,9 @@ public fun can_deploy_funds<P>(
     lending_market: &LendingMarket<P>,
     amount: u64,
 ): bool {
-    let liquid_value = balance::value(&vault.deposit_asset);
+    let liquid_asset_value = balance::value(&vault.deposit_asset);
+    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
 
     if (amount > liquid_value) {
         false
@@ -369,13 +385,13 @@ public fun total_supply<P>(vault: &Vault<P>): u64 {
     vault.total_shares
 }
 
-/// Calculate total vault value in asset-native terms
-/// Returns total assets under management in the base asset P
+/// Calculate total vault value
+/// Returns total assets under management in USD
 public fun calculate_total_vault_value<P>(
     vault: &Vault<P>,
     lending_market: &LendingMarket<P>,
 ): u64 {
-    let mut total_value = vault.deposit_asset.value();
+    let mut total_asset_value = vault.deposit_asset.value();
 
     // Add value from all lending positions
     vault.obligations.do_ref!(|obligation_cap| {
@@ -384,10 +400,12 @@ public fun calculate_total_vault_value<P>(
 
         // Get net value from this obligation (deposits - borrows in asset terms)
         let net_value = calculate_obligation_net_value<P>(obligation, lending_market);
-        total_value = total_value + net_value;
+        total_asset_value = total_asset_value + net_value;
     });
 
-    total_value
+    // Convert to USD
+    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    decimal::mul(decimal::from(total_asset_value), usd_price).floor()
 }
 
 /// Calculate net value of an obligation in asset-native terms
@@ -406,6 +424,7 @@ fun calculate_obligation_net_value<P>(
         let reserve = reserves.borrow(reserve_index);
 
         // Check if this deposit is in our base asset P
+        // TODO: Should handle all assets?
         if (reserve.coin_type() == std::type_name::get<P>()) {
             let ctoken_amount = deposit.deposited_ctoken_amount();
             let ctoken_ratio = reserve.ctoken_ratio();
@@ -439,12 +458,32 @@ fun calculate_obligation_net_value<P>(
     net_value
 }
 
+/// Get the reserve for the base asset P
+fun get_reserve_for_asset<P>(lending_market: &LendingMarket<P>): &reserve::Reserve<P> {
+    let reserves = lending_market.reserves();
+    let asset_type = std::type_name::get<P>();
+    let reserve_index = reserves.find_index!(|reserve| {
+        reserve.coin_type() == asset_type
+    });
+    if (reserve_index.is_some()) {
+        reserves.borrow(*reserve_index.borrow())
+    } else {
+        abort ENoReserveForAsset
+    }
+}
+
+/// Get USD price for asset P (using lower bound for conservative pricing)
+fun get_usd_price_for_asset<P>(lending_market: &LendingMarket<P>): decimal::Decimal {
+    let reserve = get_reserve_for_asset<P>(lending_market);
+    reserve.price_lower_bound()
+}
+
 fun calculate_nav_per_share<P>(vault: &Vault<P>, lending_market: &LendingMarket<P>): u64 {
     if (vault.total_shares == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
     } else {
-        let total_value = calculate_total_vault_value(vault, lending_market);
-        ((total_value as u128) * NAV_PRECISION / (vault.total_shares as u128) as u64)
+        let total_usd_value = calculate_total_vault_value(vault, lending_market);
+        (((total_usd_value as u128) * NAV_PRECISION) / (vault.total_shares as u128)) as u64
     }
 }
 
@@ -498,7 +537,9 @@ fun apply_management_fee_to_nav<P>(
 /// Calculate utilization rate in basis points
 public fun calculate_utilization_rate<P>(vault: &Vault<P>, lending_market: &LendingMarket<P>): u64 {
     let total_value = calculate_total_vault_value(vault, lending_market);
-    let liquid_value = balance::value(&vault.deposit_asset);
+    let liquid_asset_value = balance::value(&vault.deposit_asset);
+    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
 
     if (total_value == 0) {
         0
