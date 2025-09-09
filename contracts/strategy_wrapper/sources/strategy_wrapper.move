@@ -26,6 +26,7 @@ module strategy_wrapper::strategy_wrapper {
     const STRATEGY_SUI_LOOPING_SSUI: u8 = 1;
     const STRATEGY_SUI_LOOPING_STRATSUI: u8 = 2;
     const STRATEGY_SUI_LOOPING_USDC: u8 = 3;
+    const STRATEGY_SUI_LOOPING_AUSD: u8 = 4;
     const SLUSH_WAL_STRATEGY: u8 = 100;
     const SLUSH_DEEP_STRATEGY: u8 = 101;
 
@@ -104,6 +105,7 @@ module strategy_wrapper::strategy_wrapper {
         strategy_type == STRATEGY_SUI_LOOPING_SSUI ||
         strategy_type == STRATEGY_SUI_LOOPING_STRATSUI ||
         strategy_type == STRATEGY_SUI_LOOPING_USDC ||
+        strategy_type == STRATEGY_SUI_LOOPING_AUSD ||
         strategy_type == SLUSH_WAL_STRATEGY ||
         strategy_type == SLUSH_DEEP_STRATEGY
     }
