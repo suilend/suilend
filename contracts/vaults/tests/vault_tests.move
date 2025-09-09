@@ -22,7 +22,6 @@ fun init_vault_scenario(): Scenario {
 
     // Create clock
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
-    clock::share_for_testing(clock);
 
     // Create vault and manager cap
     let (vault, manager_cap) = vault::create_vault_for_testing<TEST_COIN>(
@@ -31,8 +30,11 @@ fun init_vault_scenario(): Scenario {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
+        &clock,
         ts::ctx(&mut scenario),
     );
+
+    clock::share_for_testing(clock);
 
     // Transfer to sender so they can be retrieved later
     transfer::public_transfer(vault, ADMIN);
@@ -294,6 +296,7 @@ fun test_insufficient_shares_withdrawal() {
 #[test]
 fun test_fee_limits() {
     let mut scenario = ts::begin(ADMIN);
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     // Test that fee limits are enforced during vault creation
     let (vault, manager_cap) = vault::create_vault_for_testing<TEST_COIN>(
@@ -302,11 +305,13 @@ fun test_fee_limits() {
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
         1000, // 10% withdrawal fee (at limit)
+        &clock,
         ts::ctx(&mut scenario),
     );
 
     transfer::public_transfer(vault, ADMIN);
     transfer::public_transfer(manager_cap, ADMIN);
+    clock.destroy_for_testing();
     ts::end(scenario);
 }
 
@@ -314,6 +319,7 @@ fun test_fee_limits() {
 #[expected_failure]
 fun test_excessive_fee_failure() {
     let mut scenario = ts::begin(ADMIN);
+    let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     // Try to create vault with excessive fees (should fail)
     let (vault, manager_cap) = vault::create_vault_for_testing<TEST_COIN>(
@@ -322,11 +328,13 @@ fun test_excessive_fee_failure() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
+        &clock,
         ts::ctx(&mut scenario),
     );
 
     // Should not reach here
     transfer::public_transfer(vault, ADMIN);
     transfer::public_transfer(manager_cap, ADMIN);
+    clock.destroy_for_testing();
     ts::end(scenario);
 }

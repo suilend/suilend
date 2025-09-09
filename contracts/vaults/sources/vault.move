@@ -1,12 +1,6 @@
 module vaults::vault;
 
-use sui::{
-    balance::{Self, Balance},
-    clock::{Self, Clock},
-    coin::{Self, TreasuryCap, Coin},
-    event,
-    object_table::{Self, ObjectTable}
-};
+use sui::{balance::{Self, Balance}, clock::{Self, Clock}, coin::{Self, TreasuryCap, Coin}, event};
 use suilend::{
     decimal,
     lending_market::{Self, ObligationOwnerCap, LendingMarket},
@@ -44,28 +38,18 @@ public struct Vault<phantom P> has key, store {
     treasury_cap: TreasuryCap<VaultShare<P>>,
     deposit_asset: Balance<P>,
     total_shares: u64,
-    // TODO: unbounded array
-    users: vector<address>,
-    user_entries: ObjectTable<address, UserEntry>,
     fee_receiver: address,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
-    last_update_time_ms: u64,
     utilization_rate_bps: u64, // Current utilization rate in basis points
+    // Fee accrual state
+    last_nav_per_share: u64, // For tracking performance fee base
+    fee_last_update_timestamp_s: u64,
 }
 
 public struct VaultShare<phantom P> has drop, store {}
-
-public struct UserEntry has key, store {
-    id: object::UID,
-    shares: u64,
-    entry_nav_per_share: u64, // NAV per share when user first deposited (scaled by 1e9)
-    total_deposited: u64, // Total amount deposited by user
-    last_deposit_time_ms: u64,
-    weighted_average_entry_time_ms: u64, // Weighted average time when assets entered vault
-}
 
 public struct VaultManagerCap<phantom P> has key, store {
     id: object::UID,
@@ -121,12 +105,15 @@ public fun create_vault<P>(
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
     treasury_cap: TreasuryCap<VaultShare<P>>,
+    clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): (Vault<P>, VaultManagerCap<P>) {
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
     assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);
     assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
     assert!(withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS, EInvalidWithdrawalFeeBps);
+
+    let current_time_s = clock.timestamp_ms() / 1000;
 
     // Create vault
     let vault = Vault {
@@ -136,15 +123,15 @@ public fun create_vault<P>(
         treasury_cap,
         deposit_asset: balance::zero<P>(),
         total_shares: 0,
-        users: vector::empty(),
-        user_entries: object_table::new(ctx),
         fee_receiver,
         management_fee_bps,
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
-        last_update_time_ms: 0,
         utilization_rate_bps: 0,
+        // Initialize fee accrual state
+        last_nav_per_share: NAV_PRECISION as u64,
+        fee_last_update_timestamp_s: current_time_s,
     };
 
     let vault_manager_cap = VaultManagerCap {
@@ -186,7 +173,6 @@ public fun deposit<P>(
     let fee_coins = coin::split(&mut deposit, deposit_fee, ctx);
 
     // Send fee to collector
-    // TODO: Might be better to autoclaim
     sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
 
     // Add deposited coins to vault's asset balance
@@ -197,66 +183,16 @@ public fun deposit<P>(
         // First deposit - 1:1 ratio with net amount
         net_deposit_amount
     } else {
-        let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
+        let nav_per_share = apply_management_fee_to_nav(vault, lending_market, clock);
         ((net_deposit_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
     };
 
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
-    // Update user entry for performance fee tracking
-    let current_nav_per_share = if (vault.total_shares == 0) {
-        NAV_PRECISION as u64
-    } else {
-        calculate_nav_per_share(vault, lending_market, clock)
-    };
-
-    if (!object_table::contains(&vault.user_entries, user)) {
-        // New user
-        let user_entry = UserEntry {
-            id: object::new(ctx),
-            shares: shares_to_mint,
-            entry_nav_per_share: current_nav_per_share,
-            total_deposited: net_deposit_amount,
-            last_deposit_time_ms: current_time,
-            weighted_average_entry_time_ms: current_time,
-        };
-        object_table::add(&mut vault.user_entries, user, user_entry);
-        vector::push_back(&mut vault.users, user);
-    } else {
-        // Existing user - weighted average entry price
-        let user_entry = object_table::borrow_mut(&mut vault.user_entries, user);
-
-        // Calculate weighted average entry time based on shares (preserves fee history)
-        let total_shares_after = user_entry.shares + shares_to_mint;
-        let weighted_entry_time = if (total_shares_after == 0) {
-            current_time
-        } else {
-            ((user_entry.shares * user_entry.weighted_average_entry_time_ms) + 
-             (shares_to_mint * current_time)) / total_shares_after
-        };
-
-        let old_value = (
-            (user_entry.shares as u128) * (user_entry.entry_nav_per_share as u128) / NAV_PRECISION as u64,
-        );
-        let new_value = net_deposit_amount;
-        let total_value = old_value + new_value;
-        let total_shares = user_entry.shares + shares_to_mint;
-
-        // Update weighted average entry NAV
-        user_entry.entry_nav_per_share = (
-            (total_value as u128) * NAV_PRECISION / (total_shares as u128) as u64,
-        );
-        user_entry.shares = total_shares;
-        user_entry.total_deposited = user_entry.total_deposited + net_deposit_amount;
-        user_entry.last_deposit_time_ms = current_time;
-        user_entry.weighted_average_entry_time_ms = weighted_entry_time;
-    };
-
     // Mint vault shares to user
     let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
     vault.total_shares = vault.total_shares + shares_to_mint;
-    vault.last_update_time_ms = current_time;
-    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market, clock);
+    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market);
 
     // Emit fee collection event
     if (deposit_fee > 0) {
@@ -297,91 +233,34 @@ public fun withdraw<P>(
     let current_time = clock::timestamp_ms(clock);
 
     assert!(vault.total_shares >= shares_amount, EInsufficientShares);
-    assert!(object_table::contains(&vault.user_entries, user), EInsufficientShares);
 
-    let current_nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-    let user_entry = object_table::borrow_mut(&mut vault.user_entries, user);
-    assert!(user_entry.shares >= shares_amount, EInsufficientShares);
-
-    let accrued_management_fee_debt = calculate_user_management_fees(
-        user_entry,
-        current_time,
-        vault.management_fee_bps,
-        current_nav_per_share,
-    );
-
-    let entry_nav_per_share = user_entry.entry_nav_per_share;
-
-    // Calculate withdrawal amount based on current NAV
+    let current_nav_per_share = apply_management_fee_to_nav(vault, lending_market, clock);
+    // Calculate withdrawal amount based on current NAV (which already includes management fee reduction)
     let withdraw_amount = (
         (shares_amount as u128) * (current_nav_per_share as u128) / NAV_PRECISION as u64,
     );
 
-    // Calculate realized gain and performance fee
-    let mut performance_fee = 0;
-    if (current_nav_per_share > entry_nav_per_share) {
-        let gain_per_share = current_nav_per_share - entry_nav_per_share;
-        let total_gain = (
-            (shares_amount as u128) * (gain_per_share as u128) / NAV_PRECISION as u64,
-        );
-        performance_fee = (total_gain * vault.performance_fee_bps) / BASIS_POINTS;
-    };
-
     // Calculate withdrawal fee on the gross amount
     let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
-
-    // Calculate proportional management fees for the shares being withdrawn
-    let proportional_management_fee = if (user_entry.shares == 0) {
-        0
-    } else {
-        (accrued_management_fee_debt * shares_amount) / user_entry.shares
-    };
 
     // Check if vault has sufficient liquidity for withdrawal
     let available_amount = vault.deposit_asset.value();
     assert!(withdraw_amount <= available_amount, EInsufficientLiquidity);
 
-    // Total fees to deduct
-    let total_fees = performance_fee + withdrawal_fee + proportional_management_fee;
-    let net_withdraw_amount = withdraw_amount - total_fees;
-
-    // Update user entry
-    user_entry.shares = user_entry.shares - shares_amount;
-
-    // Advance weighted_average_entry_time_ms proportionally to account for fees collected
-    if (user_entry.shares > 0) {
-        let original_shares = user_entry.shares + shares_amount;
-        let time_advance =
-            ((current_time - user_entry.weighted_average_entry_time_ms) * shares_amount) / original_shares;
-        user_entry.weighted_average_entry_time_ms =
-            user_entry.weighted_average_entry_time_ms + time_advance;
-    };
-
-    if (user_entry.shares == 0) {
-        // Remove user entry if no shares left
-        let UserEntry {
-            id,
-            shares: _,
-            entry_nav_per_share: _,
-            total_deposited: _,
-            last_deposit_time_ms: _,
-            weighted_average_entry_time_ms: _,
-        } = object_table::remove(&mut vault.user_entries, user);
-        object::delete(id);
-    };
+    // Net withdrawal amount after withdrawal fee
+    let net_withdraw_amount = withdraw_amount - withdrawal_fee;
 
     // Burn the shares
     coin::burn(&mut vault.treasury_cap, shares);
     vault.total_shares = vault.total_shares - shares_amount;
-    vault.last_update_time_ms = current_time;
-    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market, clock);
+    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market);
 
     // Withdraw full amount from vault's asset balance
     let mut withdrawn_balance = balance::split(&mut vault.deposit_asset, withdraw_amount);
 
-    // Split out fees
-    if (total_fees > 0) {
-        let fee_balance = balance::split(&mut withdrawn_balance, total_fees);
+    // Split out withdrawal fee
+    if (withdrawal_fee > 0) {
+        let fee_balance = balance::split(&mut withdrawn_balance, withdrawal_fee);
         let fee_coins = coin::from_balance(fee_balance, ctx);
 
         // Send fees to collector
@@ -391,34 +270,12 @@ public fun withdraw<P>(
     // Return net amount to user
     let coins = coin::from_balance(withdrawn_balance, ctx);
 
-    // Emit performance fee event
-    if (performance_fee > 0) {
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::PerformanceFee,
-            fee_amount: performance_fee,
-            fee_receiver: vault.fee_receiver,
-            timestamp_ms: current_time,
-        });
-    };
-
     // Emit withdrawal fee event
     if (withdrawal_fee > 0) {
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
             fee_type: FeeType::WithdrawalFee,
             fee_amount: withdrawal_fee,
-            fee_receiver: vault.fee_receiver,
-            timestamp_ms: current_time,
-        });
-    };
-
-    // Emit management fee event
-    if (proportional_management_fee > 0) {
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::ManagementFee,
-            fee_amount: proportional_management_fee,
             fee_receiver: vault.fee_receiver,
             timestamp_ms: current_time,
         });
@@ -436,55 +293,51 @@ public fun withdraw<P>(
     coins
 }
 
-public(package) fun calculate_shares_to_mint<P>(
+public fun calculate_shares_to_mint<P>(
     vault: &Vault<P>,
     deposit_amount: u64,
     lending_market: &LendingMarket<P>,
-    clock: &Clock,
 ): u64 {
     if (vault.total_shares == 0) {
         deposit_amount
     } else {
-        let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
+        let nav_per_share = calculate_nav_per_share(vault, lending_market);
         ((deposit_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
     }
 }
 
-public(package) fun calculate_shares_to_burn<P>(
+public fun calculate_shares_to_burn<P>(
     vault: &Vault<P>,
     withdraw_amount: u64,
     lending_market: &LendingMarket<P>,
-    clock: &Clock,
 ): u64 {
     if (vault.total_shares == 0) {
         0
     } else {
-        let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
+        let nav_per_share = calculate_nav_per_share(vault, lending_market);
         ((withdraw_amount as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
     }
 }
 
-public(package) fun calculate_withdraw_amount<P>(
+public fun calculate_withdraw_amount<P>(
     vault: &Vault<P>,
     shares_amount: u64,
     lending_market: &LendingMarket<P>,
-    clock: &Clock,
 ): u64 {
     if (vault.total_shares == 0) {
         0
     } else {
-        let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
+        let nav_per_share = calculate_nav_per_share(vault, lending_market);
         ((shares_amount as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
     }
 }
 
-public(package) fun calculate_deposit_amount<P>(
+public fun calculate_deposit_amount<P>(
     vault: &Vault<P>,
     shares_amount: u64,
     lending_market: &LendingMarket<P>,
-    clock: &Clock,
 ): u64 {
-    let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
+    let nav_per_share = calculate_nav_per_share(vault, lending_market);
     ((shares_amount as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
 }
 
@@ -492,7 +345,6 @@ public(package) fun calculate_deposit_amount<P>(
 public fun can_deploy_funds<P>(
     vault: &Vault<P>,
     lending_market: &LendingMarket<P>,
-    clock: &Clock,
     amount: u64,
 ): bool {
     let liquid_value = balance::value(&vault.deposit_asset);
@@ -501,7 +353,7 @@ public fun can_deploy_funds<P>(
         false
     } else {
         let new_liquid_value = liquid_value - amount;
-        let total_value = calculate_total_vault_value(vault, lending_market, clock);
+        let total_value = calculate_total_vault_value(vault, lending_market);
         if (total_value == 0) {
             true
         } else {
@@ -510,90 +362,6 @@ public fun can_deploy_funds<P>(
             new_utilization <= MAX_UTILIZATION_RATE_BPS
         }
     }
-}
-
-/// Get user's current position info
-public fun get_user_position<P>(vault: &Vault<P>, user: address): (u64, u64, u64, u64, u64) {
-    if (!object_table::contains(&vault.user_entries, user)) {
-        (0, 0, 0, 0, 0)
-    } else {
-        let user_entry = object_table::borrow(&vault.user_entries, user);
-        (
-            user_entry.shares,
-            user_entry.entry_nav_per_share,
-            user_entry.total_deposited,
-            user_entry.last_deposit_time_ms,
-            user_entry.weighted_average_entry_time_ms,
-        )
-    }
-}
-
-/// Check current utilization rate
-public fun get_utilization_rate<P>(
-    vault: &Vault<P>,
-    lending_market: &LendingMarket<P>,
-    clock: &Clock,
-): u64 {
-    calculate_utilization_rate(vault, lending_market, clock)
-}
-
-/// Convert assets to shares
-public fun convert_to_shares<P>(
-    vault: &Vault<P>,
-    assets: u64,
-    lending_market: &LendingMarket<P>,
-    clock: &Clock,
-): u64 {
-    if (vault.total_shares == 0) {
-        assets
-    } else {
-        let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        ((assets as u128) * NAV_PRECISION / (nav_per_share as u128) as u64)
-    }
-}
-
-/// Convert shares to assets
-public fun convert_to_assets<P>(
-    vault: &Vault<P>,
-    shares: u64,
-    lending_market: &LendingMarket<P>,
-    clock: &Clock,
-): u64 {
-    if (vault.total_shares == 0) {
-        0
-    } else {
-        let nav_per_share = calculate_nav_per_share(vault, lending_market, clock);
-        ((shares as u128) * (nav_per_share as u128) / NAV_PRECISION as u64)
-    }
-}
-
-/// Preview deposit (assets → shares, no fees)
-public fun preview_deposit<P>(
-    vault: &Vault<P>,
-    assets: u64,
-    lending_market: &LendingMarket<P>,
-    clock: &Clock,
-): u64 {
-    convert_to_shares(vault, assets, lending_market, clock)
-}
-
-/// Preview redeem (shares → assets, no fees)
-public fun preview_redeem<P>(
-    vault: &Vault<P>,
-    shares: u64,
-    lending_market: &LendingMarket<P>,
-    clock: &Clock,
-): u64 {
-    convert_to_assets(vault, shares, lending_market, clock)
-}
-
-/// Total assets under management
-public fun total_assets<P>(
-    vault: &Vault<P>,
-    lending_market: &LendingMarket<P>,
-    clock: &Clock,
-): u64 {
-    calculate_total_vault_value(vault, lending_market, clock)
 }
 
 /// Total supply of shares
@@ -606,7 +374,6 @@ public fun total_supply<P>(vault: &Vault<P>): u64 {
 public fun calculate_total_vault_value<P>(
     vault: &Vault<P>,
     lending_market: &LendingMarket<P>,
-    _clock: &Clock,
 ): u64 {
     let mut total_value = vault.deposit_asset.value();
 
@@ -672,61 +439,65 @@ fun calculate_obligation_net_value<P>(
     net_value
 }
 
-/// Calculate NAV per share (scaled by NAV_PRECISION)
-public fun calculate_nav_per_share<P>(
-    vault: &Vault<P>,
-    lending_market: &LendingMarket<P>,
-    clock: &Clock,
-): u64 {
+fun calculate_nav_per_share<P>(vault: &Vault<P>, lending_market: &LendingMarket<P>): u64 {
     if (vault.total_shares == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
     } else {
-        let total_value = calculate_total_vault_value(vault, lending_market, clock);
+        let total_value = calculate_total_vault_value(vault, lending_market);
         ((total_value as u128) * NAV_PRECISION / (vault.total_shares as u128) as u64)
     }
 }
 
-/// Calculate management fees for a specific user based on their weighted average holding time
-fun calculate_user_management_fees(
-    user_entry: &UserEntry,
-    current_time_ms: u64,
-    management_fee_bps: u64,
-    current_nav_per_share: u64,
-): u64 {
-    if (
-        management_fee_bps == 0 || user_entry.weighted_average_entry_time_ms == 0 || user_entry.shares == 0
-    ) {
-        return 0
-    };
-
-    // Calculate total elapsed time from weighted average entry time to now
-    let elapsed_seconds = (current_time_ms - user_entry.weighted_average_entry_time_ms) / 1000;
-    if (elapsed_seconds == 0) {
-        return 0
-    };
-
-    // Calculate user's share value in asset terms
-    let user_asset_value = (
-        (user_entry.shares as u128) * (current_nav_per_share as u128) / NAV_PRECISION as u64,
-    );
-
-    // Calculate total management fee debt from entry to now
-    // fee_debt = (asset_value * management_fee_bps * elapsed_seconds) / (BASIS_POINTS * SECONDS_PER_YEAR)
-    let total_fee_debt = (
-        (user_asset_value as u128) * (management_fee_bps as u128) * (elapsed_seconds as u128) / 
-                         ((BASIS_POINTS as u128) * (SECONDS_PER_YEAR as u128)) as u64,
-    );
-
-    total_fee_debt
-}
-
-/// Calculate utilization rate in basis points
-public fun calculate_utilization_rate<P>(
-    vault: &Vault<P>,
+/// Apply management fee to NAV based on time elapsed
+/// Returns the fee-adjusted NAV per share
+fun apply_management_fee_to_nav<P>(
+    vault: &mut Vault<P>,
     lending_market: &LendingMarket<P>,
     clock: &Clock,
 ): u64 {
-    let total_value = calculate_total_vault_value(vault, lending_market, clock);
+    let base_nav_per_share = calculate_nav_per_share(vault, lending_market);
+
+    if (vault.management_fee_bps == 0) {
+        return base_nav_per_share
+    };
+
+    let current_time_s = clock::timestamp_ms(clock) / 1000;
+
+    let time_elapsed_s = current_time_s - vault.fee_last_update_timestamp_s;
+    if (time_elapsed_s == 0) {
+        return base_nav_per_share
+    };
+
+    // Calculate management fee reduction factor
+    // Annual fee rate as decimal (e.g., 100 bps = 0.01)
+    let annual_fee_rate = decimal::from_bps(vault.management_fee_bps);
+
+    // Convert to per-second rate: annual_rate / seconds_per_year
+    let per_second_rate = decimal::div(annual_fee_rate, decimal::from(SECONDS_PER_YEAR));
+
+    // Fee factor for the elapsed time: elapsed_seconds * per_second_rate
+    let fee_factor = decimal::mul(decimal::from(time_elapsed_s), per_second_rate);
+
+    // Ensure fee factor doesn't exceed 100% (shouldn't happen with reasonable rates)
+    let fee_factor = if (decimal::gt(fee_factor, decimal::from(1))) {
+        decimal::from(1)
+    } else {
+        fee_factor
+    };
+
+    // Apply fee: nav_after_fee = nav_before_fee * (1 - fee_factor)
+    let reduction_factor = decimal::sub(decimal::from(1), fee_factor);
+    let adjusted_nav = decimal::mul(decimal::from(base_nav_per_share), reduction_factor);
+
+    // Update timestamp
+    vault.fee_last_update_timestamp_s = current_time_s;
+
+    decimal::floor(adjusted_nav)
+}
+
+/// Calculate utilization rate in basis points
+public fun calculate_utilization_rate<P>(vault: &Vault<P>, lending_market: &LendingMarket<P>): u64 {
+    let total_value = calculate_total_vault_value(vault, lending_market);
     let liquid_value = balance::value(&vault.deposit_asset);
 
     if (total_value == 0) {
@@ -735,6 +506,58 @@ public fun calculate_utilization_rate<P>(
         let deployed_value = total_value - liquid_value;
         (deployed_value * BASIS_POINTS) / total_value
     }
+}
+
+/// Applies performance fees based on NAV growth
+public fun compound_performance_fees<P>(
+    vault: &mut Vault<P>,
+    lending_market: &LendingMarket<P>,
+    clock: &Clock,
+) {
+    if (vault.performance_fee_bps == 0 || vault.total_shares == 0) {
+        vault.last_nav_per_share = calculate_nav_per_share(vault, lending_market);
+        return
+    };
+
+    let current_nav_per_share = calculate_nav_per_share(vault, lending_market);
+
+    // Apply performance fee only on NAV growth
+    if (current_nav_per_share > vault.last_nav_per_share) {
+        let nav_growth = current_nav_per_share - vault.last_nav_per_share;
+        let nav_growth_decimal = decimal::from(nav_growth);
+        let total_shares_decimal = decimal::from(vault.total_shares);
+
+        // Calculate total value of the NAV growth
+        let total_growth_value = decimal::mul(
+            nav_growth_decimal,
+            decimal::div(total_shares_decimal, decimal::from(NAV_PRECISION as u64)),
+        );
+
+        // Apply performance fee by reducing NAV per share
+        let performance_fee = decimal::mul(
+            total_growth_value,
+            decimal::from_bps(vault.performance_fee_bps),
+        );
+
+        // Calculate fee per share and reduce NAV
+        let fee_per_share = decimal::div(
+            decimal::mul(performance_fee, decimal::from(NAV_PRECISION as u64)),
+            total_shares_decimal,
+        );
+        let adjusted_nav = decimal::sub(decimal::from(current_nav_per_share), fee_per_share);
+        vault.last_nav_per_share = decimal::floor(adjusted_nav);
+
+        // Emit performance fee event
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::PerformanceFee,
+            fee_amount: decimal::floor(performance_fee),
+            fee_receiver: vault.fee_receiver,
+            timestamp_ms: clock::timestamp_ms(clock),
+        });
+    } else {
+        vault.last_nav_per_share = current_nav_per_share;
+    };
 }
 
 // === Vault Manager Functions ===
@@ -786,14 +609,13 @@ public fun obligation_count<P>(vault: &Vault<P>): u64 {
 public fun deposit_for_testing<P>(
     vault: &mut Vault<P>,
     deposit: Coin<P>,
-    clock: &Clock,
+    _clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<VaultShare<P>> {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     assert!(coin::value(&deposit) >= MIN_DEPOSIT, EInvalidDeposit);
 
     let deposit_amount = coin::value(&deposit);
-    let current_time = clock::timestamp_ms(clock);
 
     let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
     let net_deposit_amount = deposit_amount - deposit_fee;
@@ -813,7 +635,6 @@ public fun deposit_for_testing<P>(
 
     let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
     vault.total_shares = vault.total_shares + shares_to_mint;
-    vault.last_update_time_ms = current_time;
     vault.utilization_rate_bps = 0;
 
     vault_shares
@@ -823,14 +644,13 @@ public fun deposit_for_testing<P>(
 public fun withdraw_for_testing<P>(
     vault: &mut Vault<P>,
     shares: Coin<VaultShare<P>>,
-    clock: &Clock,
+    _clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<P> {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     assert!(coin::value(&shares) > 0, EInsufficientShares);
 
     let shares_amount = coin::value(&shares);
-    let current_time = clock::timestamp_ms(clock);
 
     assert!(vault.total_shares >= shares_amount, EInsufficientShares);
     assert!(vault.total_shares > 0, EInsufficientShares);
@@ -852,7 +672,6 @@ public fun withdraw_for_testing<P>(
         sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
     };
 
-    vault.last_update_time_ms = current_time;
     vault.utilization_rate_bps = 0;
     coin::from_balance(withdrawn_balance, ctx)
 }
@@ -864,6 +683,7 @@ public fun create_vault_for_testing<P>(
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
+    clock: &Clock,
     ctx: &mut TxContext,
 ): (Vault<P>, VaultManagerCap<P>) {
     let share_treasury_cap = coin::create_treasury_cap_for_testing<VaultShare<P>>(ctx);
@@ -875,6 +695,7 @@ public fun create_vault_for_testing<P>(
         deposit_fee_bps,
         withdrawal_fee_bps,
         share_treasury_cap,
+        clock,
         ctx,
     )
 }
