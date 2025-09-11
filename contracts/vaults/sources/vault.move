@@ -3,7 +3,7 @@ module vaults::vault;
 use sui::{balance::{Self, Balance}, clock::{Self, Clock}, coin::{Self, TreasuryCap, Coin}, event};
 use suilend::{
     decimal,
-    lending_market::{Self, ObligationOwnerCap, LendingMarket},
+    lending_market::{ObligationOwnerCap, LendingMarket},
     obligation::Obligation,
     reserve
 };
@@ -33,12 +33,12 @@ const MAX_UTILIZATION_RATE_BPS: u64 = 7000; // 70% max utilization
 const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 * 24 * 60 * 60
 
 // === Structs ===
-public struct Vault<phantom P> has key, store {
+public struct Vault<phantom P, phantom L, phantom T> has key, store {
     id: object::UID,
     version: u64,
-    obligations: vector<ObligationOwnerCap<P>>,
+    obligations: vector<ObligationOwnerCap<L>>,
     treasury_cap: TreasuryCap<VaultShare<P>>,
-    deposit_asset: Balance<P>,
+    deposit_asset: Balance<T>,
     total_shares: u64,
     fee_receiver: address,
     management_fee_bps: u64,
@@ -100,7 +100,7 @@ public struct FeesAccrued has copy, drop {
 }
 
 // === Functions ===
-public fun create_vault<P>(
+public fun create_vault<P, L, T>(
     fee_receiver: address,
     management_fee_bps: u64,
     performance_fee_bps: u64,
@@ -109,7 +109,7 @@ public fun create_vault<P>(
     treasury_cap: TreasuryCap<VaultShare<P>>,
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
-): (Vault<P>, VaultManagerCap<P>) {
+): (Vault<P, L, T>, VaultManagerCap<P>) {
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
     assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);
     assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
@@ -123,7 +123,7 @@ public fun create_vault<P>(
         version: CURRENT_VERSION,
         obligations: vector::empty(),
         treasury_cap,
-        deposit_asset: balance::zero<P>(),
+        deposit_asset: balance::zero(),
         total_shares: 0,
         fee_receiver,
         management_fee_bps,
@@ -153,10 +153,10 @@ public fun create_vault<P>(
     (vault, vault_manager_cap)
 }
 
-public fun deposit<P>(
-    vault: &mut Vault<P>,
-    mut deposit: Coin<P>,
-    lending_market: &LendingMarket<P>,
+public fun deposit<P, L, T>(
+    vault: &mut Vault<P, L, T>,
+    mut deposit: Coin<T>,
+    lending_market: &LendingMarket<L>,
     clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<VaultShare<P>> {
@@ -184,7 +184,7 @@ public fun deposit<P>(
     let nav_per_share = apply_management_fee_to_nav(vault, lending_market, clock);
     let deposit_usd_value = decimal::mul(
         decimal::from(net_deposit_amount),
-        get_usd_price_for_asset<P>(lending_market),
+        get_usd_price_for_asset<L, T>(lending_market),
     ).floor();
     let shares_to_mint =
         (((deposit_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64;
@@ -220,13 +220,13 @@ public fun deposit<P>(
 }
 
 /// User burns shares and withdraws proportional assets with performance fees on realized gains
-public fun withdraw<P>(
-    vault: &mut Vault<P>,
+public fun withdraw<P, L, T>(
+    vault: &mut Vault<P, L, T>,
     shares: Coin<VaultShare<P>>,
-    lending_market: &LendingMarket<P>,
+    lending_market: &LendingMarket<L>,
     clock: &Clock,
     ctx: &mut TxContext,
-): Coin<P> {
+): Coin<T> {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     assert!(coin::value(&shares) > 0, EInsufficientShares);
 
@@ -241,7 +241,7 @@ public fun withdraw<P>(
     let withdraw_usd_value = (
         ((shares_amount as u128) * (current_nav_per_share as u128)) / NAV_PRECISION,
     );
-    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
     let withdraw_amount = decimal::div(decimal::from(withdraw_usd_value as u64), usd_price).floor();
 
     // Calculate withdrawal fee on the gross amount
@@ -297,23 +297,23 @@ public fun withdraw<P>(
     coins
 }
 
-public fun calculate_shares_to_mint<P>(
-    vault: &Vault<P>,
+public fun calculate_shares_to_mint<P, L, T>(
+    vault: &Vault<P, L, T>,
     deposit_amount: u64,
-    lending_market: &LendingMarket<P>,
+    lending_market: &LendingMarket<L>,
 ): u64 {
     let nav_per_share = calculate_nav_per_share(vault, lending_market);
     let deposit_usd_value = decimal::mul(
         decimal::from(deposit_amount),
-        get_usd_price_for_asset<P>(lending_market),
+        get_usd_price_for_asset<L, T>(lending_market),
     ).floor();
     (((deposit_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
 }
 
-public fun calculate_shares_to_burn<P>(
-    vault: &Vault<P>,
+public fun calculate_shares_to_burn<P, L, T>(
+    vault: &Vault<P, L, T>,
     withdraw_amount: u64,
-    lending_market: &LendingMarket<P>,
+    lending_market: &LendingMarket<L>,
 ): u64 {
     if (vault.total_shares == 0) {
         0
@@ -321,16 +321,16 @@ public fun calculate_shares_to_burn<P>(
         let nav_per_share = calculate_nav_per_share(vault, lending_market);
         let withdraw_usd_value = decimal::mul(
             decimal::from(withdraw_amount),
-            get_usd_price_for_asset<P>(lending_market),
+            get_usd_price_for_asset<L, T>(lending_market),
         ).floor();
         (((withdraw_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
     }
 }
 
-public fun calculate_withdraw_amount<P>(
-    vault: &Vault<P>,
+public fun calculate_withdraw_amount<P, L, T>(
+    vault: &Vault<P, L, T>,
     shares_amount: u64,
-    lending_market: &LendingMarket<P>,
+    lending_market: &LendingMarket<L>,
 ): u64 {
     if (vault.total_shares == 0) {
         0
@@ -339,30 +339,30 @@ public fun calculate_withdraw_amount<P>(
         let withdraw_usd_value = (
             ((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION,
         );
-        let usd_price = get_usd_price_for_asset<P>(lending_market);
+        let usd_price = get_usd_price_for_asset<L, T>(lending_market);
         decimal::div(decimal::from(withdraw_usd_value as u64), usd_price).floor()
     }
 }
 
-public fun calculate_deposit_amount<P>(
-    vault: &Vault<P>,
+public fun calculate_deposit_amount<P, L, T>(
+    vault: &Vault<P, L, T>,
     shares_amount: u64,
-    lending_market: &LendingMarket<P>,
+    lending_market: &LendingMarket<L>,
 ): u64 {
     let nav_per_share = calculate_nav_per_share(vault, lending_market);
     let deposit_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
-    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
     decimal::div(decimal::from(deposit_usd_value as u64), usd_price).floor()
 }
 
 /// Check if vault can deploy more funds (under 70% utilization)
-public fun can_deploy_funds<P>(
-    vault: &Vault<P>,
-    lending_market: &LendingMarket<P>,
+public fun can_deploy_funds<P, L, T>(
+    vault: &Vault<P, L, T>,
+    lending_market: &LendingMarket<L>,
     amount: u64,
 ): bool {
     let liquid_asset_value = balance::value(&vault.deposit_asset);
-    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
     let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
 
     if (amount > liquid_value) {
@@ -381,15 +381,15 @@ public fun can_deploy_funds<P>(
 }
 
 /// Total supply of shares
-public fun total_supply<P>(vault: &Vault<P>): u64 {
+public fun total_supply<P, L, T>(vault: &Vault<P, L, T>): u64 {
     vault.total_shares
 }
 
 /// Calculate total vault value
 /// Returns total assets under management in USD
-public fun calculate_total_vault_value<P>(
-    vault: &Vault<P>,
-    lending_market: &LendingMarket<P>,
+public fun calculate_total_vault_value<P, L, T>(
+    vault: &Vault<P, L, T>,
+    lending_market: &LendingMarket<L>,
 ): u64 {
     let mut total_asset_value = vault.deposit_asset.value();
 
@@ -399,12 +399,12 @@ public fun calculate_total_vault_value<P>(
         let obligation = lending_market.obligation(obligation_id);
 
         // Get net value from this obligation (deposits - borrows in asset terms)
-        let net_value = calculate_obligation_net_value<P>(obligation, lending_market);
+        let net_value = calculate_obligation_net_value(obligation, lending_market);
         total_asset_value = total_asset_value + net_value;
     });
 
     // Convert to USD
-    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
     decimal::mul(decimal::from(total_asset_value), usd_price).floor()
 }
 
@@ -459,9 +459,9 @@ fun calculate_obligation_net_value<P>(
 }
 
 /// Get the reserve for the base asset P
-fun get_reserve_for_asset<P>(lending_market: &LendingMarket<P>): &reserve::Reserve<P> {
+fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Reserve<L> {
     let reserves = lending_market.reserves();
-    let asset_type = std::type_name::get<P>();
+    let asset_type = std::type_name::get<T>();
     let reserve_index = reserves.find_index!(|reserve| {
         reserve.coin_type() == asset_type
     });
@@ -473,12 +473,15 @@ fun get_reserve_for_asset<P>(lending_market: &LendingMarket<P>): &reserve::Reser
 }
 
 /// Get USD price for asset P (using lower bound for conservative pricing)
-fun get_usd_price_for_asset<P>(lending_market: &LendingMarket<P>): decimal::Decimal {
-    let reserve = get_reserve_for_asset<P>(lending_market);
+fun get_usd_price_for_asset<L, T>(lending_market: &LendingMarket<L>): decimal::Decimal {
+    let reserve = get_reserve_for_asset<L, T>(lending_market);
     reserve.price_lower_bound()
 }
 
-fun calculate_nav_per_share<P>(vault: &Vault<P>, lending_market: &LendingMarket<P>): u64 {
+fun calculate_nav_per_share<P, L, T>(
+    vault: &Vault<P, L, T>,
+    lending_market: &LendingMarket<L>,
+): u64 {
     if (vault.total_shares == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
     } else {
@@ -489,9 +492,9 @@ fun calculate_nav_per_share<P>(vault: &Vault<P>, lending_market: &LendingMarket<
 
 /// Apply management fee to NAV based on time elapsed
 /// Returns the fee-adjusted NAV per share
-fun apply_management_fee_to_nav<P>(
-    vault: &mut Vault<P>,
-    lending_market: &LendingMarket<P>,
+fun apply_management_fee_to_nav<P, L, T>(
+    vault: &mut Vault<P, L, T>,
+    lending_market: &LendingMarket<L>,
     clock: &Clock,
 ): u64 {
     let base_nav_per_share = calculate_nav_per_share(vault, lending_market);
@@ -535,10 +538,13 @@ fun apply_management_fee_to_nav<P>(
 }
 
 /// Calculate utilization rate in basis points
-public fun calculate_utilization_rate<P>(vault: &Vault<P>, lending_market: &LendingMarket<P>): u64 {
+public fun calculate_utilization_rate<P, L, T>(
+    vault: &Vault<P, L, T>,
+    lending_market: &LendingMarket<L>,
+): u64 {
     let total_value = calculate_total_vault_value(vault, lending_market);
     let liquid_asset_value = balance::value(&vault.deposit_asset);
-    let usd_price = get_usd_price_for_asset<P>(lending_market);
+    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
     let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
 
     if (total_value == 0) {
@@ -550,9 +556,9 @@ public fun calculate_utilization_rate<P>(vault: &Vault<P>, lending_market: &Lend
 }
 
 /// Applies performance fees based on NAV growth
-public fun compound_performance_fees<P>(
-    vault: &mut Vault<P>,
-    lending_market: &LendingMarket<P>,
+public fun compound_performance_fees<P, L, T>(
+    vault: &mut Vault<P, L, T>,
+    lending_market: &LendingMarket<L>,
     clock: &Clock,
 ) {
     if (vault.performance_fee_bps == 0 || vault.total_shares == 0) {
@@ -604,121 +610,51 @@ public fun compound_performance_fees<P>(
 // === Vault Manager Functions ===
 
 /// Validate that a manager cap belongs to a specific vault
-public fun validate_manager_cap<P>(vault: &Vault<P>, manager_cap: &VaultManagerCap<P>) {
+public fun validate_manager_cap<P, L, T>(vault: &Vault<P, L, T>, manager_cap: &VaultManagerCap<P>) {
     assert!(manager_cap.vault_id == object::id(vault), EInvalidManager);
 }
 
 /// Create a new obligation for the vault
-public fun create_obligation<P>(
+public fun create_obligation<P, L, T>(
+    vault: &mut Vault<P, L, T>,
     vault_manager_cap: &VaultManagerCap<P>,
-    vault: &mut Vault<P>,
-    lending_market: &mut LendingMarket<P>,
+    lending_market: &mut LendingMarket<L>,
     ctx: &mut TxContext,
 ): u64 {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     validate_manager_cap(vault, vault_manager_cap);
 
-    let obligation_cap = lending_market::create_obligation<P>(lending_market, ctx);
-    vector::push_back(&mut vault.obligations, obligation_cap);
+    let obligation_cap = lending_market.create_obligation(ctx);
+    vault.obligations.push_back(obligation_cap);
 
     // Return the index of the newly created obligation
-    vector::length(&vault.obligations) - 1
+    vault.obligations.length() - 1
 }
 
 /// Get obligation cap at index (read-only)
-public fun get_obligation_cap<P>(vault: &Vault<P>, index: u64): &ObligationOwnerCap<P> {
+public fun get_obligation_cap<P, L, T>(vault: &Vault<P, L, T>, index: u64): &ObligationOwnerCap<L> {
     vector::borrow(&vault.obligations, index)
 }
 
 /// Get mutable obligation cap at index (manager only)
-public fun get_obligation_cap_mut<P>(
+public fun get_obligation_cap_mut<P, L, T>(
     vault_manager_cap: &VaultManagerCap<P>,
-    vault: &mut Vault<P>,
+    vault: &mut Vault<P, L, T>,
     index: u64,
-): &mut ObligationOwnerCap<P> {
+): &mut ObligationOwnerCap<L> {
     validate_manager_cap(vault, vault_manager_cap);
     vector::borrow_mut(&mut vault.obligations, index)
 }
 
 /// Get number of obligations in vault
-public fun obligation_count<P>(vault: &Vault<P>): u64 {
+public fun obligation_count<P, L, T>(vault: &Vault<P, L, T>): u64 {
     vector::length(&vault.obligations)
 }
 
 // === Test Functions ===
-#[test_only]
-public fun deposit_for_testing<P>(
-    vault: &mut Vault<P>,
-    deposit: Coin<P>,
-    _clock: &Clock,
-    ctx: &mut TxContext,
-): Coin<VaultShare<P>> {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
-    assert!(coin::value(&deposit) >= MIN_DEPOSIT, EInvalidDeposit);
-
-    let deposit_amount = coin::value(&deposit);
-
-    let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
-    let net_deposit_amount = deposit_amount - deposit_fee;
-
-    let mut deposit = deposit;
-    let fee_coins = coin::split(&mut deposit, deposit_fee, ctx);
-    sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
-
-    balance::join(&mut vault.deposit_asset, coin::into_balance(deposit));
-
-    let shares_to_mint = if (vault.total_shares == 0) {
-        net_deposit_amount
-    } else {
-        // Simple proportional calculation for testing
-        (net_deposit_amount * vault.total_shares) / balance::value(&vault.deposit_asset)
-    };
-
-    let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
-    vault.total_shares = vault.total_shares + shares_to_mint;
-    vault.utilization_rate_bps = 0;
-
-    vault_shares
-}
 
 #[test_only]
-public fun withdraw_for_testing<P>(
-    vault: &mut Vault<P>,
-    shares: Coin<VaultShare<P>>,
-    _clock: &Clock,
-    ctx: &mut TxContext,
-): Coin<P> {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
-    assert!(coin::value(&shares) > 0, EInsufficientShares);
-
-    let shares_amount = coin::value(&shares);
-
-    assert!(vault.total_shares >= shares_amount, EInsufficientShares);
-    assert!(vault.total_shares > 0, EInsufficientShares);
-
-    // Calculate withdrawal amount BEFORE burning shares
-    let total_assets = balance::value(&vault.deposit_asset);
-    let withdraw_amount = (shares_amount * total_assets) / vault.total_shares;
-
-    // Now burn the shares
-    coin::burn(&mut vault.treasury_cap, shares);
-    vault.total_shares = vault.total_shares - shares_amount;
-
-    let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
-    let mut withdrawn_balance = balance::split(&mut vault.deposit_asset, withdraw_amount);
-
-    if (withdrawal_fee > 0) {
-        let fee_balance = balance::split(&mut withdrawn_balance, withdrawal_fee);
-        let fee_coins = coin::from_balance(fee_balance, ctx);
-        sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
-    };
-
-    vault.utilization_rate_bps = 0;
-    coin::from_balance(withdrawn_balance, ctx)
-}
-
-#[test_only]
-public fun create_vault_for_testing<P>(
+public fun create_vault_for_testing<P, L, T>(
     fee_receiver: address,
     management_fee_bps: u64,
     performance_fee_bps: u64,
@@ -726,7 +662,7 @@ public fun create_vault_for_testing<P>(
     withdrawal_fee_bps: u64,
     clock: &Clock,
     ctx: &mut TxContext,
-): (Vault<P>, VaultManagerCap<P>) {
+): (Vault<P, L, T>, VaultManagerCap<P>) {
     let share_treasury_cap = coin::create_treasury_cap_for_testing<VaultShare<P>>(ctx);
 
     create_vault(
