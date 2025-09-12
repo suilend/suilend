@@ -25,6 +25,8 @@ const WITHDRAWAL_FEE_BPS: u64 = 300; // 3%
 const MANAGEMENT_FEE_BPS: u64 = 200; // 2%
 const PERFORMANCE_FEE_BPS: u64 = 1000; // 10%
 
+const TEST_COIN_DECIMALS: u8 = 9;
+
 fun init_vault_scenario(): Scenario {
     let mut scenario = ts::begin(ADMIN);
 
@@ -71,7 +73,7 @@ fun init_vault_scenario(): Scenario {
         &mut lending_market,
         mock_pyth::get_price_obj<TEST_COIN>(&prices),
         reserve_config::default_reserve_config(ctx),
-        9,
+        TEST_COIN_DECIMALS,
         &clock,
         ctx,
     );
@@ -414,5 +416,88 @@ fun test_excessive_fee_failure() {
     transfer::public_transfer(vault, ADMIN);
     transfer::public_transfer(manager_cap, ADMIN);
     clock.destroy_for_testing();
+    ts::end(scenario);
+}
+
+#[test]
+fun test_allocate_and_divest() {
+    let mut scenario = init_vault_scenario();
+
+    ts::next_tx(&mut scenario, ADMIN);
+    let mut vault = ts::take_from_sender<Vault<TEST_VAULT, TEST_LENDING_MARKET, TEST_COIN>>(
+        &scenario,
+    );
+    let manager_cap = ts::take_from_sender<VaultManagerCap<TEST_VAULT>>(&scenario);
+    let mut lending_market = ts::take_from_sender<LendingMarket<TEST_LENDING_MARKET>>(
+        &scenario,
+    );
+
+    ts::next_tx(&mut scenario, USER1);
+    let clock = ts::take_shared<Clock>(&scenario);
+
+    let deposit_amount = 1000 * 1_000_000_000; // 1000 * 1e9
+    let deposit_coin = mint_test_coin(deposit_amount, ts::ctx(&mut scenario));
+
+    let mut vault_shares = vault.deposit(
+        deposit_coin,
+        &lending_market,
+        &clock,
+        ts::ctx(&mut scenario),
+    );
+
+    scenario.next_tx(USER1);
+
+    let expected_fee = deposit_amount * DEPOSIT_FEE_BPS / 10000; // 5%
+    let expected_net = deposit_amount - expected_fee;
+    let max_deployable = (expected_net * 70) / 100; // 70%
+
+    let obligation_index = vault.create_obligation(
+        &manager_cap,
+        &mut lending_market,
+        scenario.ctx(),
+    );
+    let ctokens_amt = vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_index,
+        max_deployable,
+        &clock,
+        scenario.ctx(),
+    );
+
+    scenario.next_tx(USER1);
+
+    vault.withdraw_deployed_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_index,
+        ctokens_amt / 2,
+        &clock,
+        scenario.ctx(),
+    );
+
+    scenario.next_tx(USER1);
+
+    let withdraw_shares = coin::split(
+        &mut vault_shares,
+        expected_net,
+        ts::ctx(&mut scenario),
+    );
+    let withdrawn_coins = vault.withdraw(
+        withdraw_shares,
+        &lending_market,
+        &clock,
+        ts::ctx(&mut scenario),
+    );
+
+    // Clean up
+    coin::burn_for_testing(vault_shares);
+    coin::burn_for_testing(withdrawn_coins);
+    ts::return_shared(clock);
+
+    // Transfer objects back
+    transfer::public_transfer(vault, ADMIN);
+    transfer::public_transfer(manager_cap, ADMIN);
+    transfer::public_transfer(lending_market, ADMIN);
     ts::end(scenario);
 }

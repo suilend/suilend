@@ -674,7 +674,7 @@ public fun deploy_funds<P, L, T>(
     amount: u64,
     clock: &Clock,
     ctx: &mut TxContext,
-) {
+): u64 {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     validate_manager_cap(vault, vault_manager_cap);
     assert!(amount > 0, EInvalidDeposit);
@@ -709,6 +709,8 @@ public fun deploy_funds<P, L, T>(
         ctx,
     );
 
+    let ctokens_amount = ctokens.value();
+
     // Deposit cTokens into the obligation
     lending_market.deposit_ctokens_into_obligation<L, T>(
         reserve_array_index,
@@ -727,6 +729,8 @@ public fun deploy_funds<P, L, T>(
         deposit_amount: amount,
         timestamp_ms: clock::timestamp_ms(clock),
     });
+
+    ctokens_amount
 }
 
 /// Withdraw funds from lending market obligation back to vault
