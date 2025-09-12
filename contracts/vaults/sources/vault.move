@@ -68,7 +68,7 @@ public struct VaultCreated has copy, drop {
     withdrawal_fee_bps: u64,
 }
 
-public struct Deposit has copy, drop {
+public struct VaultDeposit has copy, drop {
     vault_id: object::ID,
     user: address,
     deposit_amount: u64,
@@ -76,11 +76,25 @@ public struct Deposit has copy, drop {
     timestamp_ms: u64,
 }
 
-public struct Withdraw has copy, drop {
+public struct VaultWithdraw has copy, drop {
     vault_id: object::ID,
     user: address,
     amount: u64,
     shares_burned: u64,
+    timestamp_ms: u64,
+}
+
+public struct ManagerAllocate has copy, drop {
+    vault_id: object::ID,
+    user: address,
+    deposit_amount: u64,
+    timestamp_ms: u64,
+}
+
+public struct ManagerDivest has copy, drop {
+    vault_id: object::ID,
+    user: address,
+    amount: u64,
     timestamp_ms: u64,
 }
 
@@ -208,7 +222,7 @@ public fun deposit<P, L, T>(
     };
 
     // Emit deposit event
-    event::emit(Deposit {
+    event::emit(VaultDeposit {
         vault_id: object::id(vault),
         user: user,
         deposit_amount: deposit_amount,
@@ -286,7 +300,7 @@ public fun withdraw<P, L, T>(
     };
 
     // Emit withdrawal event
-    event::emit(Withdraw {
+    event::emit(VaultWithdraw {
         vault_id: object::id(vault),
         user: user,
         amount: net_withdraw_amount,
@@ -649,6 +663,129 @@ public fun get_obligation_cap_mut<P, L, T>(
 /// Get number of obligations in vault
 public fun obligation_count<P, L, T>(vault: &Vault<P, L, T>): u64 {
     vector::length(&vault.obligations)
+}
+
+/// Deploy funds from vault to lending market obligation
+public fun deploy_funds<P, L, T>(
+    vault: &mut Vault<P, L, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
+    lending_market: &mut LendingMarket<L>,
+    obligation_index: u64,
+    amount: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    validate_manager_cap(vault, vault_manager_cap);
+    assert!(amount > 0, EInvalidDeposit);
+    assert!(obligation_index < vector::length(&vault.obligations), EInvalidManager);
+
+    // Check if vault has sufficient liquid assets
+    let available_amount = balance::value(&vault.deposit_asset);
+    assert!(available_amount >= amount, EInsufficientLiquidity);
+
+    // Check if deployment would exceed utilization limits
+    assert!(can_deploy_funds(vault, lending_market, amount), EInsufficientLiquidity);
+
+    let obligation_cap = vector::borrow(&vault.obligations, obligation_index);
+
+    // Split funds from vault's deposit asset
+    let deploy_balance = balance::split(&mut vault.deposit_asset, amount);
+    let deploy_coin = coin::from_balance(deploy_balance, ctx);
+
+    // Get reserve index for the asset type T
+    let reserves = lending_market.reserves();
+    let reserve_index_opt = reserves.find_index!(|reserve: &reserve::Reserve<L>| {
+        reserve.coin_type() == std::type_name::get<T>()
+    });
+    assert!(option::is_some(&reserve_index_opt), ENoReserveForAsset);
+    let reserve_array_index = *option::borrow(&reserve_index_opt);
+
+    // Deposit liquidity and mint cTokens
+    let ctokens = lending_market.deposit_liquidity_and_mint_ctokens<L, T>(
+        reserve_array_index,
+        clock,
+        deploy_coin,
+        ctx,
+    );
+
+    // Deposit cTokens into the obligation
+    lending_market.deposit_ctokens_into_obligation<L, T>(
+        reserve_array_index,
+        obligation_cap,
+        clock,
+        ctokens,
+        ctx,
+    );
+
+    // Update vault utilization
+    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market);
+
+    event::emit(ManagerAllocate {
+        vault_id: object::id(vault),
+        user: ctx.sender(),
+        deposit_amount: amount,
+        timestamp_ms: clock::timestamp_ms(clock),
+    });
+}
+
+/// Withdraw funds from lending market obligation back to vault
+public fun withdraw_deployed_funds<P, L, T>(
+    vault: &mut Vault<P, L, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
+    lending_market: &mut LendingMarket<L>,
+    obligation_index: u64,
+    ctoken_amount: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    validate_manager_cap(vault, vault_manager_cap);
+    assert!(ctoken_amount > 0, EInsufficientShares);
+    assert!(obligation_index < vector::length(&vault.obligations), EInvalidManager);
+
+    let obligation_cap = vector::borrow(&vault.obligations, obligation_index);
+
+    // Get reserve index for the asset type T
+    let reserves = lending_market.reserves();
+    let reserve_index_opt = reserves.find_index!(|reserve: &reserve::Reserve<L>| {
+        reserve.coin_type() == std::type_name::get<T>()
+    });
+    assert!(option::is_some(&reserve_index_opt), ENoReserveForAsset);
+    let reserve_array_index = *option::borrow(&reserve_index_opt);
+
+    // Withdraw cTokens from obligation
+    let ctokens = lending_market.withdraw_ctokens<L, T>(
+        reserve_array_index,
+        obligation_cap,
+        clock,
+        ctoken_amount,
+        ctx,
+    );
+
+    // Redeem cTokens for underlying liquidity
+    let withdrawn_coin = lending_market.redeem_ctokens_and_withdraw_liquidity<L, T>(
+        reserve_array_index,
+        clock,
+        ctokens,
+        option::none(), // No rate limiter exemption
+        ctx,
+    );
+
+    let withdrawn_amount = coin::value(&withdrawn_coin);
+
+    // Add withdrawn funds back to vault's deposit asset
+    balance::join(&mut vault.deposit_asset, coin::into_balance(withdrawn_coin));
+
+    // Update vault utilization
+    vault.utilization_rate_bps = calculate_utilization_rate(vault, lending_market);
+
+    event::emit(ManagerDivest {
+        vault_id: object::id(vault),
+        user: ctx.sender(),
+        amount: withdrawn_amount,
+        timestamp_ms: clock::timestamp_ms(clock),
+    });
 }
 
 // === Test Functions ===
