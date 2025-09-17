@@ -431,7 +431,7 @@ public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
 }
 
 /// Calculate total lending market value
-/// Returns all obligation (assets - liabilities) under management in USD
+/// Returns all obligation (assets - liabilities) in base asset T
 public fun calculate_lending_market_value<P, L, T>(
     vault: &Vault<P, T>,
     obligation_ids: vector<ID>,
@@ -444,19 +444,17 @@ public fun calculate_lending_market_value<P, L, T>(
         let obligation = lending_market.obligation(obligation_id);
 
         // Get net value from this obligation (deposits - borrows in asset terms)
-        let net_value = calculate_obligation_net_value(obligation, lending_market);
+        let net_value = calculate_obligation_net_value<_, T>(obligation, lending_market);
         total_asset_value = total_asset_value + net_value;
     });
 
-    // Convert to USD
-    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-    decimal::mul(decimal::from(total_asset_value), usd_price).floor()
+    total_asset_value
 }
 
 /// Calculate net value of an obligation in asset-native terms
-/// This converts all positions back to the base asset P
-/// TODO: Should handle all assets, not just P tokens
-fun calculate_obligation_net_value<P>(
+/// This converts all positions back to the base asset T
+/// TODO: Should handle all assets, not just T tokens
+fun calculate_obligation_net_value<P, T>(
     obligation: &Obligation<P>,
     lending_market: &LendingMarket<P>,
 ): u64 {
@@ -469,8 +467,8 @@ fun calculate_obligation_net_value<P>(
         let reserves = lending_market.reserves();
         let reserve = reserves.borrow(reserve_index);
 
-        // Check if this deposit is in our base asset P
-        if (reserve.coin_type() == type_name::get<P>()) {
+        // Check if this deposit is in our base asset T
+        if (reserve.coin_type() == type_name::get<T>()) {
             let ctoken_amount = deposit.deposited_ctoken_amount();
             let ctoken_ratio = reserve.ctoken_ratio();
             // Convert cTokens to underlying asset amount
@@ -482,15 +480,15 @@ fun calculate_obligation_net_value<P>(
         };
     });
 
-    // Subtract borrowed amounts (if borrowed in base asset P)
+    // Subtract borrowed amounts (if borrowed in base asset T)
     let borrows = obligation.borrows();
     borrows.do_ref!(|borrow| {
         let reserve_index = borrow.reserve_array_index();
         let reserves = lending_market.reserves();
         let reserve = reserves.borrow(reserve_index);
 
-        // Check if this borrow is in our base asset P
-        if (reserve.coin_type() == type_name::get<P>()) {
+        // Check if this borrow is in our base asset T
+        if (reserve.coin_type() == type_name::get<T>()) {
             let borrowed_amount = borrow.borrowed_amount().floor();
             net_value = if (net_value >= borrowed_amount) {
                 net_value - borrowed_amount
@@ -503,7 +501,7 @@ fun calculate_obligation_net_value<P>(
     net_value
 }
 
-/// Get the reserve for the base asset P
+/// Get the reserve for the base asset T
 fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Reserve<L> {
     let reserves = lending_market.reserves();
     let asset_type = type_name::get<T>();
@@ -517,7 +515,7 @@ fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Re
     }
 }
 
-/// Get USD price for asset P (using lower bound for conservative pricing)
+/// Get USD price for asset T
 fun get_usd_price_for_asset<L, T>(lending_market: &LendingMarket<L>): decimal::Decimal {
     let reserve = get_reserve_for_asset<L, T>(lending_market);
     // TODO
@@ -589,14 +587,21 @@ public fun calculate_utilization_rate<P, L, T>(
     agg: &VaultValueAggregate,
 ): u64 {
     let deployed_value = agg.total_obligation_value_usd;
-    let liquid_asset_value = vault.deposit_asset.value();
-    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-    let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
 
-    let total_value = deployed_value + liquid_value;
-    if (deployed_value == 0 || total_value == 0) {
+    let liquid_value = {
+        let liquid_asset_value = vault.deposit_asset.value();
+        let usd_price = get_usd_price_for_asset<L, T>(lending_market);
+        decimal::mul(decimal::from(liquid_asset_value), usd_price).floor()
+    };
+
+    if (deployed_value == 0) {
+        // zero utilization
         0
+    } else if (liquid_value == 0) {
+        // 100% utilization (shouldn't happen)
+        BASIS_POINTS
     } else {
+        let total_value = deployed_value + liquid_value;
         ((deployed_value as u128) * (BASIS_POINTS as u128) / (total_value as u128)) as u64
     }
 }
@@ -876,8 +881,12 @@ public fun process_lending_market<P, L, T>(
 ) {
     let lending_market_type = type_name::get<L>();
     let (_, obligation_ids) = acc.obligation_ids.remove(&lending_market_type);
-    let val = vault.calculate_lending_market_value(obligation_ids, lending_market);
-    acc.lending_market_values.insert(lending_market_type, val);
+    let lending_market_value = vault.calculate_lending_market_value(obligation_ids, lending_market);
+
+    let usd_price_t = get_usd_price_for_asset<L, T>(lending_market);
+    let usd_value = decimal::from(lending_market_value).mul(usd_price_t).floor();
+
+    acc.lending_market_values.insert(lending_market_type, usd_value);
 }
 
 public fun create_vault_value_aggregate(acc: VaultValueAccumulator): VaultValueAggregate {
