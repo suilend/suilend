@@ -588,16 +588,16 @@ public fun calculate_utilization_rate<P, L, T>(
     lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
 ): u64 {
-    let total_value = agg.total_obligation_value_usd;
+    let deployed_value = agg.total_obligation_value_usd;
     let liquid_asset_value = vault.deposit_asset.value();
     let usd_price = get_usd_price_for_asset<L, T>(lending_market);
     let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
 
-    if (total_value == 0) {
+    let total_value = deployed_value + liquid_value;
+    if (deployed_value == 0 || total_value == 0) {
         0
     } else {
-        let deployed_value = total_value - liquid_value;
-        (deployed_value * BASIS_POINTS) / total_value
+        ((deployed_value as u128) * (BASIS_POINTS as u128) / (total_value as u128)) as u64
     }
 }
 
@@ -680,11 +680,11 @@ public fun create_obligation<P, L, T>(
         obligation_id,
     };
     if (vault.obligations.contains(&lending_market_type)) {
-        let obls = vector::singleton(obl);
-        vault.obligations.insert(lending_market_type, obls);
-    } else {
         let obls = vault.obligations.get_mut(&lending_market_type);
         obls.push_back(obl);
+    } else {
+        let obls = vector::singleton(obl);
+        vault.obligations.insert(lending_market_type, obls);
     };
 }
 
@@ -921,4 +921,18 @@ public fun create_vault_for_testing<P, T>(
         clock,
         ctx,
     )
+}
+
+#[test_only]
+public fun create_vault_value_aggregate_for_testing<P, L, T>(
+    vault: &Vault<P, T>,
+    lending_market: &LendingMarket<L>,
+): VaultValueAggregate {
+    let liquid_asset_value = vault.deposit_asset.value();
+    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
+    let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
+    VaultValueAggregate {
+        total_obligation_value_usd: liquid_value,
+        lending_market_values: sui::vec_map::empty(),
+    }
 }
