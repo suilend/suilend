@@ -78,6 +78,7 @@ public struct VaultValueAccumulator {
 
 /// Created from a VaultValueAggregate once it has been fully processed
 public struct VaultValueAggregate has drop {
+    liquid_asset_value_usd: u64,
     total_obligation_value_usd: u64,
     lending_market_values: sui::vec_map::VecMap<TypeName, u64>,
 }
@@ -233,7 +234,7 @@ public fun deposit<P, L, T>(
     // Mint vault shares to user
     let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
     vault.total_shares = vault.total_shares + shares_to_mint;
-    vault.utilization_rate_bps = vault.calculate_utilization_rate(lending_market, &agg);
+    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
 
     // Emit fee collection event
     if (deposit_fee > 0) {
@@ -294,10 +295,12 @@ public fun withdraw<P, L, T>(
     // Net withdrawal amount after withdrawal fee
     let net_withdraw_amount = withdraw_amount - withdrawal_fee;
 
+    assert!(net_withdraw_amount > 0, EInsufficientShares);
+
     // Burn the shares
     coin::burn(&mut vault.treasury_cap, shares);
     vault.total_shares = vault.total_shares - shares_amount;
-    vault.utilization_rate_bps = vault.calculate_utilization_rate(lending_market, &agg);
+    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
 
     // Withdraw full amount from vault's asset balance
     let mut withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
@@ -432,12 +435,11 @@ public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
 
 /// Calculate total lending market value
 /// Returns all obligation (assets - liabilities) in base asset T
-public fun calculate_lending_market_value<P, L, T>(
-    vault: &Vault<P, T>,
+public fun calculate_lending_market_value<L, T>(
     obligation_ids: vector<ID>,
     lending_market: &LendingMarket<L>,
 ): u64 {
-    let mut total_asset_value = vault.deposit_asset.value();
+    let mut total_asset_value = 0;
 
     // Add value from all lending positions
     obligation_ids.do!(|obligation_id| {
@@ -527,9 +529,8 @@ fun calculate_nav_per_share<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate
     if (vault.total_shares == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
     } else {
-        (
-            ((agg.total_obligation_value_usd as u128) * NAV_PRECISION) / (vault.total_shares as u128),
-        ) as u64
+        let vault_value = agg.total_obligation_value_usd + agg.liquid_asset_value_usd;
+        (((vault_value as u128) * NAV_PRECISION) / (vault.total_shares as u128)) as u64
     }
 }
 
@@ -581,18 +582,13 @@ fun apply_management_fee_to_nav<P, T>(
 }
 
 /// Calculate utilization rate in basis points
-public fun calculate_utilization_rate<P, L, T>(
-    vault: &Vault<P, T>,
-    lending_market: &LendingMarket<L>,
+public fun calculate_utilization_rate_bps<P, L, T>(
+    _vault: &Vault<P, T>,
+    _lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
 ): u64 {
     let deployed_value = agg.total_obligation_value_usd;
-
-    let liquid_value = {
-        let liquid_asset_value = vault.deposit_asset.value();
-        let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-        decimal::mul(decimal::from(liquid_asset_value), usd_price).floor()
-    };
+    let liquid_value = agg.liquid_asset_value_usd;
 
     if (deployed_value == 0) {
         // zero utilization
@@ -786,7 +782,7 @@ public fun deploy_funds<P, L, T>(
     );
 
     // Update vault utilization
-    vault.utilization_rate_bps = vault.calculate_utilization_rate(lending_market, &agg);
+    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
 
     event::emit(ManagerAllocate {
         vault_id: object::id(vault),
@@ -848,7 +844,7 @@ public fun withdraw_deployed_funds<P, L, T>(
     vault.deposit_asset.join(coin::into_balance(withdrawn_coin));
 
     // Update vault utilization
-    vault.utilization_rate_bps = vault.calculate_utilization_rate(lending_market, &agg);
+    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
 
     event::emit(ManagerDivest {
         vault_id: object::id(vault),
@@ -874,14 +870,13 @@ public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValue
     }
 }
 
-public fun process_lending_market<P, L, T>(
+public fun process_lending_market<L, T>(
     acc: &mut VaultValueAccumulator,
-    vault: &Vault<P, T>,
     lending_market: &LendingMarket<L>,
 ) {
     let lending_market_type = type_name::get<L>();
     let (_, obligation_ids) = acc.obligation_ids.remove(&lending_market_type);
-    let lending_market_value = vault.calculate_lending_market_value(obligation_ids, lending_market);
+    let lending_market_value = calculate_lending_market_value<_, T>(obligation_ids, lending_market);
 
     let usd_price_t = get_usd_price_for_asset<L, T>(lending_market);
     let usd_value = decimal::from(lending_market_value).mul(usd_price_t).floor();
@@ -889,8 +884,19 @@ public fun process_lending_market<P, L, T>(
     acc.lending_market_values.insert(lending_market_type, usd_value);
 }
 
-public fun create_vault_value_aggregate(acc: VaultValueAccumulator): VaultValueAggregate {
+public fun create_vault_value_aggregate<P, L, T>(
+    acc: VaultValueAccumulator,
+    vault: &Vault<P, T>,
+    lending_market: &LendingMarket<L>,
+): VaultValueAggregate {
     assert!(acc.obligation_ids.is_empty(), EIncompleteAccumulation);
+
+    let liquid_asset_value_usd = {
+        let liquid_asset_value = vault.deposit_asset.value();
+        let usd_price = get_usd_price_for_asset<L, T>(lending_market);
+        decimal::from(liquid_asset_value).mul(usd_price).floor()
+    };
+
     let VaultValueAccumulator {
         obligation_ids: _,
         lending_market_values,
@@ -901,6 +907,7 @@ public fun create_vault_value_aggregate(acc: VaultValueAccumulator): VaultValueA
         acc + val
     });
     VaultValueAggregate {
+        liquid_asset_value_usd,
         total_obligation_value_usd,
         lending_market_values,
     }
@@ -937,11 +944,10 @@ public fun create_vault_value_aggregate_for_testing<P, L, T>(
     vault: &Vault<P, T>,
     lending_market: &LendingMarket<L>,
 ): VaultValueAggregate {
-    let liquid_asset_value = vault.deposit_asset.value();
-    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-    let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
-    VaultValueAggregate {
-        total_obligation_value_usd: liquid_value,
-        lending_market_values: sui::vec_map::empty(),
-    }
+    let mut acc = vault.create_vault_value_accumulator();
+    if (!vault.obligations.is_empty()) {
+        acc.process_lending_market<_, T>(lending_market);
+    };
+    let agg = acc.create_vault_value_aggregate(vault, lending_market);
+    agg
 }

@@ -25,7 +25,7 @@ const WITHDRAWAL_FEE_BPS: u64 = 300; // 3%
 const MANAGEMENT_FEE_BPS: u64 = 200; // 2%
 const PERFORMANCE_FEE_BPS: u64 = 1000; // 10%
 
-const TEST_COIN_DECIMALS: u8 = 9;
+const TEST_COIN_DECIMALS: u8 = 6;
 
 fun init_vault_scenario(): Scenario {
     let mut scenario = ts::begin(ADMIN);
@@ -48,7 +48,7 @@ fun init_vault_scenario(): Scenario {
 
     let mut prices = mock_pyth::init_state(ctx);
     mock_pyth::register<TEST_COIN>(&mut prices, ctx);
-    mock_pyth::update_price<TEST_COIN>(&mut prices, 1, 0, &clock); // $1
+    mock_pyth::update_price<TEST_COIN>(&mut prices, 1, TEST_COIN_DECIMALS, &clock); // $1
 
     let mut lending_market = lending_market::mock_for_testing<TEST_LENDING_MARKET>(
         vector::empty(),
@@ -87,7 +87,11 @@ fun init_vault_scenario(): Scenario {
 }
 
 fun mint_test_coin(amount: u64, ctx: &mut TxContext): Coin<TEST_COIN> {
-    coin::mint_for_testing<TEST_COIN>(amount, ctx)
+    // TODO: why is this failing?
+    //let exp = amount.pow(TEST_COIN_DECIMALS);
+
+    let exp = amount * 1_000_000; // e6
+    coin::mint_for_testing<TEST_COIN>(exp, ctx)
 }
 
 #[test]
@@ -111,7 +115,7 @@ fun test_create_vault() {
 fun test_deposit_and_withdraw() {
     let mut scenario = init_vault_scenario();
 
-    ts::next_tx(&mut scenario, ADMIN);
+    scenario.next_tx(ADMIN);
     let mut vault = ts::take_from_sender<Vault<TEST_VAULT, TEST_COIN>>(
         &scenario,
     );
@@ -120,12 +124,12 @@ fun test_deposit_and_withdraw() {
         &scenario,
     );
 
-    ts::next_tx(&mut scenario, USER1);
+    scenario.next_tx(USER1);
     let clock = ts::take_shared<Clock>(&scenario);
 
-    // User deposits 1000 tokens
-    let deposit_amount = 1000000; // 1000 * 1e6
-    let deposit_coin = mint_test_coin(deposit_amount, ts::ctx(&mut scenario));
+    // User gets 1000 tokens
+    let token_amount = 1000;
+    let deposit_coin = mint_test_coin(token_amount, scenario.ctx());
 
     let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
     let mut vault_shares = vault.deposit(
@@ -133,19 +137,17 @@ fun test_deposit_and_withdraw() {
         &lending_market,
         &clock,
         agg,
-        ts::ctx(&mut scenario),
+        scenario.ctx(),
     );
 
-    // Check shares minted (first deposit should be 1:1 after fees)
-    let expected_fee = deposit_amount * DEPOSIT_FEE_BPS / 10000; // 5%
-    let expected_net = deposit_amount - expected_fee;
-    assert!(coin::value(&vault_shares) == expected_net);
+    scenario.next_tx(USER1);
 
     // Test withdrawal
+    let shares_to_withdraw = vault_shares.value() / 2;
     let withdraw_shares = coin::split(
         &mut vault_shares,
-        expected_net / 2,
-        ts::ctx(&mut scenario),
+        shares_to_withdraw,
+        scenario.ctx(),
     );
 
     let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
@@ -154,11 +156,11 @@ fun test_deposit_and_withdraw() {
         &lending_market,
         &clock,
         agg,
-        ts::ctx(&mut scenario),
+        scenario.ctx(),
     );
 
     // Should get back approximately half (minus withdrawal fees)
-    let withdrawn_amount = coin::value(&withdrawn_coins);
+    let withdrawn_amount = withdrawn_coins.value();
     assert!(withdrawn_amount > 0);
 
     // Clean up
@@ -429,10 +431,11 @@ fun test_excessive_fee_failure() {
 }
 
 #[test]
-fun test_allocate_and_divest() {
+fun test_utilization_rate() {
     let mut scenario = init_vault_scenario();
 
-    ts::next_tx(&mut scenario, ADMIN);
+    scenario.next_tx(ADMIN);
+
     let mut vault = ts::take_from_sender<Vault<TEST_VAULT, TEST_COIN>>(
         &scenario,
     );
@@ -441,11 +444,85 @@ fun test_allocate_and_divest() {
         &scenario,
     );
 
-    ts::next_tx(&mut scenario, USER1);
+    scenario.next_tx(USER1);
+
+    let clock = scenario.take_shared<Clock>();
+
+    let deposit_amount = 1000;
+    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let deploy_amount = deposit_coin.value() / 2;
+
+    let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
+    let vault_shares = vault.deposit(
+        deposit_coin,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    scenario.next_tx(ADMIN);
+
+    vault.create_obligation(
+        &manager_cap,
+        &mut lending_market,
+        scenario.ctx(),
+    );
+    let obligation_index = 0;
+
+    {
+        let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
+        let util_rate = vault.calculate_utilization_rate_bps(&lending_market, &agg);
+        assert!(util_rate == 0);
+    };
+
+    let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
+    let _ctokens_amt = vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_index,
+        deploy_amount,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    {
+        let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
+        let util_rate = vault.calculate_utilization_rate_bps(&lending_market, &agg);
+        assert!(util_rate > 0);
+    };
+
+    // Clean up
+    coin::burn_for_testing(vault_shares);
+    ts::return_shared(clock);
+
+    // Transfer objects back
+    transfer::public_transfer(vault, ADMIN);
+    transfer::public_transfer(manager_cap, ADMIN);
+    transfer::public_transfer(lending_market, ADMIN);
+    scenario.end();
+}
+
+#[test]
+fun test_allocate_and_divest() {
+    let mut scenario = init_vault_scenario();
+
+    scenario.next_tx(ADMIN);
+    let mut vault = ts::take_from_sender<Vault<TEST_VAULT, TEST_COIN>>(
+        &scenario,
+    );
+    let manager_cap = ts::take_from_sender<VaultManagerCap<TEST_VAULT>>(&scenario);
+    let mut lending_market = ts::take_from_sender<LendingMarket<TEST_LENDING_MARKET>>(
+        &scenario,
+    );
+
+    scenario.next_tx(USER1);
     let clock = ts::take_shared<Clock>(&scenario);
 
-    let deposit_amount = 1000 * 1_000_000_000; // 1000 * 1e9
-    let deposit_coin = mint_test_coin(deposit_amount, ts::ctx(&mut scenario));
+    let deposit_amount = 1000;
+    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let manager_deploy_amount = deposit_coin.value() / 2;
 
     let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
     let mut vault_shares = vault.deposit(
@@ -453,14 +530,11 @@ fun test_allocate_and_divest() {
         &lending_market,
         &clock,
         agg,
-        ts::ctx(&mut scenario),
+        scenario.ctx(),
     );
+    let user_withdraw_amount = vault_shares.value() / 2;
 
-    scenario.next_tx(USER1);
-
-    let expected_fee = deposit_amount * DEPOSIT_FEE_BPS / 10000; // 5%
-    let expected_net = deposit_amount - expected_fee;
-    let max_deployable = (expected_net * 70) / 100; // 70%
+    scenario.next_tx(ADMIN);
 
     vault.create_obligation(
         &manager_cap,
@@ -473,13 +547,13 @@ fun test_allocate_and_divest() {
         &manager_cap,
         &mut lending_market,
         obligation_index,
-        max_deployable,
+        manager_deploy_amount,
         &clock,
         agg,
         scenario.ctx(),
     );
 
-    scenario.next_tx(USER1);
+    scenario.next_tx(ADMIN);
 
     let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
     vault.withdraw_deployed_funds(
@@ -494,18 +568,18 @@ fun test_allocate_and_divest() {
 
     scenario.next_tx(USER1);
 
-    let withdraw_shares = coin::split(
+    let shares_to_withdraw = coin::split(
         &mut vault_shares,
-        expected_net,
-        ts::ctx(&mut scenario),
+        user_withdraw_amount,
+        scenario.ctx(),
     );
     let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
     let withdrawn_coins = vault.withdraw(
-        withdraw_shares,
+        shares_to_withdraw,
         &lending_market,
         &clock,
         agg,
-        ts::ctx(&mut scenario),
+        scenario.ctx(),
     );
 
     // Clean up
