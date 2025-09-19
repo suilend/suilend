@@ -61,6 +61,10 @@ public struct ObligationData has store {
     obligation_id: ID,
 }
 
+public struct VaultShare has drop, store {
+    vault_id: ID,
+}
+
 public struct VaultManagerCap<phantom P> has key, store {
     id: object::UID,
     vault_id: object::ID,
@@ -137,8 +141,7 @@ public struct FeesAccrued has copy, drop {
 }
 
 // === Functions ===
-public fun create_vault<P: drop, T>(
-    witness: P,
+public fun create_vault<T>(
     fee_receiver: address,
     management_fee_bps: u64,
     performance_fee_bps: u64,
@@ -146,23 +149,27 @@ public fun create_vault<P: drop, T>(
     withdrawal_fee_bps: u64,
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
-): (Vault<P, T>, VaultManagerCap<P>) {
+): VaultManagerCap<VaultShare> {
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
     assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);
     assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
     assert!(withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS, EInvalidWithdrawalFeeBps);
 
-    let supply_obj = balance::create_supply(witness);
+    let vault_id = object::new(ctx);
+
+    let shares_witness = VaultShare { vault_id: vault_id.uid_to_inner() };
+
+    let supply_obj = balance::create_supply(shares_witness);
 
     let current_time_s = clock.timestamp_ms() / 1000;
 
     // Create vault
     let vault = Vault {
-        id: object::new(ctx),
+        id: vault_id,
         version: CURRENT_VERSION,
         obligations: sui::vec_map::empty(),
         share_supply: supply_obj,
-        deposit_asset: balance::zero(),
+        deposit_asset: balance::zero<T>(),
         total_shares: 0,
         fee_receiver,
         management_fee_bps,
@@ -189,7 +196,9 @@ public fun create_vault<P: drop, T>(
         withdrawal_fee_bps,
     });
 
-    (vault, vault_manager_cap)
+    transfer::public_share_object(vault);
+
+    vault_manager_cap
 }
 
 public fun deposit<P, L, T>(
