@@ -9,7 +9,7 @@ use sui::{
     test_utils
 };
 use suilend::{decimal, lending_market::{Self, LendingMarket}, mock_pyth, reserve_config};
-use vaults::vault::{Self, Vault, VaultManagerCap, VaultShare};
+use vaults::vault::{Self, Vault, VaultManagerCap};
 
 public struct TEST_COIN has drop {}
 public struct TEST_LENDING_MARKET has drop {}
@@ -36,7 +36,8 @@ fun init_vault_scenario(): Scenario {
     let clock = clock::create_for_testing(ctx);
 
     // Create vault and manager cap
-    let (vault, manager_cap) = vault::create_vault_for_testing<TEST_VAULT, TEST_COIN>(
+    let (vault, manager_cap) = vault::create_vault<TEST_VAULT, TEST_COIN>(
+        TEST_VAULT {},
         FEE_RECEIVER,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
@@ -370,7 +371,7 @@ fun test_insufficient_shares_withdrawal() {
     let clock = ts::take_shared<Clock>(&scenario);
 
     // Try to withdraw with zero shares (should fail)
-    let zero_shares = coin::zero<VaultShare<TEST_VAULT>>(ts::ctx(&mut scenario));
+    let zero_shares = coin::zero<TEST_VAULT>(ts::ctx(&mut scenario));
     let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
     let _withdrawn = vault.withdraw(
         zero_shares,
@@ -390,7 +391,8 @@ fun test_fee_limits() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     // Test that fee limits are enforced during vault creation
-    let (vault, manager_cap) = vault::create_vault_for_testing<TEST_VAULT, TEST_COIN>(
+    let (vault, manager_cap) = vault::create_vault<TEST_VAULT, TEST_COIN>(
+        TEST_VAULT {},
         FEE_RECEIVER,
         1000, // 10% management fee (at limit)
         5000, // 50% performance fee (at limit)
@@ -413,7 +415,8 @@ fun test_excessive_fee_failure() {
     let clock = clock::create_for_testing(ts::ctx(&mut scenario));
 
     // Try to create vault with excessive fees (should fail)
-    let (vault, manager_cap) = vault::create_vault_for_testing<TEST_VAULT, TEST_COIN>(
+    let (vault, manager_cap) = vault::create_vault<TEST_VAULT, TEST_COIN>(
+        TEST_VAULT {},
         FEE_RECEIVER,
         2000, // 20% management fee (above 10% limit)
         PERFORMANCE_FEE_BPS,

@@ -1,7 +1,7 @@
 module vaults::vault;
 
 use std::type_name::{Self, TypeName};
-use sui::{bag, balance::{Self, Balance}, clock::Clock, coin::{Self, TreasuryCap, Coin}, event};
+use sui::{bag, balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event};
 use suilend::{
     decimal,
     lending_market::{ObligationOwnerCap, LendingMarket},
@@ -41,7 +41,7 @@ public struct Vault<phantom P, phantom T> has key, store {
     version: u64,
     // Keyed by 'L' from LendingMarket<L>
     obligations: sui::vec_map::VecMap<TypeName, vector<ObligationData>>,
-    treasury_cap: TreasuryCap<VaultShare<P>>,
+    share_supply: balance::Supply<P>,
     deposit_asset: Balance<T>,
     total_shares: u64,
     fee_receiver: address,
@@ -60,8 +60,6 @@ public struct ObligationData has store {
     obligation_cap: bag::Bag,
     obligation_id: ID,
 }
-
-public struct VaultShare<phantom P> has drop, store {}
 
 public struct VaultManagerCap<phantom P> has key, store {
     id: object::UID,
@@ -139,13 +137,13 @@ public struct FeesAccrued has copy, drop {
 }
 
 // === Functions ===
-public fun create_vault<P, T>(
+public fun create_vault<P: drop, T>(
+    witness: P,
     fee_receiver: address,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
-    treasury_cap: TreasuryCap<VaultShare<P>>,
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): (Vault<P, T>, VaultManagerCap<P>) {
@@ -154,6 +152,8 @@ public fun create_vault<P, T>(
     assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
     assert!(withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS, EInvalidWithdrawalFeeBps);
 
+    let supply_obj = balance::create_supply(witness);
+
     let current_time_s = clock.timestamp_ms() / 1000;
 
     // Create vault
@@ -161,7 +161,7 @@ public fun create_vault<P, T>(
         id: object::new(ctx),
         version: CURRENT_VERSION,
         obligations: sui::vec_map::empty(),
-        treasury_cap,
+        share_supply: supply_obj,
         deposit_asset: balance::zero(),
         total_shares: 0,
         fee_receiver,
@@ -199,7 +199,7 @@ public fun deposit<P, L, T>(
     clock: &Clock,
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
-): Coin<VaultShare<P>> {
+): Coin<P> {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     assert!(deposit.value() >= MIN_DEPOSIT, EInvalidDeposit);
 
@@ -231,8 +231,10 @@ public fun deposit<P, L, T>(
 
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
-    // Mint vault shares to user
-    let vault_shares = coin::mint(&mut vault.treasury_cap, shares_to_mint, ctx);
+    // Mint vault shares
+    let vault_shares_balance = balance::increase_supply(&mut vault.share_supply, shares_to_mint);
+    let vault_shares = coin::from_balance(vault_shares_balance, ctx);
+
     vault.total_shares = vault.total_shares + shares_to_mint;
     vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
 
@@ -262,7 +264,7 @@ public fun deposit<P, L, T>(
 /// User burns shares and withdraws proportional assets with performance fees on realized gains
 public fun withdraw<P, L, T>(
     vault: &mut Vault<P, T>,
-    shares: Coin<VaultShare<P>>,
+    shares: Coin<P>,
     lending_market: &LendingMarket<L>,
     clock: &Clock,
     agg: VaultValueAggregate,
@@ -298,7 +300,9 @@ public fun withdraw<P, L, T>(
     assert!(net_withdraw_amount > 0, EInsufficientShares);
 
     // Burn the shares
-    coin::burn(&mut vault.treasury_cap, shares);
+    let shares_balance = shares.into_balance();
+    balance::decrease_supply(&mut vault.share_supply, shares_balance);
+
     vault.total_shares = vault.total_shares - shares_amount;
     vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
 
@@ -914,30 +918,6 @@ public fun create_vault_value_aggregate<P, L, T>(
 }
 
 // === Test Functions ===
-
-#[test_only]
-public fun create_vault_for_testing<P, T>(
-    fee_receiver: address,
-    management_fee_bps: u64,
-    performance_fee_bps: u64,
-    deposit_fee_bps: u64,
-    withdrawal_fee_bps: u64,
-    clock: &Clock,
-    ctx: &mut TxContext,
-): (Vault<P, T>, VaultManagerCap<P>) {
-    let share_treasury_cap = coin::create_treasury_cap_for_testing<VaultShare<P>>(ctx);
-
-    create_vault(
-        fee_receiver,
-        management_fee_bps,
-        performance_fee_bps,
-        deposit_fee_bps,
-        withdrawal_fee_bps,
-        share_treasury_cap,
-        clock,
-        ctx,
-    )
-}
 
 #[test_only]
 public fun create_vault_value_aggregate_for_testing<P, L, T>(
