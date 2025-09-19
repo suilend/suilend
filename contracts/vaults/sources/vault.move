@@ -470,7 +470,7 @@ fun calculate_obligation_net_value<P, T>(
         let reserve = reserves.borrow(reserve_index);
 
         // Check if this deposit is in our base asset T
-        if (reserve.coin_type() == type_name::get<T>()) {
+        if (reserve.coin_type() == type_name::with_defining_ids<T>()) {
             let ctoken_amount = deposit.deposited_ctoken_amount();
             let ctoken_ratio = reserve.ctoken_ratio();
             // Convert cTokens to underlying asset amount
@@ -490,7 +490,7 @@ fun calculate_obligation_net_value<P, T>(
         let reserve = reserves.borrow(reserve_index);
 
         // Check if this borrow is in our base asset T
-        if (reserve.coin_type() == type_name::get<T>()) {
+        if (reserve.coin_type() == type_name::with_defining_ids<T>()) {
             let borrowed_amount = borrow.borrowed_amount().floor();
             net_value = if (net_value >= borrowed_amount) {
                 net_value - borrowed_amount
@@ -506,7 +506,7 @@ fun calculate_obligation_net_value<P, T>(
 /// Get the reserve for the base asset T
 fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Reserve<L> {
     let reserves = lending_market.reserves();
-    let asset_type = type_name::get<T>();
+    let asset_type = type_name::with_defining_ids<T>();
     let reserve_index = reserves.find_index!(|reserve| {
         reserve.coin_type() == asset_type
     });
@@ -675,7 +675,7 @@ public fun create_obligation<P, L, T>(
     let obligation_id = obligation_cap.obligation_id();
     let mut obl_bag = bag::new(ctx);
     obl_bag.add(OBLIGATION_CAP_BAG_KEY, obligation_cap);
-    let lending_market_type = type_name::get<L>();
+    let lending_market_type = type_name::with_defining_ids<L>();
     let obl = ObligationData {
         obligation_cap: obl_bag,
         obligation_id,
@@ -754,7 +754,7 @@ public fun deploy_funds<P, L, T>(
     // Get reserve index for the asset type T
     let reserves = lending_market.reserves();
     let reserve_index_opt = reserves.find_index!(|reserve: &reserve::Reserve<L>| {
-        reserve.coin_type() == type_name::get<T>()
+        reserve.coin_type() == type_name::with_defining_ids<T>()
     });
     assert!(option::is_some(&reserve_index_opt), ENoReserveForAsset);
     let reserve_array_index = *option::borrow(&reserve_index_opt);
@@ -769,7 +769,7 @@ public fun deploy_funds<P, L, T>(
 
     let ctokens_amount = ctokens.value();
 
-    let lm_type = type_name::get<L>();
+    let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap(&lm_type, obligation_index);
 
     // Deposit cTokens into the obligation
@@ -809,13 +809,13 @@ public fun withdraw_deployed_funds<P, L, T>(
     vault.validate_manager_cap(vault_manager_cap);
     assert!(ctoken_amount > 0, EInsufficientShares);
 
-    let lm_type = type_name::get<L>();
+    let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap(&lm_type, obligation_index);
 
     // Get reserve index for the asset type T
     let reserves = lending_market.reserves();
     let reserve_index_opt = reserves.find_index!(|reserve: &reserve::Reserve<L>| {
-        reserve.coin_type() == type_name::get<T>()
+        reserve.coin_type() == type_name::with_defining_ids<T>()
     });
     assert!(option::is_some(&reserve_index_opt), ENoReserveForAsset);
     let reserve_array_index = *option::borrow(&reserve_index_opt);
@@ -874,7 +874,7 @@ public fun process_lending_market<L, T>(
     acc: &mut VaultValueAccumulator,
     lending_market: &LendingMarket<L>,
 ) {
-    let lending_market_type = type_name::get<L>();
+    let lending_market_type = type_name::with_defining_ids<L>();
     let (_, obligation_ids) = acc.obligation_ids.remove(&lending_market_type);
     let lending_market_value = calculate_lending_market_value<_, T>(obligation_ids, lending_market);
 
