@@ -32,7 +32,10 @@ id = "Pyth"
 source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "onchain-version", subdir = "target_chains/sui/contracts" }
 
 dependencies = [
+  { id = "Bridge", name = "Bridge" },
+  { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Sui", name = "Sui" },
+  { id = "SuiSystem", name = "SuiSystem" },
   { id = "Wormhole", name = "Wormhole" },
 ]
 
@@ -63,10 +66,13 @@ dependencies = [
 
 [[move.package]]
 id = "Wormhole"
-source = { git = "https://github.com/suilend/wormhole.git", rev = "be7f3c862925d1dd4c55cbca35e7693dc562284d", subdir = "sui/wormhole" }
+source = { git = "https://github.com/suilend/wormhole.git", rev = "88c57a91758a67121b2a10e2d752f95ae2f29284", subdir = "sui/wormhole" }
 
 dependencies = [
+  { id = "Bridge", name = "Bridge" },
+  { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Sui", name = "Sui" },
+  { id = "SuiSystem", name = "SuiSystem" },
 ]
 
 [move.toolchain-version]
