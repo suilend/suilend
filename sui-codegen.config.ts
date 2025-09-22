@@ -3,6 +3,7 @@ import type { SuiCodegenConfig } from "@mysten/codegen";
 const config: SuiCodegenConfig = {
   output: "./ts-sdk",
   prune: true,
+  generateSummaries: true,
   packages: [
     {
       package: "@local-pkg/vault",

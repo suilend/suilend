@@ -2,6 +2,9 @@
   "name": "vaults",
   "version": "1.0.0",
   "main": "ts-sdk/vaults/vault.ts",
+  "scripts": {
+    "generate": "sui-ts-codegen generate"
+  },
   "devDependencies": {
     "@mysten/codegen": "^0.5.0"
   }
