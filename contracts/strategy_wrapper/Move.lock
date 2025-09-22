@@ -28,7 +28,7 @@ source = { git = "https://github.com/MystenLabs/sui.git", rev = "664b05b3b047c5b
 
 [[move.package]]
 id = "Pyth"
-source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "onchain-version", subdir = "target_chains/sui/contracts" }
+source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62", subdir = "target_chains/sui/contracts" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
@@ -54,7 +54,7 @@ dependencies = [
 
 [[move.package]]
 id = "Wormhole"
-source = { git = "https://github.com/suilend/wormhole.git", rev = "77f64bb000d6823b2a3c8ce5afc3e2f521b9a298", subdir = "sui/wormhole" }
+source = { git = "https://github.com/solendprotocol/wormhole.git", rev = "e1698d3c72b15cdddd7da98ad43e151f83b72a0a", subdir = "sui/wormhole" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
