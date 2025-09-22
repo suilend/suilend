@@ -7,7 +7,7 @@ edition = "2024.beta"
 [dependencies.Pyth]
 git = "https://github.com/solendprotocol/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
-rev = "onchain-version"
+rev = "295361194eb90ad54735d459cdc517e86e93e940"
 
 [dependencies.liquid_staking]
 git = "https://github.com/solendprotocol/liquid-staking.git"

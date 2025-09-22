@@ -2,7 +2,7 @@
 
 [move]
 version = 3
-manifest_digest = "7625F883F0449E1FB81BC43239CBC693EE93F0A7FC9CA9D4211E4FDAE1F02B4D"
+manifest_digest = "3B479FB696ECCB6A70193BAA5D702452D46F3F51D03CCAF7F6A7A54E8C5BA2DF"
 deps_digest = "CAFAD8A7CF51067FB4358215BECB86BD100DD64E57C2AC8A7AE7D74B688F5965"
 dependencies = [
   { id = "Bridge", name = "Bridge" },
@@ -30,7 +30,7 @@ source = { git = "https://github.com/MystenLabs/sui.git", rev = "664b05b3b047c5b
 
 [[move.package]]
 id = "Pyth"
-source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "onchain-version", subdir = "target_chains/sui/contracts" }
+source = { git = "https://github.com/solendprotocol/pyth-crosschain.git", rev = "295361194eb90ad54735d459cdc517e86e93e940", subdir = "target_chains/sui/contracts" }
 
 dependencies = [
   { id = "Sui", name = "Sui" },
