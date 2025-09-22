@@ -8,7 +8,7 @@ published-at = "0xe84b649199654d18c38e727212f5d8dacfc3cf78d60d0a7fc85fd589f280eb
 [dependencies.Pyth]
 git = "https://github.com/solendprotocol/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
-rev = "73b2a5a9786d54ca1341f43bcddd90040a325b4c"
+rev = "onchain-version"
 
 [dependencies.Switchboard]
 git = "https://github.com/suilend/switchboard.git"
