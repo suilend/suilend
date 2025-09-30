@@ -86,11 +86,9 @@ fun init_vault_scenario(): Scenario {
 }
 
 fun mint_test_coin(amount: u64, ctx: &mut TxContext): Coin<TEST_COIN> {
-    // TODO: why is this failing?
-    //let exp = amount.pow(TEST_COIN_DECIMALS);
-
-    let exp = amount * 1_000_000; // e6
-    coin::mint_for_testing<TEST_COIN>(exp, ctx)
+    let exp = 10u64.pow(TEST_COIN_DECIMALS);
+    let mint_amount = amount * exp;
+    coin::mint_for_testing<TEST_COIN>(mint_amount, ctx)
 }
 
 #[test]

@@ -230,13 +230,7 @@ public fun deposit<P, L, T>(
     vault.deposit_asset.join(coin::into_balance(deposit));
 
     // Calculate shares to mint based on current USD NAV
-    let nav_per_share = vault.apply_management_fee_to_nav(&agg, clock);
-    let deposit_usd_value = decimal::mul(
-        decimal::from(net_deposit_amount),
-        get_usd_price_for_asset<L, T>(lending_market),
-    ).floor();
-    let shares_to_mint =
-        (((deposit_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64;
+    let shares_to_mint = calculate_shares_to_mint(vault, net_deposit_amount, lending_market, &agg);
 
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
@@ -357,9 +351,9 @@ public fun calculate_shares_to_mint<P, L, T>(
     vault: &Vault<P, T>,
     deposit_amount: u64,
     lending_market: &LendingMarket<L>,
-    agg: VaultValueAggregate,
+    agg: &VaultValueAggregate,
 ): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let nav_per_share = vault.calculate_nav_per_share(agg);
     let deposit_usd_value = decimal::mul(
         decimal::from(deposit_amount),
         get_usd_price_for_asset<L, T>(lending_market),
