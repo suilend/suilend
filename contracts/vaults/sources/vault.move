@@ -492,7 +492,10 @@ fun get_usd_value_for_token_amount<L, T>(
     reserve.market_value_lower_bound(decimal::from(amount))
 }
 
-fun calculate_nav_per_share<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate): u64 {
+public(package) fun calculate_nav_per_share<P, T>(
+    vault: &Vault<P, T>,
+    agg: &VaultValueAggregate,
+): u64 {
     if (vault.total_shares == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
     } else {
@@ -503,7 +506,7 @@ fun calculate_nav_per_share<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate
 
 /// Apply management fee to NAV based on time elapsed
 /// Returns the fee-adjusted NAV per share
-fun apply_management_fee_to_nav<P, T>(
+public(package) fun apply_management_fee_to_nav<P, T>(
     vault: &mut Vault<P, T>,
     agg: &VaultValueAggregate,
     clock: &Clock,
