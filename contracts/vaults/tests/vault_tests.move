@@ -453,7 +453,7 @@ fun test_utilization_rate() {
 
     {
         let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
-        let util_rate = vault.calculate_utilization_rate_bps(&lending_market, &agg);
+        let util_rate = agg.calculate_utilization_rate_bps();
         assert!(util_rate == 0);
     };
 
@@ -470,7 +470,7 @@ fun test_utilization_rate() {
 
     {
         let agg = vault::create_vault_value_aggregate_for_testing(&vault, &lending_market);
-        let util_rate = vault.calculate_utilization_rate_bps(&lending_market, &agg);
+        let util_rate = agg.calculate_utilization_rate_bps();
         assert!(util_rate > 0);
     };
 

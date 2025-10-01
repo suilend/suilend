@@ -2,12 +2,7 @@ module vaults::vault;
 
 use std::type_name::{Self, TypeName};
 use sui::{bag, balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event};
-use suilend::{
-    decimal,
-    lending_market::{ObligationOwnerCap, LendingMarket},
-    obligation::Obligation,
-    reserve
-};
+use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, reserve};
 
 // === Errors ===
 const EIncorrectVersion: u64 = 1;
@@ -239,7 +234,7 @@ public fun deposit<P, L, T>(
     let vault_shares = coin::from_balance(vault_shares_balance, ctx);
 
     vault.total_shares = vault.total_shares + shares_to_mint;
-    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
+    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
 
     // Emit fee collection event
     if (deposit_fee > 0) {
@@ -287,8 +282,10 @@ public fun withdraw<P, L, T>(
     let withdraw_usd_value = (
         ((shares_amount as u128) * (current_nav_per_share as u128)) / NAV_PRECISION,
     );
-    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-    let withdraw_amount = decimal::div(decimal::from(withdraw_usd_value as u64), usd_price).floor();
+    let withdraw_amount = get_token_amount_from_usd<_, T>(
+        lending_market,
+        withdraw_usd_value as u64,
+    ).floor();
 
     // Calculate withdrawal fee on the gross amount
     let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
@@ -307,7 +304,7 @@ public fun withdraw<P, L, T>(
     balance::decrease_supply(&mut vault.share_supply, shares_balance);
 
     vault.total_shares = vault.total_shares - shares_amount;
-    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
+    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
 
     // Withdraw full amount from vault's asset balance
     let mut withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
@@ -347,6 +344,7 @@ public fun withdraw<P, L, T>(
     coins
 }
 
+/// Calculates the amount of shares that will be minted for deposit_amount of T
 public fun calculate_shares_to_mint<P, L, T>(
     vault: &Vault<P, T>,
     deposit_amount: u64,
@@ -354,49 +352,41 @@ public fun calculate_shares_to_mint<P, L, T>(
     agg: &VaultValueAggregate,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(agg);
-    let deposit_usd_value = decimal::mul(
-        decimal::from(deposit_amount),
-        get_usd_price_for_asset<L, T>(lending_market),
+    let deposit_usd_value = get_usd_value_for_token_amount<_, T>(
+        lending_market,
+        deposit_amount,
     ).floor();
     (((deposit_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
 }
 
+/// Calculates the amount of shares that must be burned to redeem withdraw_amount of T
 public fun calculate_shares_to_burn<P, L, T>(
     vault: &Vault<P, T>,
     withdraw_amount: u64,
     lending_market: &LendingMarket<L>,
     agg: VaultValueAggregate,
 ): u64 {
-    if (vault.total_shares == 0) {
-        0
-    } else {
-        let nav_per_share = vault.calculate_nav_per_share(&agg);
-        let withdraw_usd_value = decimal::mul(
-            decimal::from(withdraw_amount),
-            get_usd_price_for_asset<L, T>(lending_market),
-        ).floor();
-        (((withdraw_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
-    }
+    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let withdraw_usd_value = get_usd_value_for_token_amount<_, T>(
+        lending_market,
+        withdraw_amount,
+    ).floor();
+    (((withdraw_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
 }
 
+/// Calculates the amount of T that can be redeemed for shares_amount
 public fun calculate_withdraw_amount<P, L, T>(
     vault: &Vault<P, T>,
     shares_amount: u64,
     lending_market: &LendingMarket<L>,
     agg: VaultValueAggregate,
 ): u64 {
-    if (vault.total_shares == 0) {
-        0
-    } else {
-        let nav_per_share = vault.calculate_nav_per_share(&agg);
-        let withdraw_usd_value = (
-            ((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION,
-        );
-        let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-        decimal::div(decimal::from(withdraw_usd_value as u64), usd_price).floor()
-    }
+    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let withdraw_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
+    get_token_amount_from_usd<_, T>(lending_market, withdraw_usd_value as u64).floor()
 }
 
+/// Calculates the amount of T that shares_amount will cost
 public fun calculate_deposit_amount<P, L, T>(
     vault: &Vault<P, T>,
     shares_amount: u64,
@@ -405,34 +395,38 @@ public fun calculate_deposit_amount<P, L, T>(
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(&agg);
     let deposit_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
-    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-    decimal::div(decimal::from(deposit_usd_value as u64), usd_price).floor()
+    get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value as u64).floor()
 }
 
-/// Check if vault can deploy more funds (under 70% utilization)
-public fun can_deploy_funds<P, L, T>(
-    vault: &Vault<P, T>,
+/// Check if vault can deploy more funds (under MAX_UTILIZATION_RATE_BPS)
+public fun can_deploy_funds<L, T>(
     lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
     amount: u64,
 ): bool {
-    let liquid_asset_value = vault.deposit_asset.value();
-    let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-    let liquid_value = decimal::mul(decimal::from(liquid_asset_value), usd_price).floor();
+    let liquid_asset_value = agg.liquid_asset_value_usd;
+    let obligations_value_usd = agg.total_obligation_value_usd;
+    let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount).floor();
 
-    if (amount > liquid_value) {
-        false
-    } else {
-        let new_liquid_value = liquid_value - amount;
-        let total_value = agg.total_obligation_value_usd;
-        if (total_value == 0) {
-            true
-        } else {
-            let new_deployed = total_value - new_liquid_value;
-            let new_utilization = (new_deployed * BASIS_POINTS) / total_value;
-            new_utilization <= MAX_UTILIZATION_RATE_BPS
-        }
-    }
+    // Check if we have enough liquid assets to deploy
+    if (usd_to_deploy > liquid_asset_value) {
+        return false
+    };
+
+    // Calculate new values after deployment
+    let new_liquid_value = liquid_asset_value - usd_to_deploy;
+    let new_obligations_value = obligations_value_usd + usd_to_deploy;
+    let total_vault_value = new_liquid_value + new_obligations_value;
+
+    // If total value is zero, cannot deploy
+    if (total_vault_value == 0) {
+        return false
+    };
+
+    // Calculate new utilization rate: (obligations / total_value) * BASIS_POINTS
+    let new_utilization = (new_obligations_value * BASIS_POINTS) / total_vault_value;
+
+    new_utilization <= MAX_UTILIZATION_RATE_BPS
 }
 
 /// Total supply of shares
@@ -440,9 +434,8 @@ public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
     vault.total_shares
 }
 
-/// Calculate total lending market value
-/// Returns all obligation (assets - liabilities) in base asset T
-public fun calculate_lending_market_value<L, T>(
+/// Calculate total obligation value within one Lending Market in USD
+public fun calculate_obligation_values_usd<L>(
     obligation_ids: vector<ID>,
     lending_market: &LendingMarket<L>,
 ): u64 {
@@ -452,62 +445,15 @@ public fun calculate_lending_market_value<L, T>(
     obligation_ids.do!(|obligation_id| {
         let obligation = lending_market.obligation(obligation_id);
 
-        // Get net value from this obligation (deposits - borrows in asset terms)
-        let net_value = calculate_obligation_net_value<_, T>(obligation, lending_market);
+        let deposited_value_usd = obligation.deposited_value_usd().floor();
+        let unweighted_borrowed_value_usd = obligation.unweighted_borrowed_value_usd().floor();
+
+        let net_value = deposited_value_usd - unweighted_borrowed_value_usd;
+
         total_asset_value = total_asset_value + net_value;
     });
 
     total_asset_value
-}
-
-/// Calculate net value of an obligation in asset-native terms
-/// This converts all positions back to the base asset T
-/// TODO: Should handle all assets, not just T tokens
-fun calculate_obligation_net_value<P, T>(
-    obligation: &Obligation<P>,
-    lending_market: &LendingMarket<P>,
-): u64 {
-    let mut net_value = 0;
-
-    // Add collateral deposits (converted from cTokens to underlying)
-    let deposits = obligation.deposits();
-    deposits.do_ref!(|deposit| {
-        let reserve_index = deposit.reserve_array_index();
-        let reserves = lending_market.reserves();
-        let reserve = reserves.borrow(reserve_index);
-
-        // Check if this deposit is in our base asset T
-        if (reserve.coin_type() == type_name::with_defining_ids<T>()) {
-            let ctoken_amount = deposit.deposited_ctoken_amount();
-            let ctoken_ratio = reserve.ctoken_ratio();
-            // Convert cTokens to underlying asset amount
-            let underlying_amount = decimal::mul(
-                decimal::from(ctoken_amount),
-                ctoken_ratio,
-            ).floor();
-            net_value = net_value + underlying_amount;
-        };
-    });
-
-    // Subtract borrowed amounts (if borrowed in base asset T)
-    let borrows = obligation.borrows();
-    borrows.do_ref!(|borrow| {
-        let reserve_index = borrow.reserve_array_index();
-        let reserves = lending_market.reserves();
-        let reserve = reserves.borrow(reserve_index);
-
-        // Check if this borrow is in our base asset T
-        if (reserve.coin_type() == type_name::with_defining_ids<T>()) {
-            let borrowed_amount = borrow.borrowed_amount().floor();
-            net_value = if (net_value >= borrowed_amount) {
-                net_value - borrowed_amount
-            } else {
-                0
-            };
-        };
-    });
-
-    net_value
 }
 
 /// Get the reserve for the base asset T
@@ -524,12 +470,26 @@ fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Re
     }
 }
 
-/// Get USD price for asset T
-fun get_usd_price_for_asset<L, T>(lending_market: &LendingMarket<L>): decimal::Decimal {
+/// Get T amount from USD amount
+fun get_token_amount_from_usd<L, T>(
+    lending_market: &LendingMarket<L>,
+    amount: u64,
+): decimal::Decimal {
     let reserve = get_reserve_for_asset<L, T>(lending_market);
     // TODO
     //reserve.assert_price_is_fresh(clock);
-    reserve.price_lower_bound()
+    reserve.usd_to_token_amount_lower_bound(decimal::from(amount))
+}
+
+/// Get USD amount from T amount
+fun get_usd_value_for_token_amount<L, T>(
+    lending_market: &LendingMarket<L>,
+    amount: u64,
+): decimal::Decimal {
+    let reserve = get_reserve_for_asset<L, T>(lending_market);
+    // TODO
+    //reserve.assert_price_is_fresh(clock);
+    reserve.market_value_lower_bound(decimal::from(amount))
 }
 
 fun calculate_nav_per_share<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate): u64 {
@@ -589,11 +549,7 @@ fun apply_management_fee_to_nav<P, T>(
 }
 
 /// Calculate utilization rate in basis points
-public fun calculate_utilization_rate_bps<P, L, T>(
-    _vault: &Vault<P, T>,
-    _lending_market: &LendingMarket<L>,
-    agg: &VaultValueAggregate,
-): u64 {
+public fun calculate_utilization_rate_bps(agg: &VaultValueAggregate): u64 {
     let deployed_value = agg.total_obligation_value_usd;
     let liquid_value = agg.liquid_asset_value_usd;
 
@@ -752,7 +708,7 @@ public fun deploy_funds<P, L, T>(
     assert!(available_amount >= amount, EInsufficientLiquidity);
 
     // Check if deployment would exceed utilization limits
-    assert!(vault.can_deploy_funds(lending_market, &agg, amount), EInsufficientLiquidity);
+    assert!(can_deploy_funds<_, T>(lending_market, &agg, amount), EInsufficientLiquidity);
 
     // Split funds from vault's deposit asset
     let deploy_balance = vault.deposit_asset.split(amount);
@@ -789,7 +745,7 @@ public fun deploy_funds<P, L, T>(
     );
 
     // Update vault utilization
-    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
+    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
 
     event::emit(ManagerAllocate {
         vault_id: object::id(vault),
@@ -851,7 +807,7 @@ public fun withdraw_deployed_funds<P, L, T>(
     vault.deposit_asset.join(coin::into_balance(withdrawn_coin));
 
     // Update vault utilization
-    vault.utilization_rate_bps = vault.calculate_utilization_rate_bps(lending_market, &agg);
+    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
 
     event::emit(ManagerDivest {
         vault_id: object::id(vault),
@@ -877,18 +833,15 @@ public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValue
     }
 }
 
-public fun process_lending_market<L, T>(
+public fun process_lending_market<L>(
     acc: &mut VaultValueAccumulator,
     lending_market: &LendingMarket<L>,
 ) {
     let lending_market_type = type_name::with_defining_ids<L>();
     let (_, obligation_ids) = acc.obligation_ids.remove(&lending_market_type);
-    let lending_market_value = calculate_lending_market_value<_, T>(obligation_ids, lending_market);
+    let obligation_values_usd = calculate_obligation_values_usd(obligation_ids, lending_market);
 
-    let usd_price_t = get_usd_price_for_asset<L, T>(lending_market);
-    let usd_value = decimal::from(lending_market_value).mul(usd_price_t).floor();
-
-    acc.lending_market_values.insert(lending_market_type, usd_value);
+    acc.lending_market_values.insert(lending_market_type, obligation_values_usd);
 }
 
 public fun create_vault_value_aggregate<P, L, T>(
@@ -900,8 +853,7 @@ public fun create_vault_value_aggregate<P, L, T>(
 
     let liquid_asset_value_usd = {
         let liquid_asset_value = vault.deposit_asset.value();
-        let usd_price = get_usd_price_for_asset<L, T>(lending_market);
-        decimal::from(liquid_asset_value).mul(usd_price).floor()
+        get_usd_value_for_token_amount<L, T>(lending_market, liquid_asset_value).floor()
     };
 
     let VaultValueAccumulator {
@@ -929,7 +881,7 @@ public fun create_vault_value_aggregate_for_testing<P, L, T>(
 ): VaultValueAggregate {
     let mut acc = vault.create_vault_value_accumulator();
     if (!vault.obligations.is_empty()) {
-        acc.process_lending_market<_, T>(lending_market);
+        acc.process_lending_market(lending_market);
     };
     let agg = acc.create_vault_value_aggregate(vault, lending_market);
     agg
