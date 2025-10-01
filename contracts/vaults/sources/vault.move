@@ -398,7 +398,7 @@ public fun calculate_deposit_amount<P, L, T>(
     get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value as u64).floor()
 }
 
-/// Check if vault can deploy more funds (under MAX_UTILIZATION_RATE_BPS)
+/// Check if vault can deploy an amount of T (and vault remains under MAX_UTILIZATION_RATE_BPS)
 public fun can_deploy_funds<L, T>(
     lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
