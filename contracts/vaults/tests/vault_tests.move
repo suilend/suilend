@@ -25,7 +25,6 @@ const WITHDRAWAL_FEE_BPS: u64 = 300; // 3%
 const MANAGEMENT_FEE_BPS: u64 = 200; // 2%
 const PERFORMANCE_FEE_BPS: u64 = 1000; // 10%
 
-const BASIS_POINTS: u64 = 10000; // 100%
 const NAV_PRECISION: u128 = 1_000_000_000;
 
 const TEST_COIN_DECIMALS: u8 = 6;
@@ -40,7 +39,6 @@ fun init_vault_scenario(): Scenario {
 
     // Create vault and manager cap
     let manager_cap = vault::create_vault<TEST_COIN>(
-        FEE_RECEIVER,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -377,7 +375,6 @@ fun test_fee_limits() {
 
     // Test that fee limits are enforced during vault creation
     let manager_cap = vault::create_vault<TEST_COIN>(
-        FEE_RECEIVER,
         1000, // 10% management fee (at limit)
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
@@ -402,7 +399,6 @@ fun test_excessive_fee_failure() {
 
     // Try to create vault with excessive fees (should fail)
     let manager_cap = vault::create_vault<TEST_COIN>(
-        FEE_RECEIVER,
         2000, // 20% management fee (above 10% limit)
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -604,21 +600,28 @@ fun test_nav_changes() {
     // Calculate initial NAV per share (should be 1.0 scaled)
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let initial_nav = vault.calculate_nav_per_share(&agg);
-    assert!(initial_nav == NAV_PRECISION as u64); // NAV_PRECISION
+    assert!(initial_nav == NAV_PRECISION as u64);
+
+    // Record initial total shares
+    let initial_total_shares = vault.total_supply();
 
     // Advance clock by 1 year to accrue management fees
     clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
 
-    // Apply management fee and get adjusted NAV
+    // Apply fees
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let adjusted_nav = vault.apply_management_fee_to_nav(&agg, &clock);
+    vault.accrue_all_fees(&agg, &clock);
 
-    // NAV should have decreased due to management fee
-    assert!(adjusted_nav < initial_nav);
+    // Total shares should have increased due to fee shares being minted
+    let new_total_shares = vault.total_supply();
+    assert!(new_total_shares > initial_total_shares);
 
-    // NAV should be reduced by approximately 2%
-    let expected_reduction = (initial_nav * MANAGEMENT_FEE_BPS) / BASIS_POINTS;
-    assert!(initial_nav - adjusted_nav >= expected_reduction - 1); // Allow for rounding
+    // Calculate new NAV per share after dilution
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let diluted_nav = vault.calculate_nav_per_share(&agg);
+
+    // NAV per share should have decreased due to share dilution from fee minting
+    assert!(diluted_nav < initial_nav);
 
     {
         coin::burn_for_testing(shares);

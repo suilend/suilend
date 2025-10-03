@@ -38,8 +38,7 @@ public struct Vault<phantom P, phantom T> has key, store {
     obligations: sui::vec_map::VecMap<TypeName, vector<ObligationData>>,
     share_supply: balance::Supply<P>,
     deposit_asset: Balance<T>,
-    total_shares: u64,
-    fee_receiver: address,
+    manager_fees: Balance<P>,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
@@ -80,10 +79,16 @@ public struct VaultValueAggregate has drop {
     lending_market_values: sui::vec_map::VecMap<TypeName, u64>,
 }
 
+public struct FeeAccrual has drop {
+    management_fee_shares: u64,
+    performance_fee_shares: u64,
+    total_fee_shares: u64,
+    new_nav_per_share: u64,
+}
+
 // === Events ===
 public struct VaultCreated has copy, drop {
     vault_id: object::ID,
-    fee_receiver: address,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
@@ -130,14 +135,12 @@ public enum FeeType has copy, drop {
 public struct FeesAccrued has copy, drop {
     vault_id: object::ID,
     fee_type: FeeType,
-    fee_amount: u64,
-    fee_receiver: address,
+    fee_shares: u64,
     timestamp_ms: u64,
 }
 
 // === Functions ===
 public fun create_vault<T>(
-    fee_receiver: address,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
@@ -165,8 +168,7 @@ public fun create_vault<T>(
         obligations: sui::vec_map::empty(),
         share_supply: supply_obj,
         deposit_asset: balance::zero<T>(),
-        total_shares: 0,
-        fee_receiver,
+        manager_fees: balance::zero(),
         management_fee_bps,
         performance_fee_bps,
         deposit_fee_bps,
@@ -184,7 +186,6 @@ public fun create_vault<T>(
 
     event::emit(VaultCreated {
         vault_id: object::id(&vault),
-        fee_receiver,
         management_fee_bps,
         performance_fee_bps,
         deposit_fee_bps,
@@ -198,7 +199,7 @@ public fun create_vault<T>(
 
 public fun deposit<P, L, T>(
     vault: &mut Vault<P, T>,
-    mut deposit: Coin<T>,
+    deposit: Coin<T>,
     lending_market: &LendingMarket<L>,
     clock: &Clock,
     agg: VaultValueAggregate,
@@ -206,6 +207,8 @@ public fun deposit<P, L, T>(
 ): Coin<P> {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     assert!(deposit.value() >= MIN_DEPOSIT, EInvalidDeposit);
+
+    vault.accrue_all_fees(&agg, clock);
 
     let deposit_amount = deposit.value();
     let current_time = clock.timestamp_ms();
@@ -215,14 +218,22 @@ public fun deposit<P, L, T>(
     let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
     let net_deposit_amount = deposit_amount - deposit_fee;
 
-    // Split out fee
-    let fee_coins = deposit.split(deposit_fee, ctx);
-
-    // Send fee to collector
-    sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
-
     // Add deposited coins to vault's asset balance
     vault.deposit_asset.join(coin::into_balance(deposit));
+
+    // Mint shares for deposit fee
+    if (deposit_fee > 0) {
+        let fee_shares = calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg);
+        let fee_balance = balance::increase_supply(&mut vault.share_supply, fee_shares);
+        vault.manager_fees.join(fee_balance);
+
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::DepositFee,
+            fee_shares: fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
 
     // Calculate shares to mint based on current USD NAV
     let shares_to_mint = calculate_shares_to_mint(vault, net_deposit_amount, lending_market, &agg);
@@ -233,19 +244,7 @@ public fun deposit<P, L, T>(
     let vault_shares_balance = balance::increase_supply(&mut vault.share_supply, shares_to_mint);
     let vault_shares = coin::from_balance(vault_shares_balance, ctx);
 
-    vault.total_shares = vault.total_shares + shares_to_mint;
     vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
-
-    // Emit fee collection event
-    if (deposit_fee > 0) {
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::DepositFee,
-            fee_amount: deposit_fee,
-            fee_receiver: vault.fee_receiver,
-            timestamp_ms: current_time,
-        });
-    };
 
     // Emit deposit event
     event::emit(VaultDeposit {
@@ -275,68 +274,58 @@ public fun withdraw<P, L, T>(
     let user = ctx.sender();
     let current_time = clock.timestamp_ms();
 
-    assert!(vault.total_shares >= shares_amount, EInsufficientShares);
+    vault.accrue_all_fees(&agg, clock);
 
-    let current_nav_per_share = vault.apply_management_fee_to_nav(&agg, clock);
-    // Calculate withdrawal amount based on current USD NAV
-    let withdraw_usd_value = (
+    // Calculate total USD value of shares being redeemed
+    let current_nav_per_share = vault.calculate_nav_per_share(&agg);
+    let total_usd_value = (
         ((shares_amount as u128) * (current_nav_per_share as u128)) / NAV_PRECISION,
-    );
+    ) as u64;
+
+    // Calculate withdrawal fee in USD
+    let fee_usd_value = (total_usd_value * vault.withdrawal_fee_bps) / BASIS_POINTS;
+    let net_usd_value = total_usd_value - fee_usd_value;
+
+    // Convert net USD value to token amount
     let withdraw_amount = get_token_amount_from_usd<_, T>(
         lending_market,
-        withdraw_usd_value as u64,
+        net_usd_value,
     ).floor();
-
-    // Calculate withdrawal fee on the gross amount
-    let withdrawal_fee = (withdraw_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
 
     // Check if vault has sufficient liquidity for withdrawal
     let available_amount = vault.deposit_asset.value();
     assert!(withdraw_amount <= available_amount, EInsufficientLiquidity);
 
-    // Net withdrawal amount after withdrawal fee
-    let net_withdraw_amount = withdraw_amount - withdrawal_fee;
+    assert!(withdraw_amount > 0, EInsufficientShares);
 
-    assert!(net_withdraw_amount > 0, EInsufficientShares);
-
-    // Burn the shares
+    // Burn user shares
     let shares_balance = shares.into_balance();
     balance::decrease_supply(&mut vault.share_supply, shares_balance);
 
-    vault.total_shares = vault.total_shares - shares_amount;
-    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
+    // Mint fee shares to manager (representing the fee USD value)
+    let fee_shares = calculate_shares_from_usd(current_nav_per_share, fee_usd_value);
+    if (fee_shares > 0) {
+        let fee_balance = balance::increase_supply(&mut vault.share_supply, fee_shares);
+        vault.manager_fees.join(fee_balance);
 
-    // Withdraw full amount from vault's asset balance
-    let mut withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
-
-    // Split out withdrawal fee
-    if (withdrawal_fee > 0) {
-        let fee_balance = withdrawn_balance.split(withdrawal_fee);
-        let fee_coins = coin::from_balance(fee_balance, ctx);
-
-        // Send fees to collector
-        sui::transfer::public_transfer(fee_coins, vault.fee_receiver);
-    };
-
-    // Return net amount to user
-    let coins = coin::from_balance(withdrawn_balance, ctx);
-
-    // Emit withdrawal fee event
-    if (withdrawal_fee > 0) {
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
             fee_type: FeeType::WithdrawalFee,
-            fee_amount: withdrawal_fee,
-            fee_receiver: vault.fee_receiver,
+            fee_shares: fee_shares,
             timestamp_ms: current_time,
         });
     };
 
-    // Emit withdrawal event
+    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
+
+    let withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
+
+    let coins = coin::from_balance(withdrawn_balance, ctx);
+
     event::emit(VaultWithdraw {
         vault_id: object::id(vault),
         user: user,
-        amount: net_withdraw_amount,
+        amount: withdraw_amount,
         shares_burned: shares_amount,
         timestamp_ms: current_time,
     });
@@ -356,7 +345,12 @@ public fun calculate_shares_to_mint<P, L, T>(
         lending_market,
         deposit_amount,
     ).floor();
-    (((deposit_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
+    calculate_shares_from_usd(nav_per_share, deposit_usd_value)
+}
+
+/// Calculates vault shares from USD amount
+fun calculate_shares_from_usd(nav_per_share: u64, usd_amount: u64): u64 {
+    (((usd_amount as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
 }
 
 /// Calculates the amount of shares that must be burned to redeem withdraw_amount of T
@@ -371,7 +365,7 @@ public fun calculate_shares_to_burn<P, L, T>(
         lending_market,
         withdraw_amount,
     ).floor();
-    (((withdraw_usd_value as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
+    calculate_shares_from_usd(nav_per_share, withdraw_usd_value)
 }
 
 /// Calculates the amount of T that can be redeemed for shares_amount
@@ -431,7 +425,7 @@ public fun can_deploy_funds<L, T>(
 
 /// Total supply of shares
 public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
-    vault.total_shares
+    vault.share_supply.supply_value()
 }
 
 /// Calculate total obligation value within one Lending Market in USD
@@ -496,59 +490,179 @@ public(package) fun calculate_nav_per_share<P, T>(
     vault: &Vault<P, T>,
     agg: &VaultValueAggregate,
 ): u64 {
-    if (vault.total_shares == 0) {
+    let current_shares = vault.share_supply.supply_value();
+    let vault_value = agg.total_obligation_value_usd + agg.liquid_asset_value_usd;
+    if (current_shares == 0 || vault_value == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
     } else {
-        let vault_value = agg.total_obligation_value_usd + agg.liquid_asset_value_usd;
-        (((vault_value as u128) * NAV_PRECISION) / (vault.total_shares as u128)) as u64
+        (((vault_value as u128) * NAV_PRECISION) / (current_shares as u128)) as u64
     }
 }
 
-/// Apply management fee to NAV based on time elapsed
-/// Returns the fee-adjusted NAV per share
-public(package) fun apply_management_fee_to_nav<P, T>(
+/// Apply calculated fees to the vault, minting shares and updating state
+fun apply_fee_accrual<P, T>(
+    vault: &mut Vault<P, T>,
+    accrual: FeeAccrual,
+    clock: &Clock,
+) {
+    let current_time = clock.timestamp_ms();
+
+    // Mint management fee shares if any
+    if (accrual.management_fee_shares > 0) {
+        let fee_balance = balance::increase_supply(&mut vault.share_supply, accrual.management_fee_shares);
+        vault.manager_fees.join(fee_balance);
+
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::ManagementFee,
+            fee_shares: accrual.management_fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
+
+    // Mint performance fee shares if any
+    if (accrual.performance_fee_shares > 0) {
+        let fee_balance = balance::increase_supply(&mut vault.share_supply, accrual.performance_fee_shares);
+        vault.manager_fees.join(fee_balance);
+
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::PerformanceFee,
+            fee_shares: accrual.performance_fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
+
+    vault.last_nav_per_share = accrual.new_nav_per_share;
+    vault.fee_last_update_timestamp_s = clock.timestamp_ms() / 1000;
+}
+
+/// Unified fee accrual function - calculates and applies all fees atomically
+/// This replaces the deprecated apply_management_fee_to_nav function
+public(package) fun accrue_all_fees<P, T>(
     vault: &mut Vault<P, T>,
     agg: &VaultValueAggregate,
     clock: &Clock,
-): u64 {
-    let base_nav_per_share = vault.calculate_nav_per_share(agg);
+) {
+    let accrual = calculate_all_fees(vault, agg, clock);
+    apply_fee_accrual(vault, accrual, clock);
+}
 
+/// Calculate all fees to be accrued (management + performance) atomically
+fun calculate_all_fees<P, T>(
+    vault: &Vault<P, T>,
+    agg: &VaultValueAggregate,
+    clock: &Clock,
+): FeeAccrual {
+    // 1. Get base NAV before any fees
+    let base_nav = vault.calculate_nav_per_share(agg);
+    let current_shares = vault.share_supply.supply_value();
+
+    // 2. Calculate management fee shares
+    let management_fee_shares = calculate_management_fee_shares(vault, clock);
+
+    // 3. Calculate performance fee accounting for management fee dilution
+    let performance_fee_shares = calculate_performance_fee_shares(
+        vault,
+        base_nav,
+        current_shares,
+        management_fee_shares
+    );
+
+    // 4. Calculate final NAV after both fees
+    let total_fee_shares = management_fee_shares + performance_fee_shares;
+    let new_nav = if (total_fee_shares == 0) {
+        base_nav
+    } else {
+        let total_value = ((base_nav as u128) * (current_shares as u128)) / NAV_PRECISION;
+        ((total_value * NAV_PRECISION) / ((current_shares + total_fee_shares) as u128)) as u64
+    };
+
+    FeeAccrual {
+        management_fee_shares,
+        performance_fee_shares,
+        total_fee_shares,
+        new_nav_per_share: new_nav,
+    }
+}
+
+/// Calculate performance fee shares based on NAV growth
+fun calculate_performance_fee_shares<P, T>(
+    vault: &Vault<P, T>,
+    current_nav_per_share: u64,
+    current_shares: u64,
+    mgmt_shares_to_mint: u64,
+): u64 {
+    if (vault.performance_fee_bps == 0 || current_shares == 0) {
+        return 0
+    };
+
+    // Apply performance fee only on NAV growth
+    if (current_nav_per_share <= vault.last_nav_per_share) {
+        return 0
+    };
+
+    // Total value at current NAV
+    let total_value = ((current_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
+
+    // Total value at last NAV (baseline for performance)
+    let baseline_value = ((vault.last_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
+
+    // Gain = total_value - baseline_value
+    let gain = total_value - baseline_value;
+
+    // Performance fee on the gain
+    let perf_fee_value = (gain * (vault.performance_fee_bps as u128)) / (BASIS_POINTS as u128);
+
+    // Calculate shares accounting for management fee dilution
+    // NAV after mgmt fees = total_value / (current_shares + mgmt_shares)
+    let shares_after_mgmt = current_shares + mgmt_shares_to_mint;
+    let nav_after_mgmt = (total_value * NAV_PRECISION) / (shares_after_mgmt as u128);
+
+    // Convert performance fee value to shares at post-mgmt NAV
+    ((perf_fee_value * NAV_PRECISION) / nav_after_mgmt) as u64
+}
+
+fun calculate_management_fee_shares<P, T>(
+    vault: &Vault<P, T>,
+    clock: &Clock,
+): u64 {
     if (vault.management_fee_bps == 0) {
-        return base_nav_per_share
+        return 0
     };
 
     let current_time_s = clock.timestamp_ms() / 1000;
-
     let time_elapsed_s = current_time_s - vault.fee_last_update_timestamp_s;
+
     if (time_elapsed_s == 0) {
-        return base_nav_per_share
+        return 0
     };
 
     // Calculate management fee reduction factor
-    // Annual fee rate as decimal (e.g., 100 bps = 0.01)
     let annual_fee_rate = decimal::from_bps(vault.management_fee_bps);
 
     // Convert to per-second rate: annual_rate / seconds_per_year
     let per_second_rate = decimal::div(annual_fee_rate, decimal::from(SECONDS_PER_YEAR));
 
-    // Fee factor for the elapsed time: elapsed_seconds * per_second_rate
     let fee_factor = decimal::mul(decimal::from(time_elapsed_s), per_second_rate);
 
-    // Ensure fee factor doesn't exceed 100% (shouldn't happen with reasonable rates)
+    // Ensure fee factor doesn't exceed 100%
     let fee_factor = if (decimal::gt(fee_factor, decimal::from(1))) {
         decimal::from(1)
     } else {
         fee_factor
     };
 
-    // Apply fee: nav_after_fee = nav_before_fee * (1 - fee_factor)
-    let reduction_factor = decimal::sub(decimal::from(1), fee_factor);
-    let adjusted_nav = decimal::mul(decimal::from(base_nav_per_share), reduction_factor);
+    let circulating_shares = vault.share_supply.supply_value();
 
-    // Update timestamp
-    vault.fee_last_update_timestamp_s = current_time_s;
+    // Ensures fees represent exactly the correct percentage of total vault value
+    let one_minus_fee = decimal::sub(decimal::from(1), fee_factor);
+    let shares_to_mint = decimal::div(
+        decimal::mul(decimal::from(circulating_shares), fee_factor),
+        one_minus_fee
+    );
 
-    decimal::floor(adjusted_nav)
+    decimal::floor(shares_to_mint)
 }
 
 /// Calculate utilization rate in basis points
@@ -568,63 +682,30 @@ public fun calculate_utilization_rate_bps(agg: &VaultValueAggregate): u64 {
     }
 }
 
-/// Applies performance fees based on NAV growth
-public fun compound_performance_fees<P, T>(
-    vault: &mut Vault<P, T>,
-    agg: VaultValueAggregate,
-    clock: &Clock,
-) {
-    if (vault.performance_fee_bps == 0 || vault.total_shares == 0) {
-        vault.last_nav_per_share = vault.calculate_nav_per_share(&agg);
-        return
-    };
-
-    let current_nav_per_share = vault.calculate_nav_per_share(&agg);
-
-    // Apply performance fee only on NAV growth
-    if (current_nav_per_share > vault.last_nav_per_share) {
-        let nav_growth = current_nav_per_share - vault.last_nav_per_share;
-        let nav_growth_decimal = decimal::from(nav_growth);
-        let total_shares_decimal = decimal::from(vault.total_shares);
-
-        // Calculate total value of the NAV growth
-        let total_growth_value = decimal::mul(
-            nav_growth_decimal,
-            decimal::div(total_shares_decimal, decimal::from(NAV_PRECISION as u64)),
-        );
-
-        // Apply performance fee by reducing NAV per share
-        let performance_fee = decimal::mul(
-            total_growth_value,
-            decimal::from_bps(vault.performance_fee_bps),
-        );
-
-        // Calculate fee per share and reduce NAV
-        let fee_per_share = decimal::div(
-            decimal::mul(performance_fee, decimal::from(NAV_PRECISION as u64)),
-            total_shares_decimal,
-        );
-        let adjusted_nav = decimal::sub(decimal::from(current_nav_per_share), fee_per_share);
-        vault.last_nav_per_share = decimal::floor(adjusted_nav);
-
-        // Emit performance fee event
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::PerformanceFee,
-            fee_amount: decimal::floor(performance_fee),
-            fee_receiver: vault.fee_receiver,
-            timestamp_ms: clock.timestamp_ms(),
-        });
-    } else {
-        vault.last_nav_per_share = current_nav_per_share;
-    };
-}
-
 // === Vault Manager Functions ===
 
 /// Validate that a manager cap belongs to a specific vault
 public fun validate_manager_cap<P, T>(vault: &Vault<P, T>, manager_cap: &VaultManagerCap<P>) {
     assert!(manager_cap.vault_id == object::id(vault), EInvalidManager);
+}
+
+/// Claim accumulated manager fees
+public fun claim_manager_fees<P, T>(
+    vault: &mut Vault<P, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
+    amount: u64,
+    ctx: &mut TxContext,
+): Coin<P> {
+    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.validate_manager_cap(vault_manager_cap);
+
+    let accrued_fees = vault.manager_fees.value();
+    assert!(accrued_fees >= amount, EInsufficientShares);
+
+    let fee_balance = vault.manager_fees.split(amount);
+    let fee_coin = coin::from_balance(fee_balance, ctx);
+
+    fee_coin
 }
 
 /// Create a new obligation for the vault
@@ -706,6 +787,8 @@ public fun deploy_funds<P, L, T>(
     vault.validate_manager_cap(vault_manager_cap);
     assert!(amount > 0, EInvalidDeposit);
 
+    vault.accrue_all_fees(&agg, clock);
+
     // Check if vault has sufficient liquid assets
     let available_amount = vault.deposit_asset.value();
     assert!(available_amount >= amount, EInsufficientLiquidity);
@@ -774,6 +857,8 @@ public fun withdraw_deployed_funds<P, L, T>(
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
     vault.validate_manager_cap(vault_manager_cap);
     assert!(ctoken_amount > 0, EInsufficientShares);
+
+    vault.accrue_all_fees(&agg, clock);
 
     let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap(&lm_type, obligation_index);
