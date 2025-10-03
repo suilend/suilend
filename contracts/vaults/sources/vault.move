@@ -43,7 +43,6 @@ public struct Vault<phantom P, phantom T> has key, store {
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
-    utilization_rate_bps: u64, // Current utilization rate in basis points
     // Fee accrual state
     last_nav_per_share: u64, // For tracking performance fee base
     fee_last_update_timestamp_s: u64,
@@ -173,7 +172,6 @@ public fun create_vault<T>(
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
-        utilization_rate_bps: 0,
         // Initialize fee accrual state
         last_nav_per_share: NAV_PRECISION as u64,
         fee_last_update_timestamp_s: current_time_s,
@@ -244,8 +242,6 @@ public fun deposit<P, L, T>(
     let vault_shares_balance = balance::increase_supply(&mut vault.share_supply, shares_to_mint);
     let vault_shares = coin::from_balance(vault_shares_balance, ctx);
 
-    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
-
     // Emit deposit event
     event::emit(VaultDeposit {
         vault_id: object::id(vault),
@@ -315,8 +311,6 @@ public fun withdraw<P, L, T>(
             timestamp_ms: current_time,
         });
     };
-
-    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
 
     let withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
 
@@ -392,17 +386,13 @@ public fun calculate_deposit_amount<P, L, T>(
     get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value as u64).floor()
 }
 
-/// Check if vault can deploy an amount of T (and vault remains under MAX_UTILIZATION_RATE_BPS)
-public fun can_deploy_funds<L, T>(
-    lending_market: &LendingMarket<L>,
-    agg: &VaultValueAggregate,
-    amount: u64,
-): bool {
+/// Check if vault can deploy a USD amount of liquid assets (and vault remains under MAX_UTILIZATION_RATE_BPS)
+public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Decimal): bool {
     let liquid_asset_value = agg.liquid_asset_value_usd;
     let obligations_value_usd = agg.total_obligation_value_usd;
-    let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount).floor();
+    let usd_to_deploy = usd_amount.floor();
 
-    // Check if we have enough liquid assets to deploy
+    // Check if there is enough liquid assets to deploy
     if (usd_to_deploy > liquid_asset_value) {
         return false
     };
@@ -665,23 +655,6 @@ fun calculate_management_fee_shares<P, T>(
     decimal::floor(shares_to_mint)
 }
 
-/// Calculate utilization rate in basis points
-public fun calculate_utilization_rate_bps(agg: &VaultValueAggregate): u64 {
-    let deployed_value = agg.total_obligation_value_usd;
-    let liquid_value = agg.liquid_asset_value_usd;
-
-    if (deployed_value == 0) {
-        // zero utilization
-        0
-    } else if (liquid_value == 0) {
-        // 100% utilization (shouldn't happen)
-        BASIS_POINTS
-    } else {
-        let total_value = deployed_value + liquid_value;
-        ((deployed_value as u128) * (BASIS_POINTS as u128) / (total_value as u128)) as u64
-    }
-}
-
 // === Vault Manager Functions ===
 
 /// Validate that a manager cap belongs to a specific vault
@@ -794,7 +767,8 @@ public fun deploy_funds<P, L, T>(
     assert!(available_amount >= amount, EInsufficientLiquidity);
 
     // Check if deployment would exceed utilization limits
-    assert!(can_deploy_funds<_, T>(lending_market, &agg, amount), EInsufficientLiquidity);
+    let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount);
+    assert!(can_deploy_funds(&agg, usd_to_deploy), EInsufficientLiquidity);
 
     // Split funds from vault's deposit asset
     let deploy_balance = vault.deposit_asset.split(amount);
@@ -829,9 +803,6 @@ public fun deploy_funds<P, L, T>(
         ctokens,
         ctx,
     );
-
-    // Update vault utilization
-    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
 
     event::emit(ManagerAllocate {
         vault_id: object::id(vault),
@@ -893,9 +864,6 @@ public fun withdraw_deployed_funds<P, L, T>(
 
     // Add withdrawn funds back to vault's deposit asset
     vault.deposit_asset.join(coin::into_balance(withdrawn_coin));
-
-    // Update vault utilization
-    vault.utilization_rate_bps = agg.calculate_utilization_rate_bps();
 
     event::emit(ManagerDivest {
         vault_id: object::id(vault),

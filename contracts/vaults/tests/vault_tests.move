@@ -417,7 +417,8 @@ fun test_excessive_fee_failure() {
 }
 
 #[test]
-fun test_utilization_rate() {
+#[expected_failure]
+fun test_utilization_rate_guard() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
@@ -432,7 +433,7 @@ fun test_utilization_rate() {
 
     let deposit_amount = 1000;
     let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
-    let deploy_amount = deposit_coin.value() / 2;
+    let deposit_value = deposit_coin.value();
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let vault_shares = vault.deposit(
@@ -452,29 +453,20 @@ fun test_utilization_rate() {
     );
     let obligation_index = 0;
 
-    {
-        let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-        let util_rate = agg.calculate_utilization_rate_bps();
-        assert!(util_rate == 0);
-    };
-
+    // Try to deploy 80% of deposit
+    let deploy_amount_80_percent = (deposit_value * 80) / 100;
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let _ctokens_amt = vault.deploy_funds(
         &manager_cap,
         &mut lending_market,
         obligation_index,
-        deploy_amount,
+        deploy_amount_80_percent,
         &clock,
         agg,
         scenario.ctx(),
     );
 
-    {
-        let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-        let util_rate = agg.calculate_utilization_rate_bps();
-        assert!(util_rate > 0);
-    };
-
+    // Should not reach here
     {
         coin::burn_for_testing(vault_shares);
         ts::return_shared(clock);
