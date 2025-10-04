@@ -222,7 +222,7 @@ public fun deposit<P, L, T>(
     // Mint shares for deposit fee
     if (deposit_fee > 0) {
         let fee_shares = calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg);
-        let fee_balance = balance::increase_supply(&mut vault.share_supply, fee_shares);
+        let fee_balance = vault.share_supply.increase_supply(fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
@@ -239,7 +239,7 @@ public fun deposit<P, L, T>(
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
     // Mint vault shares
-    let vault_shares_balance = balance::increase_supply(&mut vault.share_supply, shares_to_mint);
+    let vault_shares_balance = vault.share_supply.increase_supply(shares_to_mint);
     let vault_shares = coin::from_balance(vault_shares_balance, ctx);
 
     // Emit deposit event
@@ -274,9 +274,8 @@ public fun withdraw<P, L, T>(
 
     // Calculate total USD value of shares being redeemed
     let current_nav_per_share = vault.calculate_nav_per_share(&agg);
-    let total_usd_value = (
-        ((shares_amount as u128) * (current_nav_per_share as u128)) / NAV_PRECISION,
-    ) as u64;
+    let total_usd_value =
+        (((shares_amount as u128) * (current_nav_per_share as u128)) / NAV_PRECISION) as u64;
 
     // Calculate withdrawal fee in USD
     let fee_usd_value = (total_usd_value * vault.withdrawal_fee_bps) / BASIS_POINTS;
@@ -301,7 +300,7 @@ public fun withdraw<P, L, T>(
     // Mint fee shares to manager (representing the fee USD value)
     let fee_shares = calculate_shares_from_usd(current_nav_per_share, fee_usd_value);
     if (fee_shares > 0) {
-        let fee_balance = balance::increase_supply(&mut vault.share_supply, fee_shares);
+        let fee_balance = vault.share_supply.increase_supply(fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
@@ -343,6 +342,7 @@ public fun calculate_shares_to_mint<P, L, T>(
 }
 
 /// Calculates vault shares from USD amount
+/// TODO: Check for truncation
 fun calculate_shares_from_usd(nav_per_share: u64, usd_amount: u64): u64 {
     (((usd_amount as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
 }
@@ -490,16 +490,12 @@ public(package) fun calculate_nav_per_share<P, T>(
 }
 
 /// Apply calculated fees to the vault, minting shares and updating state
-fun apply_fee_accrual<P, T>(
-    vault: &mut Vault<P, T>,
-    accrual: FeeAccrual,
-    clock: &Clock,
-) {
+fun apply_fee_accrual<P, T>(vault: &mut Vault<P, T>, accrual: FeeAccrual, clock: &Clock) {
     let current_time = clock.timestamp_ms();
 
     // Mint management fee shares if any
     if (accrual.management_fee_shares > 0) {
-        let fee_balance = balance::increase_supply(&mut vault.share_supply, accrual.management_fee_shares);
+        let fee_balance = vault.share_supply.increase_supply(accrual.management_fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
@@ -512,7 +508,7 @@ fun apply_fee_accrual<P, T>(
 
     // Mint performance fee shares if any
     if (accrual.performance_fee_shares > 0) {
-        let fee_balance = balance::increase_supply(&mut vault.share_supply, accrual.performance_fee_shares);
+        let fee_balance = vault.share_supply.increase_supply(accrual.performance_fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
@@ -556,7 +552,7 @@ fun calculate_all_fees<P, T>(
         vault,
         base_nav,
         current_shares,
-        management_fee_shares
+        management_fee_shares,
     );
 
     // 4. Calculate final NAV after both fees
@@ -596,7 +592,8 @@ fun calculate_performance_fee_shares<P, T>(
     let total_value = ((current_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
 
     // Total value at last NAV (baseline for performance)
-    let baseline_value = ((vault.last_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
+    let baseline_value =
+        ((vault.last_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
 
     // Gain = total_value - baseline_value
     let gain = total_value - baseline_value;
@@ -613,10 +610,7 @@ fun calculate_performance_fee_shares<P, T>(
     ((perf_fee_value * NAV_PRECISION) / nav_after_mgmt) as u64
 }
 
-fun calculate_management_fee_shares<P, T>(
-    vault: &Vault<P, T>,
-    clock: &Clock,
-): u64 {
+fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u64 {
     if (vault.management_fee_bps == 0) {
         return 0
     };
@@ -649,7 +643,7 @@ fun calculate_management_fee_shares<P, T>(
     let one_minus_fee = decimal::sub(decimal::from(1), fee_factor);
     let shares_to_mint = decimal::div(
         decimal::mul(decimal::from(circulating_shares), fee_factor),
-        one_minus_fee
+        one_minus_fee,
     );
 
     decimal::floor(shares_to_mint)
@@ -874,6 +868,7 @@ public fun withdraw_deployed_funds<P, L, T>(
 }
 
 // === Vault Value Aggregation ===
+// Required in order to accomodate conflicting LendingMarket type parameters
 
 public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValueAccumulator {
     let keys = vault.obligations.keys();
