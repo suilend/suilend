@@ -44,7 +44,7 @@ public struct Vault<phantom P, phantom T> has key, store {
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
     // Fee accrual state
-    last_nav_per_share: u64, // For tracking performance fee base
+    nav_high_water_mark: u64, // Highest NAV per share achieved (for performance fees)
     fee_last_update_timestamp_s: u64,
 }
 
@@ -173,7 +173,7 @@ public fun create_vault<T>(
         deposit_fee_bps,
         withdrawal_fee_bps,
         // Initialize fee accrual state
-        last_nav_per_share: NAV_PRECISION as u64,
+        nav_high_water_mark: NAV_PRECISION as u64,
         fee_last_update_timestamp_s: current_time_s,
     };
 
@@ -519,7 +519,10 @@ fun apply_fee_accrual<P, T>(vault: &mut Vault<P, T>, accrual: FeeAccrual, clock:
         });
     };
 
-    vault.last_nav_per_share = accrual.new_nav_per_share;
+    if (accrual.new_nav_per_share > vault.nav_high_water_mark) {
+        vault.nav_high_water_mark = accrual.new_nav_per_share;
+    };
+
     vault.fee_last_update_timestamp_s = clock.timestamp_ms() / 1000;
 }
 
@@ -583,17 +586,17 @@ fun calculate_performance_fee_shares<P, T>(
         return 0
     };
 
-    // Apply performance fee only on NAV growth
-    if (current_nav_per_share <= vault.last_nav_per_share) {
+    // Apply performance fee only when NAV exceeds high water mark
+    if (current_nav_per_share <= vault.nav_high_water_mark) {
         return 0
     };
 
     // Total value at current NAV
     let total_value = ((current_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
 
-    // Total value at last NAV (baseline for performance)
+    // Total value at high water mark (baseline for performance)
     let baseline_value =
-        ((vault.last_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
+        ((vault.nav_high_water_mark as u128) * (current_shares as u128)) / NAV_PRECISION;
 
     // Gain = total_value - baseline_value
     let gain = total_value - baseline_value;
