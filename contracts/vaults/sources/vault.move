@@ -272,14 +272,14 @@ public fun withdraw<P, L, T>(
 
     vault.accrue_all_fees(&agg, clock);
 
-    // Calculate total USD value of shares being redeemed
-    let current_nav_per_share = vault.calculate_nav_per_share(&agg);
-    let total_usd_value =
-        (((shares_amount as u128) * (current_nav_per_share as u128)) / NAV_PRECISION) as u64;
+    // Calculate withdrawal fee in shares
+    let withdrawal_fee_shares = (shares_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
+    let net_shares = shares_amount - withdrawal_fee_shares;
 
-    // Calculate withdrawal fee in USD
-    let fee_usd_value = (total_usd_value * vault.withdrawal_fee_bps) / BASIS_POINTS;
-    let net_usd_value = total_usd_value - fee_usd_value;
+    // Calculate total USD value of net shares being redeemed
+    let current_nav_per_share = vault.calculate_nav_per_share(&agg);
+    let net_usd_value =
+        (((net_shares as u128) * (current_nav_per_share as u128)) / NAV_PRECISION) as u64;
 
     // Convert net USD value to token amount
     let withdraw_amount = get_token_amount_from_usd<_, T>(
@@ -293,20 +293,21 @@ public fun withdraw<P, L, T>(
 
     assert!(withdraw_amount > 0, EInsufficientShares);
 
-    // Burn user shares
-    let shares_balance = shares.into_balance();
+    // Split shares into user portion (to burn) and fee portion (to manager)
+    let mut shares_balance = shares.into_balance();
+    let fee_balance = shares_balance.split(withdrawal_fee_shares);
+
+    // Burn user's shares
     balance::decrease_supply(&mut vault.share_supply, shares_balance);
 
-    // Mint fee shares to manager (representing the fee USD value)
-    let fee_shares = calculate_shares_from_usd(current_nav_per_share, fee_usd_value);
-    if (fee_shares > 0) {
-        let fee_balance = vault.share_supply.increase_supply(fee_shares);
-        vault.manager_fees.join(fee_balance);
+    // Transfer fee shares to manager
+    vault.manager_fees.join(fee_balance);
 
+    if (withdrawal_fee_shares > 0) {
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
             fee_type: FeeType::WithdrawalFee,
-            fee_shares: fee_shares,
+            fee_shares: withdrawal_fee_shares,
             timestamp_ms: current_time,
         });
     };
