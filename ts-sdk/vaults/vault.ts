@@ -20,14 +20,12 @@ export const Vault = new MoveStruct({ name: `${$moduleName}::Vault`, fields: {
         obligations: vec_map.VecMap(type_name.TypeName, bcs.vector(ObligationData)),
         share_supply: balance.Supply,
         deposit_asset: balance.Balance,
-        total_shares: bcs.u64(),
-        fee_receiver: bcs.Address,
+        manager_fees: balance.Balance,
         management_fee_bps: bcs.u64(),
         performance_fee_bps: bcs.u64(),
         deposit_fee_bps: bcs.u64(),
         withdrawal_fee_bps: bcs.u64(),
-        utilization_rate_bps: bcs.u64(),
-        last_nav_per_share: bcs.u64(),
+        nav_high_water_mark: bcs.u64(),
         fee_last_update_timestamp_s: bcs.u64()
     } });
 export const VaultShare = new MoveStruct({ name: `${$moduleName}::VaultShare`, fields: {
@@ -46,9 +44,14 @@ export const VaultValueAggregate = new MoveStruct({ name: `${$moduleName}::Vault
         total_obligation_value_usd: bcs.u64(),
         lending_market_values: vec_map.VecMap(type_name.TypeName, bcs.u64())
     } });
+export const FeeAccrual = new MoveStruct({ name: `${$moduleName}::FeeAccrual`, fields: {
+        management_fee_shares: bcs.u64(),
+        performance_fee_shares: bcs.u64(),
+        total_fee_shares: bcs.u64(),
+        new_nav_per_share: bcs.u64()
+    } });
 export const VaultCreated = new MoveStruct({ name: `${$moduleName}::VaultCreated`, fields: {
         vault_id: bcs.Address,
-        fee_receiver: bcs.Address,
         management_fee_bps: bcs.u64(),
         performance_fee_bps: bcs.u64(),
         deposit_fee_bps: bcs.u64(),
@@ -89,12 +92,10 @@ export const FeeType = new MoveEnum({ name: `${$moduleName}::FeeType`, fields: {
 export const FeesAccrued = new MoveStruct({ name: `${$moduleName}::FeesAccrued`, fields: {
         vault_id: bcs.Address,
         fee_type: FeeType,
-        fee_amount: bcs.u64(),
-        fee_receiver: bcs.Address,
+        fee_shares: bcs.u64(),
         timestamp_ms: bcs.u64()
     } });
 export interface CreateVaultArguments {
-    feeReceiver: RawTransactionArgument<string>;
     managementFeeBps: RawTransactionArgument<number | bigint>;
     performanceFeeBps: RawTransactionArgument<number | bigint>;
     depositFeeBps: RawTransactionArgument<number | bigint>;
@@ -103,7 +104,6 @@ export interface CreateVaultArguments {
 export interface CreateVaultOptions {
     package?: string;
     arguments: CreateVaultArguments | [
-        feeReceiver: RawTransactionArgument<string>,
         managementFeeBps: RawTransactionArgument<number | bigint>,
         performanceFeeBps: RawTransactionArgument<number | bigint>,
         depositFeeBps: RawTransactionArgument<number | bigint>,
@@ -116,14 +116,13 @@ export interface CreateVaultOptions {
 export function createVault(options: CreateVaultOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
-        'address',
         'u64',
         'u64',
         'u64',
         'u64',
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
     ] satisfies string[];
-    const parameterNames = ["feeReceiver", "managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
+    const parameterNames = ["managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -232,6 +231,7 @@ export interface CalculateSharesToMintOptions {
         string
     ];
 }
+/** Calculates the amount of shares that will be minted for deposit_amount of T */
 export function calculateSharesToMint(options: CalculateSharesToMintOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
@@ -269,6 +269,10 @@ export interface CalculateSharesToBurnOptions {
         string
     ];
 }
+/**
+ * Calculates the amount of shares that must be burned to redeem withdraw_amount of
+ * T
+ */
 export function calculateSharesToBurn(options: CalculateSharesToBurnOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
@@ -306,6 +310,7 @@ export interface CalculateWithdrawAmountOptions {
         string
     ];
 }
+/** Calculates the amount of T that can be redeemed for shares_amount */
 export function calculateWithdrawAmount(options: CalculateWithdrawAmountOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
@@ -343,6 +348,7 @@ export interface CalculateDepositAmountOptions {
         string
     ];
 }
+/** Calculates the amount of T that shares_amount will cost */
 export function calculateDepositAmount(options: CalculateDepositAmountOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
@@ -361,41 +367,32 @@ export function calculateDepositAmount(options: CalculateDepositAmountOptions) {
     });
 }
 export interface CanDeployFundsArguments {
-    vault: RawTransactionArgument<string>;
-    lendingMarket: RawTransactionArgument<string>;
     agg: RawTransactionArgument<string>;
-    amount: RawTransactionArgument<number | bigint>;
+    usdAmount: RawTransactionArgument<string>;
 }
 export interface CanDeployFundsOptions {
     package?: string;
     arguments: CanDeployFundsArguments | [
-        vault: RawTransactionArgument<string>,
-        lendingMarket: RawTransactionArgument<string>,
         agg: RawTransactionArgument<string>,
-        amount: RawTransactionArgument<number | bigint>
-    ];
-    typeArguments: [
-        string,
-        string,
-        string
+        usdAmount: RawTransactionArgument<string>
     ];
 }
-/** Check if vault can deploy more funds (under 70% utilization) */
+/**
+ * Check if vault can deploy a USD amount of liquid assets (and vault remains under
+ * MAX_UTILIZATION_RATE_BPS)
+ */
 export function canDeployFunds(options: CanDeployFundsOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
-        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`,
-        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
         `${packageAddress}::vault::VaultValueAggregate`,
-        'u64'
+        '0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::decimal::Decimal'
     ] satisfies string[];
-    const parameterNames = ["vault", "lendingMarket", "agg", "amount"];
+    const parameterNames = ["agg", "usdAmount"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
         function: 'can_deploy_funds',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
     });
 }
 export interface TotalSupplyArguments {
@@ -426,26 +423,22 @@ export function totalSupply(options: TotalSupplyOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface CalculateLendingMarketValueArguments {
+export interface CalculateObligationValuesUsdArguments {
     obligationIds: RawTransactionArgument<string[]>;
     lendingMarket: RawTransactionArgument<string>;
 }
-export interface CalculateLendingMarketValueOptions {
+export interface CalculateObligationValuesUsdOptions {
     package?: string;
-    arguments: CalculateLendingMarketValueArguments | [
+    arguments: CalculateObligationValuesUsdArguments | [
         obligationIds: RawTransactionArgument<string[]>,
         lendingMarket: RawTransactionArgument<string>
     ];
     typeArguments: [
-        string,
         string
     ];
 }
-/**
- * Calculate total lending market value Returns all obligation (assets -
- * liabilities) in base asset T
- */
-export function calculateLendingMarketValue(options: CalculateLendingMarketValueOptions) {
+/** Calculate total obligation value within one Lending Market in USD */
+export function calculateObligationValuesUsd(options: CalculateObligationValuesUsdOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
         'vector<0x0000000000000000000000000000000000000000000000000000000000000002::object::ID>',
@@ -455,74 +448,7 @@ export function calculateLendingMarketValue(options: CalculateLendingMarketValue
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
-        function: 'calculate_lending_market_value',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface CalculateUtilizationRateBpsArguments {
-    Vault: RawTransactionArgument<string>;
-    LendingMarket: RawTransactionArgument<string>;
-    agg: RawTransactionArgument<string>;
-}
-export interface CalculateUtilizationRateBpsOptions {
-    package?: string;
-    arguments: CalculateUtilizationRateBpsArguments | [
-        Vault: RawTransactionArgument<string>,
-        LendingMarket: RawTransactionArgument<string>,
-        agg: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string,
-        string,
-        string
-    ];
-}
-/** Calculate utilization rate in basis points */
-export function calculateUtilizationRateBps(options: CalculateUtilizationRateBpsOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`,
-        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
-        `${packageAddress}::vault::VaultValueAggregate`
-    ] satisfies string[];
-    const parameterNames = ["Vault", "LendingMarket", "agg"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'calculate_utilization_rate_bps',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface CompoundPerformanceFeesArguments {
-    vault: RawTransactionArgument<string>;
-    agg: RawTransactionArgument<string>;
-}
-export interface CompoundPerformanceFeesOptions {
-    package?: string;
-    arguments: CompoundPerformanceFeesArguments | [
-        vault: RawTransactionArgument<string>,
-        agg: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string,
-        string
-    ];
-}
-/** Applies performance fees based on NAV growth */
-export function compoundPerformanceFees(options: CompoundPerformanceFeesOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
-        `${packageAddress}::vault::VaultValueAggregate`,
-        '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
-    ] satisfies string[];
-    const parameterNames = ["vault", "agg"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'compound_performance_fees',
+        function: 'calculate_obligation_values_usd',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
@@ -554,6 +480,40 @@ export function validateManagerCap(options: ValidateManagerCapOptions) {
         package: packageAddress,
         module: 'vault',
         function: 'validate_manager_cap',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface ClaimManagerFeesArguments {
+    vault: RawTransactionArgument<string>;
+    vaultManagerCap: RawTransactionArgument<string>;
+    amount: RawTransactionArgument<number | bigint>;
+}
+export interface ClaimManagerFeesOptions {
+    package?: string;
+    arguments: ClaimManagerFeesArguments | [
+        vault: RawTransactionArgument<string>,
+        vaultManagerCap: RawTransactionArgument<string>,
+        amount: RawTransactionArgument<number | bigint>
+    ];
+    typeArguments: [
+        string,
+        string
+    ];
+}
+/** Claim accumulated manager fees */
+export function claimManagerFees(options: ClaimManagerFeesOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
+        `${packageAddress}::vault::VaultManagerCap<${options.typeArguments[0]}>`,
+        'u64'
+    ] satisfies string[];
+    const parameterNames = ["vault", "vaultManagerCap", "amount"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'claim_manager_fees',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
@@ -822,7 +782,6 @@ export interface ProcessLendingMarketOptions {
         lendingMarket: RawTransactionArgument<string>
     ];
     typeArguments: [
-        string,
         string
     ];
 }
