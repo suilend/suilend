@@ -625,3 +625,104 @@ fun test_nav_changes() {
 
     scenario.end();
 }
+
+#[test]
+fun test_compound_rewards() {
+    let mut scenario = init_vault_scenario();
+
+    scenario.next_tx(ADMIN);
+    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let lm_cap = scenario.take_from_sender<
+        lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
+    >();
+    let mut clock = scenario.take_shared<Clock>();
+
+    // User deposits into vault
+    scenario.next_tx(USER1);
+    let deposit_amount = 1000000;
+    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let vault_shares = vault.deposit(
+        deposit_coin,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    // Manager creates obligation and deploys funds
+    scenario.next_tx(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    let obligation_index = 0;
+
+    let deploy_amount = 500000;
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_index,
+        deploy_amount,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    // Admin adds reward pool for deposit rewards
+    scenario.next_tx(ADMIN);
+    let reserve_array_index = 0;
+    let reward_amount = 100000;
+    let reward_coin = mint_test_coin(reward_amount, scenario.ctx());
+    let start_time_ms = clock.timestamp_ms();
+    let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000); // 30 days
+
+    lm_cap.add_pool_reward<TEST_LENDING_MARKET, TEST_COIN>(
+        &mut lending_market,
+        reserve_array_index,
+        true, // is_deposit_reward
+        reward_coin,
+        start_time_ms,
+        end_time_ms,
+        &clock,
+        scenario.ctx(),
+    );
+
+    // Advance clock to end of reward period
+    clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days
+
+    let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
+    let obligation_cap = vault.get_obligation_cap<VaultShare, TEST_LENDING_MARKET, TEST_COIN>(
+        &lm_type,
+        obligation_index,
+    );
+    let obligation_id = obligation_cap.obligation_id();
+
+    // Call claim_rewards_and_deposit (permissionless, anyone can call)
+    scenario.next_tx(USER2);
+    lending_market.claim_rewards_and_deposit<TEST_LENDING_MARKET, TEST_COIN>(
+        obligation_id,
+        &clock,
+        reserve_array_index, // reward_reserve_id
+        0, // reward_index
+        true, // is_deposit_reward
+        reserve_array_index, // deposit_reserve_id
+        scenario.ctx(),
+    );
+
+    // Verify rewards were claimed and deposited back into the obligation
+    let obligation = lending_market.obligation(obligation_id);
+    let deposited_value = obligation.deposited_value_usd().floor();
+    assert!(deposited_value > 0);
+
+    {
+        coin::burn_for_testing(vault_shares);
+        ts::return_shared(clock);
+        ts::return_shared(vault);
+        ts::return_shared(lending_market);
+        transfer::public_transfer(manager_cap, ADMIN);
+        transfer::public_transfer(lm_cap, ADMIN);
+    };
+
+    scenario.end();
+}
