@@ -27,9 +27,8 @@ module strategy_wrapper::strategy_wrapper {
     const STRATEGY_SUI_LOOPING_STRATSUI: u8 = 2;
     const STRATEGY_SUI_LOOPING_USDC: u8 = 3;
     const STRATEGY_SUI_LOOPING_AUSD: u8 = 4;
-    const STRATEGY_SUI_LOOPING_XBTC: u8 = 5;
-    const SLUSH_WAL_STRATEGY: u8 = 100;
-    const SLUSH_DEEP_STRATEGY: u8 = 101;
+    const STRATEGY_SUI_LOOPING_XBTC: u8 = 100;
+    const SLUSH_WBTC_LOOPING_XBTC: u8 = 101;
 
 
     // Structs
@@ -108,9 +107,8 @@ module strategy_wrapper::strategy_wrapper {
         strategy_type == STRATEGY_SUI_LOOPING_USDC ||
         strategy_type == STRATEGY_SUI_LOOPING_AUSD ||
         strategy_type == STRATEGY_SUI_LOOPING_XBTC ||
-        strategy_type == SLUSH_WAL_STRATEGY ||
-        strategy_type == SLUSH_DEEP_STRATEGY ||
-        (strategy_type > 0 && strategy_type <= 10)
+        strategy_type == SLUSH_WBTC_LOOPING_XBTC ||
+        (strategy_type > 0 && strategy_type <= 30)
     }
 
     // === Public functions ===
