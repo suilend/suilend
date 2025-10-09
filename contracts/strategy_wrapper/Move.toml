@@ -1,7 +1,7 @@
 [package]
 name = "strategy_wrapper"
 version = "0.0.1"
-published-at = "0xb4e22255bb2ef58c4451eaf5a93135bb9acac58951b1755f1d2aaaad675a0f47"
+published-at = "0x864b66441e95323c320ee7584592769930a2d236b45d731011ee7a98eb785b35"
 edition = "2024.beta"
 
 [dependencies]
@@ -13,10 +13,11 @@ suilend = { local = "../suilend" }
 # v04 = 0x5afa283826db9c0f4c3507fd84277c491d437a4fbecb8fa38c52a891fe513c83
 # v05 = 0x2a7798449db0ff2de67a72c71c6de4bcbfc8c1dd570053a1894c73047c7b7338
 # v06 = 0xb4e22255bb2ef58c4451eaf5a93135bb9acac58951b1755f1d2aaaad675a0f47
+# v07 = 0x864b66441e95323c320ee7584592769930a2d236b45d731011ee7a98eb785b35
 
 
 [addresses]
-strategy_wrapper = "0x0" 
-# strategy_wrapper = "0xba97dc73a07638d03d77ad2161484eb21db577edc9cadcd7035fef4b4f2f6fa1" 
+# strategy_wrapper = "0x0" 
+strategy_wrapper = "0xba97dc73a07638d03d77ad2161484eb21db577edc9cadcd7035fef4b4f2f6fa1" 
 
 
