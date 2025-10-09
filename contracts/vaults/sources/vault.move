@@ -23,6 +23,8 @@ const EInsufficientShares: u64 = 8;
 const EInsufficientLiquidity: u64 = 9;
 const ENoReserveForAsset: u64 = 10;
 const EIncompleteAccumulation: u64 = 11;
+const EInvalidShareCurrency: u64 = 12;
+const EMetadataCapExists: u64 = 13;
 
 // === Constants ===
 const CURRENT_VERSION: u64 = 1;
@@ -155,12 +157,12 @@ public fun create_vault<P, T>(
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): VaultManagerCap<P> {
-    assert!(treasury_cap.total_supply() == 0, 123);
-    assert!(currency.decimals() == VAULT_SHARE_DECIMALS, 123);
-    assert!(currency.is_metadata_cap_deleted(), 123);
-    assert!(currency.name() == VAULT_SHARE_NAME.to_string(), 123);
-    assert!(currency.description() == VAULT_SHARE_NAME.to_string(), 123);
-    assert!(currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), 123);
+    assert!(currency.is_metadata_cap_deleted(), EMetadataCapExists);
+    assert!(currency.decimals() == VAULT_SHARE_DECIMALS, EInvalidShareCurrency);
+    assert!(currency.name() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
+    assert!(currency.description() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
+    assert!(currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), EInvalidShareCurrency);
+    assert!(treasury_cap.total_supply() == 0, EInvalidShareCurrency);
 
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
     assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);

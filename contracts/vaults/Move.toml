@@ -1,13 +1,13 @@
 [package]
 name = "vaults"
 edition = "2024"
-published-at = "0x161dcc19c498c50f83df3f27fa5ad94e28d5b24b42c522358bbe1a22afb276d4"
+published-at = "0x9e51dca2a7823b87b9fd3ad9fc7d8059d2d26731b31eb880f66b96754d7e031d"
 
 [dependencies]
 suilend = { local = "../suilend" } 
 
 [addresses]
-vaults = "0x161dcc19c498c50f83df3f27fa5ad94e28d5b24b42c522358bbe1a22afb276d4"
+vaults = "0x9e51dca2a7823b87b9fd3ad9fc7d8059d2d26731b31eb880f66b96754d7e031d"
 
 [dev-dependencies]
 

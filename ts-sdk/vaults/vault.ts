@@ -8,6 +8,7 @@ import * as bag from './deps/sui/bag.js';
 import * as object from './deps/sui/object.js';
 import * as vec_map from './deps/sui/vec_map.js';
 import * as type_name from './deps/std/type_name.js';
+import * as coin from './deps/sui/coin.js';
 import * as balance from './deps/sui/balance.js';
 const $moduleName = '@local-pkg/vault::vault';
 export const ObligationData = new MoveStruct({ name: `${$moduleName}::ObligationData`, fields: {
@@ -18,7 +19,7 @@ export const Vault = new MoveStruct({ name: `${$moduleName}::Vault`, fields: {
         id: object.UID,
         version: bcs.u64(),
         obligations: vec_map.VecMap(type_name.TypeName, bcs.vector(ObligationData)),
-        share_supply: balance.Supply,
+        treasury_cap: coin.TreasuryCap,
         deposit_asset: balance.Balance,
         manager_fees: balance.Balance,
         management_fee_bps: bcs.u64(),
@@ -27,9 +28,6 @@ export const Vault = new MoveStruct({ name: `${$moduleName}::Vault`, fields: {
         withdrawal_fee_bps: bcs.u64(),
         nav_high_water_mark: bcs.u64(),
         fee_last_update_timestamp_s: bcs.u64()
-    } });
-export const VaultShare = new MoveStruct({ name: `${$moduleName}::VaultShare`, fields: {
-        vault_id: bcs.Address
     } });
 export const VaultManagerCap = new MoveStruct({ name: `${$moduleName}::VaultManagerCap`, fields: {
         id: object.UID,
@@ -96,6 +94,8 @@ export const FeesAccrued = new MoveStruct({ name: `${$moduleName}::FeesAccrued`,
         timestamp_ms: bcs.u64()
     } });
 export interface CreateVaultArguments {
+    treasuryCap: RawTransactionArgument<string>;
+    currency: RawTransactionArgument<string>;
     managementFeeBps: RawTransactionArgument<number | bigint>;
     performanceFeeBps: RawTransactionArgument<number | bigint>;
     depositFeeBps: RawTransactionArgument<number | bigint>;
@@ -104,25 +104,30 @@ export interface CreateVaultArguments {
 export interface CreateVaultOptions {
     package?: string;
     arguments: CreateVaultArguments | [
+        treasuryCap: RawTransactionArgument<string>,
+        currency: RawTransactionArgument<string>,
         managementFeeBps: RawTransactionArgument<number | bigint>,
         performanceFeeBps: RawTransactionArgument<number | bigint>,
         depositFeeBps: RawTransactionArgument<number | bigint>,
         withdrawalFeeBps: RawTransactionArgument<number | bigint>
     ];
     typeArguments: [
+        string,
         string
     ];
 }
 export function createVault(options: CreateVaultOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
+        `0x0000000000000000000000000000000000000000000000000000000000000002::coin::TreasuryCap<${options.typeArguments[0]}>`,
+        `0x0000000000000000000000000000000000000000000000000000000000000002::coin_registry::Currency<${options.typeArguments[0]}>`,
         'u64',
         'u64',
         'u64',
         'u64',
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
     ] satisfies string[];
-    const parameterNames = ["managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
+    const parameterNames = ["treasuryCap", "currency", "managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
