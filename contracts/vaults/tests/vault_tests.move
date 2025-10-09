@@ -4,16 +4,19 @@ module vaults::vault_tests;
 use sui::{
     clock::{Self, Clock},
     coin::{Self, Coin},
+    coin_registry::{Self, Currency},
     object_table,
     test_scenario::{Self as ts, Scenario},
     test_utils
 };
 use suilend::{decimal, lending_market::{Self, LendingMarket}, mock_pyth, reserve_config};
-use vaults::vault::{Self, Vault, VaultManagerCap, VaultShare};
+use vaults::vault::{Self, Vault, VaultManagerCap};
 
 public struct TEST_COIN has drop {}
 public struct TEST_LENDING_MARKET has drop {}
 public struct TEST_VAULT has drop {}
+// OTW: Needs to match module name
+public struct VAULT_TESTS has drop {}
 
 const ADMIN: address = @0x1;
 const USER1: address = @0x2;
@@ -37,8 +40,12 @@ fun init_vault_scenario(): Scenario {
     // Create clock
     let clock = clock::create_for_testing(ctx);
 
+    let (curr, treasury_cap) = create_test_currency(ctx);
+
     // Create vault and manager cap
-    let manager_cap = vault::create_vault<TEST_COIN>(
+    let manager_cap = vault::create_vault<_, TEST_COIN>(
+        treasury_cap,
+        &curr,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -79,10 +86,28 @@ fun init_vault_scenario(): Scenario {
 
     clock.share_for_testing();
     transfer::public_share_object(lending_market);
+    test_utils::destroy(curr);
     transfer::public_transfer(lm_cap, ADMIN);
     transfer::public_transfer(manager_cap, ADMIN);
 
     scenario
+}
+
+fun create_test_currency(
+    ctx: &mut TxContext,
+): (Currency<VAULT_TESTS>, coin::TreasuryCap<VAULT_TESTS>) {
+    let (builder, treasury_cap) = coin_registry::new_currency_with_otw(
+        VAULT_TESTS {},
+        6,
+        b"VSHARES".to_string(),
+        b"Vault Shares".to_string(),
+        b"Vault Shares".to_string(),
+        b"https://example.com/template.png".to_string(),
+        ctx,
+    );
+    let (mut curr, metadata_cap) = builder.finalize_unwrap_for_testing(ctx);
+    curr.delete_metadata_cap(metadata_cap);
+    (curr, treasury_cap)
 }
 
 fun mint_test_coin(amount: u64, ctx: &mut TxContext): Coin<TEST_COIN> {
@@ -96,8 +121,8 @@ fun test_create_vault() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
 
     // Test vault was created with correct parameters
     assert!(vault::obligation_count(&vault) == 0);
@@ -115,8 +140,8 @@ fun test_deposit_and_withdraw() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
     let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     scenario.next_tx(USER1);
@@ -175,9 +200,9 @@ fun test_fees_collected() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
 
     scenario.next_tx(USER1);
     let clock = scenario.take_shared<Clock>();
@@ -220,9 +245,9 @@ fun test_multiple_users() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
 
     let clock = scenario.take_shared<Clock>();
 
@@ -295,9 +320,9 @@ fun test_manager_cap_validation() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
 
     // Test that manager cap validation works
     vault::validate_manager_cap(&vault, &manager_cap);
@@ -320,7 +345,7 @@ fun test_minimum_deposit_failure() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     scenario.next_tx(USER1);
@@ -347,14 +372,14 @@ fun test_insufficient_shares_withdrawal() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     scenario.next_tx(USER1);
     let clock = scenario.take_shared<Clock>();
 
     // Try to withdraw with zero shares (should fail)
-    let zero_shares = coin::zero<VaultShare>(scenario.ctx());
+    let zero_shares = coin::zero<VAULT_TESTS>(scenario.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let _withdrawn = vault.withdraw(
         zero_shares,
@@ -372,9 +397,12 @@ fun test_insufficient_shares_withdrawal() {
 fun test_fee_limits() {
     let mut scenario = ts::begin(ADMIN);
     let clock = clock::create_for_testing(scenario.ctx());
+    let (curr, t_cap) = create_test_currency(scenario.ctx());
 
     // Test that fee limits are enforced during vault creation
-    let manager_cap = vault::create_vault<TEST_COIN>(
+    let manager_cap = vault::create_vault<_, TEST_COIN>(
+        t_cap,
+        &curr,
         1000, // 10% management fee (at limit)
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
@@ -384,6 +412,7 @@ fun test_fee_limits() {
     );
 
     {
+        test_utils::destroy(curr);
         transfer::public_transfer(manager_cap, ADMIN);
         clock.destroy_for_testing();
     };
@@ -396,9 +425,12 @@ fun test_fee_limits() {
 fun test_excessive_fee_failure() {
     let mut scenario = ts::begin(ADMIN);
     let clock = clock::create_for_testing(scenario.ctx());
+    let (curr, t_cap) = create_test_currency(scenario.ctx());
 
     // Try to create vault with excessive fees (should fail)
-    let manager_cap = vault::create_vault<TEST_COIN>(
+    let manager_cap = vault::create_vault<_, TEST_COIN>(
+        t_cap,
+        &curr,
         2000, // 20% management fee (above 10% limit)
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -409,6 +441,7 @@ fun test_excessive_fee_failure() {
 
     // Should not reach here
     {
+        test_utils::destroy(curr);
         transfer::public_transfer(manager_cap, ADMIN);
         clock.destroy_for_testing();
     };
@@ -423,8 +456,8 @@ fun test_utilization_rate_guard() {
 
     scenario.next_tx(ADMIN);
 
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
     let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     scenario.next_tx(USER1);
@@ -483,8 +516,8 @@ fun test_allocate_and_divest() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
     let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     scenario.next_tx(USER1);
@@ -570,9 +603,9 @@ fun test_nav_changes() {
 
     scenario.next_tx(ADMIN);
 
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
     let mut clock = scenario.take_shared<Clock>();
 
     scenario.next_tx(USER1);
@@ -631,9 +664,9 @@ fun test_compound_rewards() {
     let mut scenario = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VaultShare, TEST_COIN>>();
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VaultShare>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
     let lm_cap = scenario.take_from_sender<
         lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
     >();
@@ -692,7 +725,7 @@ fun test_compound_rewards() {
     clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days
 
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
-    let obligation_cap = vault.get_obligation_cap<VaultShare, TEST_LENDING_MARKET, TEST_COIN>(
+    let obligation_cap = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, TEST_COIN>(
         &lm_type,
         obligation_index,
     );

@@ -1,7 +1,14 @@
 module vaults::vault;
 
 use std::type_name::{Self, TypeName};
-use sui::{bag, balance::{Self, Balance}, clock::Clock, coin::{Self, Coin}, event};
+use sui::{
+    bag,
+    balance::{Self, Balance},
+    clock::Clock,
+    coin::{Self, TreasuryCap, Coin},
+    coin_registry,
+    event
+};
 use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, reserve};
 
 // === Errors ===
@@ -29,6 +36,9 @@ const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
 const MAX_UTILIZATION_RATE_BPS: u64 = 7000; // 70% max utilization
 const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 * 24 * 60 * 60
 const OBLIGATION_CAP_BAG_KEY: u8 = 0;
+const VAULT_SHARE_DECIMALS: u8 = 6;
+const VAULT_SHARE_NAME: vector<u8> = b"Vault Shares";
+const VAULT_SHARE_SYMBOL: vector<u8> = b"VSHARES";
 
 // === Structs ===
 public struct Vault<phantom P, phantom T> has key, store {
@@ -36,7 +46,7 @@ public struct Vault<phantom P, phantom T> has key, store {
     version: u64,
     // Keyed by 'L' from LendingMarket<L>
     obligations: sui::vec_map::VecMap<TypeName, vector<ObligationData>>,
-    share_supply: balance::Supply<P>,
+    treasury_cap: TreasuryCap<P>,
     deposit_asset: Balance<T>,
     manager_fees: Balance<P>,
     management_fee_bps: u64,
@@ -52,10 +62,6 @@ public struct ObligationData has store {
     // bag.OBLIGATION_CAP_BAG_KEY = ObligationOwnerCap<L>
     obligation_cap: bag::Bag,
     obligation_id: ID,
-}
-
-public struct VaultShare has drop, store {
-    vault_id: ID,
 }
 
 public struct VaultManagerCap<phantom P> has key, store {
@@ -139,14 +145,23 @@ public struct FeesAccrued has copy, drop {
 }
 
 // === Functions ===
-public fun create_vault<T>(
+public fun create_vault<P, T>(
+    treasury_cap: TreasuryCap<P>,
+    currency: &coin_registry::Currency<P>,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
-): VaultManagerCap<VaultShare> {
+): VaultManagerCap<P> {
+    assert!(treasury_cap.total_supply() == 0, 123);
+    assert!(currency.decimals() == VAULT_SHARE_DECIMALS, 123);
+    assert!(currency.is_metadata_cap_deleted(), 123);
+    assert!(currency.name() == VAULT_SHARE_NAME.to_string(), 123);
+    assert!(currency.description() == VAULT_SHARE_NAME.to_string(), 123);
+    assert!(currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), 123);
+
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
     assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);
     assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
@@ -154,20 +169,16 @@ public fun create_vault<T>(
 
     let vault_id = object::new(ctx);
 
-    let shares_witness = VaultShare { vault_id: vault_id.uid_to_inner() };
-
-    let supply_obj = balance::create_supply(shares_witness);
-
     let current_time_s = clock.timestamp_ms() / 1000;
 
     // Create vault
     let vault = Vault {
         id: vault_id,
         version: CURRENT_VERSION,
+        treasury_cap,
         obligations: sui::vec_map::empty(),
-        share_supply: supply_obj,
         deposit_asset: balance::zero<T>(),
-        manager_fees: balance::zero(),
+        manager_fees: balance::zero<P>(),
         management_fee_bps,
         performance_fee_bps,
         deposit_fee_bps,
@@ -222,7 +233,7 @@ public fun deposit<P, L, T>(
     // Mint shares for deposit fee
     if (deposit_fee > 0) {
         let fee_shares = calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg);
-        let fee_balance = vault.share_supply.increase_supply(fee_shares);
+        let fee_balance = vault.treasury_cap.mint_balance(fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
@@ -239,8 +250,7 @@ public fun deposit<P, L, T>(
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
     // Mint vault shares
-    let vault_shares_balance = vault.share_supply.increase_supply(shares_to_mint);
-    let vault_shares = coin::from_balance(vault_shares_balance, ctx);
+    let vault_shares = vault.treasury_cap.mint(shares_to_mint, ctx);
 
     // Emit deposit event
     event::emit(VaultDeposit {
@@ -298,7 +308,7 @@ public fun withdraw<P, L, T>(
     let fee_balance = shares_balance.split(withdrawal_fee_shares);
 
     // Burn user's shares
-    balance::decrease_supply(&mut vault.share_supply, shares_balance);
+    vault.treasury_cap.burn(coin::from_balance(shares_balance, ctx));
 
     // Transfer fee shares to manager
     vault.manager_fees.join(fee_balance);
@@ -416,7 +426,7 @@ public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Deci
 
 /// Total supply of shares
 public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
-    vault.share_supply.supply_value()
+    vault.treasury_cap.total_supply()
 }
 
 /// Calculate total obligation value within one Lending Market in USD
@@ -481,7 +491,7 @@ public(package) fun calculate_nav_per_share<P, T>(
     vault: &Vault<P, T>,
     agg: &VaultValueAggregate,
 ): u64 {
-    let current_shares = vault.share_supply.supply_value();
+    let current_shares = vault.treasury_cap.total_supply();
     let vault_value = agg.total_obligation_value_usd + agg.liquid_asset_value_usd;
     if (current_shares == 0 || vault_value == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
@@ -496,7 +506,7 @@ fun apply_fee_accrual<P, T>(vault: &mut Vault<P, T>, accrual: FeeAccrual, clock:
 
     // Mint management fee shares if any
     if (accrual.management_fee_shares > 0) {
-        let fee_balance = vault.share_supply.increase_supply(accrual.management_fee_shares);
+        let fee_balance = vault.treasury_cap.mint_balance(accrual.management_fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
@@ -509,7 +519,7 @@ fun apply_fee_accrual<P, T>(vault: &mut Vault<P, T>, accrual: FeeAccrual, clock:
 
     // Mint performance fee shares if any
     if (accrual.performance_fee_shares > 0) {
-        let fee_balance = vault.share_supply.increase_supply(accrual.performance_fee_shares);
+        let fee_balance = vault.treasury_cap.mint_balance(accrual.performance_fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
@@ -546,7 +556,7 @@ fun calculate_all_fees<P, T>(
 ): FeeAccrual {
     // 1. Get base NAV before any fees
     let base_nav = vault.calculate_nav_per_share(agg);
-    let current_shares = vault.share_supply.supply_value();
+    let current_shares = vault.treasury_cap.total_supply();
 
     // 2. Calculate management fee shares
     let management_fee_shares = calculate_management_fee_shares(vault, clock);
@@ -641,7 +651,7 @@ fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u
         fee_factor
     };
 
-    let circulating_shares = vault.share_supply.supply_value();
+    let circulating_shares = vault.treasury_cap.total_supply();
 
     // Ensures fees represent exactly the correct percentage of total vault value
     let one_minus_fee = decimal::sub(decimal::from(1), fee_factor);
