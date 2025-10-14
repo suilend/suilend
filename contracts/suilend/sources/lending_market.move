@@ -25,6 +25,7 @@ module suilend::lending_market {
     const ERewardPeriodNotOver: u64 = 5;
     const EInvalidObligationId: u64 = 6;
     const EInvalidFeeReceivers: u64 = 7;
+    const EClaimRewardsWithBadDebt: u64 = 8;
 
     // === Constants ===
     const CURRENT_VERSION: u64 = 7;
@@ -1017,6 +1018,20 @@ module suilend::lending_market {
         ctx: &mut TxContext,
     ): Coin<RewardType> {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        // Check for bad debt before allowing reward claim
+        {
+            let obligation = lending_market.obligations.borrow_mut(cap.obligation_id);
+
+            let exist_stale_oracles = obligation.refresh(&mut lending_market.reserves, clock);
+            obligation::assert_no_stale_oracles(exist_stale_oracles);
+
+            // Exit if bad debt exists
+            let borrowed_value = obligation.unweighted_borrowed_value_usd();
+            let deposited_value = obligation.deposited_value_usd();
+            assert!(deposited_value.ge(borrowed_value), EClaimRewardsWithBadDebt);
+        };
+
         claim_rewards_by_obligation_id(
             lending_market,
             cap.obligation_id,

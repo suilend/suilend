@@ -1381,6 +1381,8 @@ module suilend::lending_market_tests {
             scenario.ctx(),
         );
 
+        clock::set_for_testing(&mut clock, 9 * MILLISECONDS_IN_DAY);
+
         // set reserve parameters and prices
         mock_pyth::update_price<TEST_USDC>(&mut prices, 1, 0, &clock); // $1
         mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
@@ -1406,7 +1408,6 @@ module suilend::lending_market_tests {
             scenario.ctx(),
         );
 
-        clock::set_for_testing(&mut clock, 9 * MILLISECONDS_IN_DAY);
         let claimed_usdc = lending_market::claim_rewards<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
             &obligation_owner_cap,
