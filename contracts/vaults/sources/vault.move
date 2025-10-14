@@ -1,6 +1,7 @@
 module vaults::vault;
 
 use std::type_name::{Self, TypeName};
+use steamm::{cpmm::{Self, CpQuoter}, pool::Pool};
 use sui::{
     bag,
     balance::{Self, Balance},
@@ -881,6 +882,110 @@ public fun withdraw_deployed_funds<P, L, T>(
         amount: withdrawn_amount,
         timestamp_ms: clock.timestamp_ms(),
     });
+}
+
+/// Compound rewards of same type as deposit asset
+/// Permissionless
+public fun compound_rewards<P, L, T>(
+    vault: &Vault<P, T>,
+    lending_market: &mut LendingMarket<L>,
+    obligation_index: u64,
+    reward_reserve_index: u64,
+    reward_index: u64,
+    is_deposit_reward: bool,
+    deposit_reserve_index: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+
+    let lm_type = type_name::with_defining_ids<L>();
+    let obligation_cap = vault.get_obligation_cap<_, L, _>(&lm_type, obligation_index);
+    let obligation_id = obligation_cap.obligation_id();
+
+    // Claim rewards and deposit them back into the obligation
+    lending_market.claim_rewards_and_deposit<L, T>(
+        obligation_id,
+        clock,
+        reward_reserve_index,
+        reward_index,
+        is_deposit_reward,
+        deposit_reserve_index,
+        ctx,
+    );
+}
+
+/// Compound rewards of a different token type by swapping through a Steamm pool
+/// This allows compounding rewards that don't match the vault's base asset type
+/// Permissionless
+public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
+    vault: &Vault<P, T>,
+    lending_market: &mut LendingMarket<L>,
+    swap_pool: &mut Pool<R, T, CpQuoter, LpType>,
+    obligation_index: u64,
+    reward_reserve_index: u64,
+    reward_index: u64,
+    is_deposit_reward: bool,
+    deposit_reserve_index: u64,
+    min_amount_out: u64,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+
+    let lm_type = type_name::with_defining_ids<L>();
+    let obligation_cap = vault.get_obligation_cap<_, L, _>(&lm_type, obligation_index);
+
+    // Claim rewards of type R
+    let mut reward_coin = lending_market.claim_rewards<L, R>(
+        obligation_cap,
+        clock,
+        reward_reserve_index,
+        reward_index,
+        is_deposit_reward,
+        ctx,
+    );
+
+    let reward_amount = reward_coin.value();
+
+    if (reward_amount == 0) {
+        coin::destroy_zero(reward_coin);
+        return
+    };
+
+    // Swap R -> T
+    // Create an empty coin of type T to receive the swapped amount
+    let mut t_coin = coin::zero<T>(ctx);
+
+    let _swap_result = cpmm::swap(
+        swap_pool,
+        &mut reward_coin,
+        &mut t_coin,
+        true, // swap R -> T
+        reward_amount,
+        min_amount_out,
+        ctx,
+    );
+
+    // Reward coin should now be empty, destroy it
+    coin::destroy_zero(reward_coin);
+
+    // Convert swapped T into cTokens
+    let ctokens = lending_market.deposit_liquidity_and_mint_ctokens<L, T>(
+        deposit_reserve_index,
+        clock,
+        t_coin,
+        ctx,
+    );
+
+    // Deposit cTokens into the obligation
+    lending_market.deposit_ctokens_into_obligation<L, T>(
+        deposit_reserve_index,
+        obligation_cap,
+        clock,
+        ctokens,
+        ctx,
+    );
 }
 
 // === Vault Value Aggregation ===
