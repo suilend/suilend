@@ -1023,9 +1023,6 @@ module suilend::lending_market {
         {
             let obligation = lending_market.obligations.borrow_mut(cap.obligation_id);
 
-            let exist_stale_oracles = obligation.refresh(&mut lending_market.reserves, clock);
-            obligation::assert_no_stale_oracles(exist_stale_oracles);
-
             // Exit if bad debt exists
             let borrowed_value = obligation.unweighted_borrowed_value_usd();
             let deposited_value = obligation.deposited_value_usd();
@@ -1983,6 +1980,12 @@ module suilend::lending_market {
         lending_market: &mut LendingMarket<P>,
     ): &mut vector<Reserve<P>> {
         &mut lending_market.reserves
+    }
+
+    #[test_only]
+    public fun refresh_obligation_for_testing<P>(lending_market: &mut LendingMarket<P>, obligation_id: ID, clock: &Clock): Option<obligation::ExistStaleOracles> {
+        let obligation = lending_market.obligations.borrow_mut(obligation_id);
+        obligation.refresh(&mut lending_market.reserves, clock)
     }
 
     #[test_only]
