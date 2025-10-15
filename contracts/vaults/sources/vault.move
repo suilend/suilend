@@ -917,9 +917,10 @@ public fun compound_rewards<P, L, T>(
 
 /// Compound rewards of a different token type by swapping through a Steamm pool
 /// This allows compounding rewards that don't match the vault's base asset type
-/// Permissionless
+/// Manager restricted
 public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     vault: &Vault<P, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
     lending_market: &mut LendingMarket<L>,
     swap_pool: &mut Pool<R, T, CpQuoter, LpType>,
     obligation_index: u64,
@@ -932,6 +933,7 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     ctx: &mut TxContext,
 ) {
     assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.validate_manager_cap(vault_manager_cap);
 
     let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap<_, L, _>(&lm_type, obligation_index);

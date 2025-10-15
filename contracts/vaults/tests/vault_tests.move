@@ -900,6 +900,7 @@ fun test_compound_rewards_with_swap() {
         B_TEST_USDC,
         steamm::lp_usdc_sui::LP_USDC_SUI,
     >(
+        &manager_cap,
         &mut lending_market,
         &mut pool,
         obligation_index,
