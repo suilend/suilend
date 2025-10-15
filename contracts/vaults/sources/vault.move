@@ -146,7 +146,8 @@ public struct FeesAccrued has copy, drop {
     timestamp_ms: u64,
 }
 
-// === Functions ===
+// === Vault Manager Functions ===
+
 public fun create_vault<P, T>(
     treasury_cap: TreasuryCap<P>,
     currency: &coin_registry::Currency<P>,
@@ -206,539 +207,6 @@ public fun create_vault<P, T>(
     transfer::public_share_object(vault);
 
     vault_manager_cap
-}
-
-public fun deposit<P, L, T>(
-    vault: &mut Vault<P, T>,
-    deposit: Coin<T>,
-    lending_market: &LendingMarket<L>,
-    clock: &Clock,
-    agg: VaultValueAggregate,
-    ctx: &mut TxContext,
-): Coin<P> {
-    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
-    assert!(deposit.value() >= MIN_DEPOSIT, EInvalidDeposit);
-
-    vault.accrue_all_fees(&agg, clock);
-
-    let deposit_amount = deposit.value();
-    let current_time = clock.timestamp_ms();
-    let user = ctx.sender();
-
-    // Calculate deposit fee
-    let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
-    let net_deposit_amount = deposit_amount - deposit_fee;
-
-    // Add deposited coins to vault's asset balance
-    vault.deposit_asset.join(coin::into_balance(deposit));
-
-    // Mint shares for deposit fee
-    if (deposit_fee > 0) {
-        let fee_shares = calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg);
-        let fee_balance = vault.treasury_cap.mint_balance(fee_shares);
-        vault.manager_fees.join(fee_balance);
-
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::DepositFee,
-            fee_shares: fee_shares,
-            timestamp_ms: current_time,
-        });
-    };
-
-    // Calculate shares to mint based on current USD NAV
-    let shares_to_mint = calculate_shares_to_mint(vault, net_deposit_amount, lending_market, &agg);
-
-    assert!(shares_to_mint > 0, EInvalidDeposit);
-
-    // Mint vault shares
-    let vault_shares = vault.treasury_cap.mint(shares_to_mint, ctx);
-
-    // Emit deposit event
-    event::emit(VaultDeposit {
-        vault_id: object::id(vault),
-        user: user,
-        deposit_amount: deposit_amount,
-        shares_minted: shares_to_mint,
-        timestamp_ms: current_time,
-    });
-
-    vault_shares
-}
-
-/// User burns shares and withdraws proportional assets with performance fees on realized gains
-public fun withdraw<P, L, T>(
-    vault: &mut Vault<P, T>,
-    shares: Coin<P>,
-    lending_market: &LendingMarket<L>,
-    clock: &Clock,
-    agg: VaultValueAggregate,
-    ctx: &mut TxContext,
-): Coin<T> {
-    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
-    assert!(shares.value() > 0, EInsufficientShares);
-
-    let shares_amount = shares.value();
-    let user = ctx.sender();
-    let current_time = clock.timestamp_ms();
-
-    vault.accrue_all_fees(&agg, clock);
-
-    // Calculate withdrawal fee in shares
-    let withdrawal_fee_shares = (shares_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
-    let net_shares = shares_amount - withdrawal_fee_shares;
-
-    // Calculate total USD value of net shares being redeemed
-    let current_nav_per_share = vault.calculate_nav_per_share(&agg);
-    let net_usd_value =
-        (((net_shares as u128) * (current_nav_per_share as u128)) / NAV_PRECISION) as u64;
-
-    // Convert net USD value to token amount
-    let withdraw_amount = get_token_amount_from_usd<_, T>(
-        lending_market,
-        net_usd_value,
-    ).floor();
-
-    // Check if vault has sufficient liquidity for withdrawal
-    let available_amount = vault.deposit_asset.value();
-    assert!(withdraw_amount <= available_amount, EInsufficientLiquidity);
-
-    assert!(withdraw_amount > 0, EInsufficientShares);
-
-    // Split shares into user portion (to burn) and fee portion (to manager)
-    let mut shares_balance = shares.into_balance();
-    let fee_balance = shares_balance.split(withdrawal_fee_shares);
-
-    // Burn user's shares
-    vault.treasury_cap.burn(coin::from_balance(shares_balance, ctx));
-
-    // Transfer fee shares to manager
-    vault.manager_fees.join(fee_balance);
-
-    if (withdrawal_fee_shares > 0) {
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::WithdrawalFee,
-            fee_shares: withdrawal_fee_shares,
-            timestamp_ms: current_time,
-        });
-    };
-
-    let withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
-
-    let coins = coin::from_balance(withdrawn_balance, ctx);
-
-    event::emit(VaultWithdraw {
-        vault_id: object::id(vault),
-        user: user,
-        amount: withdraw_amount,
-        shares_burned: shares_amount,
-        timestamp_ms: current_time,
-    });
-
-    coins
-}
-
-/// Calculates the amount of shares that will be minted for deposit_amount of T
-public fun calculate_shares_to_mint<P, L, T>(
-    vault: &Vault<P, T>,
-    deposit_amount: u64,
-    lending_market: &LendingMarket<L>,
-    agg: &VaultValueAggregate,
-): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(agg);
-    let deposit_usd_value = get_usd_value_for_token_amount<_, T>(
-        lending_market,
-        deposit_amount,
-    ).floor();
-    calculate_shares_from_usd(nav_per_share, deposit_usd_value)
-}
-
-/// Calculates vault shares from USD amount
-/// TODO: Check for truncation
-fun calculate_shares_from_usd(nav_per_share: u64, usd_amount: u64): u64 {
-    (((usd_amount as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
-}
-
-/// Calculates the amount of shares that must be burned to redeem withdraw_amount of T
-public fun calculate_shares_to_burn<P, L, T>(
-    vault: &Vault<P, T>,
-    withdraw_amount: u64,
-    lending_market: &LendingMarket<L>,
-    agg: VaultValueAggregate,
-): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(&agg);
-    let withdraw_usd_value = get_usd_value_for_token_amount<_, T>(
-        lending_market,
-        withdraw_amount,
-    ).floor();
-    calculate_shares_from_usd(nav_per_share, withdraw_usd_value)
-}
-
-/// Calculates the amount of T that can be redeemed for shares_amount
-public fun calculate_withdraw_amount<P, L, T>(
-    vault: &Vault<P, T>,
-    shares_amount: u64,
-    lending_market: &LendingMarket<L>,
-    agg: VaultValueAggregate,
-): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(&agg);
-    let withdraw_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
-    get_token_amount_from_usd<_, T>(lending_market, withdraw_usd_value as u64).floor()
-}
-
-/// Calculates the amount of T that shares_amount will cost
-public fun calculate_deposit_amount<P, L, T>(
-    vault: &Vault<P, T>,
-    shares_amount: u64,
-    lending_market: &LendingMarket<L>,
-    agg: VaultValueAggregate,
-): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(&agg);
-    let deposit_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
-    get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value as u64).floor()
-}
-
-/// Check if vault can deploy a USD amount of liquid assets (and vault remains under MAX_UTILIZATION_RATE_BPS)
-public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Decimal): bool {
-    let liquid_asset_value = agg.liquid_asset_value_usd;
-    let obligations_value_usd = agg.total_obligation_value_usd;
-    let usd_to_deploy = usd_amount.floor();
-
-    // Check if there is enough liquid assets to deploy
-    if (usd_to_deploy > liquid_asset_value) {
-        return false
-    };
-
-    // Calculate new values after deployment
-    let new_liquid_value = liquid_asset_value - usd_to_deploy;
-    let new_obligations_value = obligations_value_usd + usd_to_deploy;
-    let total_vault_value = new_liquid_value + new_obligations_value;
-
-    // If total value is zero, cannot deploy
-    if (total_vault_value == 0) {
-        return false
-    };
-
-    // Calculate new utilization rate: (obligations / total_value) * BASIS_POINTS
-    let new_utilization = (new_obligations_value * BASIS_POINTS) / total_vault_value;
-
-    new_utilization <= MAX_UTILIZATION_RATE_BPS
-}
-
-/// Total supply of shares
-public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
-    vault.treasury_cap.total_supply()
-}
-
-/// Calculate total obligation value within one Lending Market in USD
-public fun calculate_obligation_values_usd<L>(
-    obligation_ids: vector<ID>,
-    lending_market: &LendingMarket<L>,
-): u64 {
-    let mut total_asset_value = 0;
-
-    // Add value from all lending positions
-    obligation_ids.do!(|obligation_id| {
-        let obligation = lending_market.obligation(obligation_id);
-
-        let deposited_value_usd = obligation.deposited_value_usd().floor();
-        let unweighted_borrowed_value_usd = obligation.unweighted_borrowed_value_usd().floor();
-
-        let net_value = deposited_value_usd - unweighted_borrowed_value_usd;
-
-        total_asset_value = total_asset_value + net_value;
-    });
-
-    total_asset_value
-}
-
-/// Get the reserve for the base asset T
-fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Reserve<L> {
-    let reserves = lending_market.reserves();
-    let asset_type = type_name::with_defining_ids<T>();
-    let reserve_index = reserves.find_index!(|reserve| {
-        reserve.coin_type() == asset_type
-    });
-    if (reserve_index.is_some()) {
-        reserves.borrow(*reserve_index.borrow())
-    } else {
-        abort ENoReserveForAsset
-    }
-}
-
-/// Get T amount from USD amount
-fun get_token_amount_from_usd<L, T>(
-    lending_market: &LendingMarket<L>,
-    amount: u64,
-): decimal::Decimal {
-    let reserve = get_reserve_for_asset<L, T>(lending_market);
-    // TODO
-    //reserve.assert_price_is_fresh(clock);
-    reserve.usd_to_token_amount_lower_bound(decimal::from(amount))
-}
-
-/// Get USD amount from T amount
-fun get_usd_value_for_token_amount<L, T>(
-    lending_market: &LendingMarket<L>,
-    amount: u64,
-): decimal::Decimal {
-    let reserve = get_reserve_for_asset<L, T>(lending_market);
-    // TODO
-    //reserve.assert_price_is_fresh(clock);
-    reserve.market_value_lower_bound(decimal::from(amount))
-}
-
-public(package) fun calculate_nav_per_share<P, T>(
-    vault: &Vault<P, T>,
-    agg: &VaultValueAggregate,
-): u64 {
-    let current_shares = vault.treasury_cap.total_supply();
-    let vault_value = agg.total_obligation_value_usd + agg.liquid_asset_value_usd;
-    if (current_shares == 0 || vault_value == 0) {
-        NAV_PRECISION as u64 // 1.0 scaled
-    } else {
-        (((vault_value as u128) * NAV_PRECISION) / (current_shares as u128)) as u64
-    }
-}
-
-/// Apply calculated fees to the vault, minting shares and updating state
-fun apply_fee_accrual<P, T>(vault: &mut Vault<P, T>, accrual: FeeAccrual, clock: &Clock) {
-    let current_time = clock.timestamp_ms();
-
-    // Mint management fee shares if any
-    if (accrual.management_fee_shares > 0) {
-        let fee_balance = vault.treasury_cap.mint_balance(accrual.management_fee_shares);
-        vault.manager_fees.join(fee_balance);
-
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::ManagementFee,
-            fee_shares: accrual.management_fee_shares,
-            timestamp_ms: current_time,
-        });
-    };
-
-    // Mint performance fee shares if any
-    if (accrual.performance_fee_shares > 0) {
-        let fee_balance = vault.treasury_cap.mint_balance(accrual.performance_fee_shares);
-        vault.manager_fees.join(fee_balance);
-
-        event::emit(FeesAccrued {
-            vault_id: object::id(vault),
-            fee_type: FeeType::PerformanceFee,
-            fee_shares: accrual.performance_fee_shares,
-            timestamp_ms: current_time,
-        });
-    };
-
-    if (accrual.new_nav_per_share > vault.nav_high_water_mark) {
-        vault.nav_high_water_mark = accrual.new_nav_per_share;
-    };
-
-    vault.fee_last_update_timestamp_s = clock.timestamp_ms() / 1000;
-}
-
-/// Unified fee accrual function - calculates and applies all fees atomically
-/// This replaces the deprecated apply_management_fee_to_nav function
-public(package) fun accrue_all_fees<P, T>(
-    vault: &mut Vault<P, T>,
-    agg: &VaultValueAggregate,
-    clock: &Clock,
-) {
-    let accrual = calculate_all_fees(vault, agg, clock);
-    apply_fee_accrual(vault, accrual, clock);
-}
-
-/// Calculate all fees to be accrued (management + performance) atomically
-fun calculate_all_fees<P, T>(
-    vault: &Vault<P, T>,
-    agg: &VaultValueAggregate,
-    clock: &Clock,
-): FeeAccrual {
-    // 1. Get base NAV before any fees
-    let base_nav = vault.calculate_nav_per_share(agg);
-    let current_shares = vault.treasury_cap.total_supply();
-
-    // 2. Calculate management fee shares
-    let management_fee_shares = calculate_management_fee_shares(vault, clock);
-
-    // 3. Calculate performance fee accounting for management fee dilution
-    let performance_fee_shares = calculate_performance_fee_shares(
-        vault,
-        base_nav,
-        current_shares,
-        management_fee_shares,
-    );
-
-    // 4. Calculate final NAV after both fees
-    let total_fee_shares = management_fee_shares + performance_fee_shares;
-    let new_nav = if (total_fee_shares == 0) {
-        base_nav
-    } else {
-        let total_value = ((base_nav as u128) * (current_shares as u128)) / NAV_PRECISION;
-        ((total_value * NAV_PRECISION) / ((current_shares + total_fee_shares) as u128)) as u64
-    };
-
-    FeeAccrual {
-        management_fee_shares,
-        performance_fee_shares,
-        total_fee_shares,
-        new_nav_per_share: new_nav,
-    }
-}
-
-/// Calculate performance fee shares based on NAV growth
-fun calculate_performance_fee_shares<P, T>(
-    vault: &Vault<P, T>,
-    current_nav_per_share: u64,
-    current_shares: u64,
-    mgmt_shares_to_mint: u64,
-): u64 {
-    if (vault.performance_fee_bps == 0 || current_shares == 0) {
-        return 0
-    };
-
-    // Apply performance fee only when NAV exceeds high water mark
-    if (current_nav_per_share <= vault.nav_high_water_mark) {
-        return 0
-    };
-
-    // Total value at current NAV
-    let total_value = ((current_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
-
-    // Total value at high water mark (baseline for performance)
-    let baseline_value =
-        ((vault.nav_high_water_mark as u128) * (current_shares as u128)) / NAV_PRECISION;
-
-    // Gain = total_value - baseline_value
-    let gain = total_value - baseline_value;
-
-    // Performance fee on the gain
-    let perf_fee_value = (gain * (vault.performance_fee_bps as u128)) / (BASIS_POINTS as u128);
-
-    // Calculate shares accounting for management fee dilution
-    // NAV after mgmt fees = total_value / (current_shares + mgmt_shares)
-    let shares_after_mgmt = current_shares + mgmt_shares_to_mint;
-    let nav_after_mgmt = (total_value * NAV_PRECISION) / (shares_after_mgmt as u128);
-
-    // Convert performance fee value to shares at post-mgmt NAV
-    ((perf_fee_value * NAV_PRECISION) / nav_after_mgmt) as u64
-}
-
-fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u64 {
-    if (vault.management_fee_bps == 0) {
-        return 0
-    };
-
-    let current_time_s = clock.timestamp_ms() / 1000;
-    let time_elapsed_s = current_time_s - vault.fee_last_update_timestamp_s;
-
-    if (time_elapsed_s == 0) {
-        return 0
-    };
-
-    // Calculate management fee reduction factor
-    let annual_fee_rate = decimal::from_bps(vault.management_fee_bps);
-
-    // Convert to per-second rate: annual_rate / seconds_per_year
-    let per_second_rate = decimal::div(annual_fee_rate, decimal::from(SECONDS_PER_YEAR));
-
-    let fee_factor = decimal::mul(decimal::from(time_elapsed_s), per_second_rate);
-
-    // Ensure fee factor doesn't exceed 100%
-    let fee_factor = if (decimal::gt(fee_factor, decimal::from(1))) {
-        decimal::from(1)
-    } else {
-        fee_factor
-    };
-
-    let circulating_shares = vault.treasury_cap.total_supply();
-
-    // Ensures fees represent exactly the correct percentage of total vault value
-    let one_minus_fee = decimal::sub(decimal::from(1), fee_factor);
-    let shares_to_mint = decimal::div(
-        decimal::mul(decimal::from(circulating_shares), fee_factor),
-        one_minus_fee,
-    );
-
-    decimal::floor(shares_to_mint)
-}
-
-// === Vault Manager Functions ===
-
-/// Validate that a manager cap belongs to a specific vault
-public fun validate_manager_cap<P, T>(vault: &Vault<P, T>, manager_cap: &VaultManagerCap<P>) {
-    assert!(manager_cap.vault_id == object::id(vault), EInvalidManager);
-}
-
-/// Claim accumulated manager fees
-public fun claim_manager_fees<P, T>(
-    vault: &mut Vault<P, T>,
-    vault_manager_cap: &VaultManagerCap<P>,
-    amount: u64,
-    ctx: &mut TxContext,
-): Coin<P> {
-    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
-    vault.validate_manager_cap(vault_manager_cap);
-
-    let accrued_fees = vault.manager_fees.value();
-    assert!(accrued_fees >= amount, EInsufficientShares);
-
-    let fee_balance = vault.manager_fees.split(amount);
-    let fee_coin = coin::from_balance(fee_balance, ctx);
-
-    fee_coin
-}
-
-/// Create a new obligation for the vault
-public fun create_obligation<P, L, T>(
-    vault: &mut Vault<P, T>,
-    vault_manager_cap: &VaultManagerCap<P>,
-    lending_market: &mut LendingMarket<L>,
-    ctx: &mut TxContext,
-) {
-    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
-    vault.validate_manager_cap(vault_manager_cap);
-
-    let obligation_cap = lending_market.create_obligation(ctx);
-    let obligation_id = obligation_cap.obligation_id();
-    let mut obl_bag = bag::new(ctx);
-    obl_bag.add(OBLIGATION_CAP_BAG_KEY, obligation_cap);
-    let lending_market_type = type_name::with_defining_ids<L>();
-    let obl = ObligationData {
-        obligation_cap: obl_bag,
-        obligation_id,
-    };
-    if (vault.obligations.contains(&lending_market_type)) {
-        let obls = vault.obligations.get_mut(&lending_market_type);
-        obls.push_back(obl);
-    } else {
-        let obls = vector::singleton(obl);
-        vault.obligations.insert(lending_market_type, obls);
-    };
-}
-
-/// Get obligation cap at lending_market_type + index (read-only)
-public fun get_obligation_cap<P, L, T>(
-    vault: &Vault<P, T>,
-    lending_market_type: &TypeName,
-    index: u64,
-): &ObligationOwnerCap<L> {
-    // TODO: access checks + error codes
-    let obligations = vault.obligations.get(lending_market_type);
-    let obl = obligations.borrow(index);
-    obl.obligation_cap.borrow(OBLIGATION_CAP_BAG_KEY)
-}
-
-/// Get number of obligations in vault
-public fun obligation_count<P, T>(vault: &Vault<P, T>): u64 {
-    let keys = vault.obligations.keys();
-    let count = keys.fold!(0, |acc, k| {
-        let obligations = vault.obligations.get(&k);
-        acc + obligations.length()
-    });
-    count
 }
 
 /// Deploy funds from vault to lending market obligation
@@ -869,6 +337,198 @@ public fun withdraw_deployed_funds<P, L, T>(
     });
 }
 
+/// Claim accumulated manager fees
+public fun claim_manager_fees<P, T>(
+    vault: &mut Vault<P, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
+    amount: u64,
+    ctx: &mut TxContext,
+): Coin<P> {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.validate_manager_cap(vault_manager_cap);
+
+    let accrued_fees = vault.manager_fees.value();
+    assert!(accrued_fees >= amount, EInsufficientShares);
+
+    let fee_balance = vault.manager_fees.split(amount);
+    let fee_coin = coin::from_balance(fee_balance, ctx);
+
+    fee_coin
+}
+
+/// Create a new obligation for the vault
+public fun create_obligation<P, L, T>(
+    vault: &mut Vault<P, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
+    lending_market: &mut LendingMarket<L>,
+    ctx: &mut TxContext,
+) {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.validate_manager_cap(vault_manager_cap);
+
+    let obligation_cap = lending_market.create_obligation(ctx);
+    let obligation_id = obligation_cap.obligation_id();
+    let mut obl_bag = bag::new(ctx);
+    obl_bag.add(OBLIGATION_CAP_BAG_KEY, obligation_cap);
+    let lending_market_type = type_name::with_defining_ids<L>();
+    let obl = ObligationData {
+        obligation_cap: obl_bag,
+        obligation_id,
+    };
+    if (vault.obligations.contains(&lending_market_type)) {
+        let obls = vault.obligations.get_mut(&lending_market_type);
+        obls.push_back(obl);
+    } else {
+        let obls = vector::singleton(obl);
+        vault.obligations.insert(lending_market_type, obls);
+    };
+}
+
+/// Validate that a manager cap belongs to a specific vault
+fun validate_manager_cap<P, T>(vault: &Vault<P, T>, manager_cap: &VaultManagerCap<P>) {
+    assert!(manager_cap.vault_id == object::id(vault), EInvalidManager);
+}
+
+// === User Functions ===
+
+public fun deposit<P, L, T>(
+    vault: &mut Vault<P, T>,
+    deposit: Coin<T>,
+    lending_market: &LendingMarket<L>,
+    clock: &Clock,
+    agg: VaultValueAggregate,
+    ctx: &mut TxContext,
+): Coin<P> {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    assert!(deposit.value() >= MIN_DEPOSIT, EInvalidDeposit);
+
+    vault.accrue_all_fees(&agg, clock);
+
+    let deposit_amount = deposit.value();
+    let current_time = clock.timestamp_ms();
+    let user = ctx.sender();
+
+    // Calculate deposit fee
+    let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
+    let net_deposit_amount = deposit_amount - deposit_fee;
+
+    // Add deposited coins to vault's asset balance
+    vault.deposit_asset.join(coin::into_balance(deposit));
+
+    // Mint shares for deposit fee
+    if (deposit_fee > 0) {
+        let fee_shares = calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg);
+        let fee_balance = vault.treasury_cap.mint_balance(fee_shares);
+        vault.manager_fees.join(fee_balance);
+
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::DepositFee,
+            fee_shares: fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
+
+    // Calculate shares to mint based on current USD NAV
+    let shares_to_mint = calculate_shares_to_mint(
+        vault,
+        net_deposit_amount,
+        lending_market,
+        &agg,
+    );
+
+    assert!(shares_to_mint > 0, EInvalidDeposit);
+
+    // Mint vault shares
+    let vault_shares = vault.treasury_cap.mint(shares_to_mint, ctx);
+
+    // Emit deposit event
+    event::emit(VaultDeposit {
+        vault_id: object::id(vault),
+        user: user,
+        deposit_amount: deposit_amount,
+        shares_minted: shares_to_mint,
+        timestamp_ms: current_time,
+    });
+
+    vault_shares
+}
+
+/// User burns shares and withdraws proportional assets with performance fees on realized gains
+public fun withdraw<P, L, T>(
+    vault: &mut Vault<P, T>,
+    shares: Coin<P>,
+    lending_market: &LendingMarket<L>,
+    clock: &Clock,
+    agg: VaultValueAggregate,
+    ctx: &mut TxContext,
+): Coin<T> {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    assert!(shares.value() > 0, EInsufficientShares);
+
+    let shares_amount = shares.value();
+    let user = ctx.sender();
+    let current_time = clock.timestamp_ms();
+
+    vault.accrue_all_fees(&agg, clock);
+
+    // Calculate withdrawal fee in shares
+    let withdrawal_fee_shares = (shares_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
+    let net_shares = shares_amount - withdrawal_fee_shares;
+
+    // Calculate total USD value of net shares being redeemed
+    let current_nav_per_share = vault.calculate_nav_per_share(&agg);
+    let net_usd_value =
+        (((net_shares as u128) * (current_nav_per_share as u128)) / NAV_PRECISION) as u64;
+
+    // Convert net USD value to token amount
+    let withdraw_amount = get_token_amount_from_usd<_, T>(
+        lending_market,
+        net_usd_value,
+    ).floor();
+
+    // Check if vault has sufficient liquidity for withdrawal
+    let available_amount = vault.deposit_asset.value();
+    assert!(withdraw_amount <= available_amount, EInsufficientLiquidity);
+
+    assert!(withdraw_amount > 0, EInsufficientShares);
+
+    // Split shares into user portion (to burn) and fee portion (to manager)
+    let mut shares_balance = shares.into_balance();
+    let fee_balance = shares_balance.split(withdrawal_fee_shares);
+
+    // Burn user's shares
+    vault.treasury_cap.burn(coin::from_balance(shares_balance, ctx));
+
+    // Transfer fee shares to manager
+    vault.manager_fees.join(fee_balance);
+
+    if (withdrawal_fee_shares > 0) {
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::WithdrawalFee,
+            fee_shares: withdrawal_fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
+
+    let withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
+
+    let coins = coin::from_balance(withdrawn_balance, ctx);
+
+    event::emit(VaultWithdraw {
+        vault_id: object::id(vault),
+        user: user,
+        amount: withdraw_amount,
+        shares_burned: shares_amount,
+        timestamp_ms: current_time,
+    });
+
+    coins
+}
+
+// === Vault Rewards Functions ===
+
 /// Compound rewards of same type as deposit asset
 /// Permissionless
 public fun compound_rewards<P, L, T>(
@@ -975,6 +635,167 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     );
 }
 
+// === Fee Management Functions ===
+
+/// Apply calculated fees to the vault, minting shares and updating state
+fun apply_fee_accrual<P, T>(vault: &mut Vault<P, T>, accrual: FeeAccrual, clock: &Clock) {
+    let current_time = clock.timestamp_ms();
+
+    // Mint management fee shares if any
+    if (accrual.management_fee_shares > 0) {
+        let fee_balance = vault.treasury_cap.mint_balance(accrual.management_fee_shares);
+        vault.manager_fees.join(fee_balance);
+
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::ManagementFee,
+            fee_shares: accrual.management_fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
+
+    // Mint performance fee shares if any
+    if (accrual.performance_fee_shares > 0) {
+        let fee_balance = vault.treasury_cap.mint_balance(accrual.performance_fee_shares);
+        vault.manager_fees.join(fee_balance);
+
+        event::emit(FeesAccrued {
+            vault_id: object::id(vault),
+            fee_type: FeeType::PerformanceFee,
+            fee_shares: accrual.performance_fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
+
+    if (accrual.new_nav_per_share > vault.nav_high_water_mark) {
+        vault.nav_high_water_mark = accrual.new_nav_per_share;
+    };
+
+    vault.fee_last_update_timestamp_s = clock.timestamp_ms() / 1000;
+}
+
+/// Unified fee accrual function - calculates and applies all fees atomically
+/// This replaces the deprecated apply_management_fee_to_nav function
+fun accrue_all_fees<P, T>(vault: &mut Vault<P, T>, agg: &VaultValueAggregate, clock: &Clock) {
+    let accrual = calculate_all_fees(vault, agg, clock);
+    apply_fee_accrual(vault, accrual, clock);
+}
+
+/// Calculate all fees to be accrued (management + performance) atomically
+fun calculate_all_fees<P, T>(
+    vault: &Vault<P, T>,
+    agg: &VaultValueAggregate,
+    clock: &Clock,
+): FeeAccrual {
+    // 1. Get base NAV before any fees
+    let base_nav = vault.calculate_nav_per_share(agg);
+    let current_shares = vault.treasury_cap.total_supply();
+
+    // 2. Calculate management fee shares
+    let management_fee_shares = calculate_management_fee_shares(vault, clock);
+
+    // 3. Calculate performance fee accounting for management fee dilution
+    let performance_fee_shares = calculate_performance_fee_shares(
+        vault,
+        base_nav,
+        current_shares,
+        management_fee_shares,
+    );
+
+    // 4. Calculate final NAV after both fees
+    let total_fee_shares = management_fee_shares + performance_fee_shares;
+    let new_nav = if (total_fee_shares == 0) {
+        base_nav
+    } else {
+        let total_value = ((base_nav as u128) * (current_shares as u128)) / NAV_PRECISION;
+        ((total_value * NAV_PRECISION) / ((current_shares + total_fee_shares) as u128)) as u64
+    };
+
+    FeeAccrual {
+        management_fee_shares,
+        performance_fee_shares,
+        total_fee_shares,
+        new_nav_per_share: new_nav,
+    }
+}
+
+/// Calculate performance fee shares based on NAV growth
+fun calculate_performance_fee_shares<P, T>(
+    vault: &Vault<P, T>,
+    current_nav_per_share: u64,
+    current_shares: u64,
+    mgmt_shares_to_mint: u64,
+): u64 {
+    if (vault.performance_fee_bps == 0 || current_shares == 0) {
+        return 0
+    };
+
+    // Apply performance fee only when NAV exceeds high water mark
+    if (current_nav_per_share <= vault.nav_high_water_mark) {
+        return 0
+    };
+
+    // Total value at current NAV
+    let total_value = ((current_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
+
+    // Total value at high water mark (baseline for performance)
+    let baseline_value =
+        ((vault.nav_high_water_mark as u128) * (current_shares as u128)) / NAV_PRECISION;
+
+    // Gain = total_value - baseline_value
+    let gain = total_value - baseline_value;
+
+    // Performance fee on the gain
+    let perf_fee_value = (gain * (vault.performance_fee_bps as u128)) / (BASIS_POINTS as u128);
+
+    // Calculate shares accounting for management fee dilution
+    // NAV after mgmt fees = total_value / (current_shares + mgmt_shares)
+    let shares_after_mgmt = current_shares + mgmt_shares_to_mint;
+    let nav_after_mgmt = (total_value * NAV_PRECISION) / (shares_after_mgmt as u128);
+
+    // Convert performance fee value to shares at post-mgmt NAV
+    ((perf_fee_value * NAV_PRECISION) / nav_after_mgmt) as u64
+}
+
+fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u64 {
+    if (vault.management_fee_bps == 0) {
+        return 0
+    };
+
+    let current_time_s = clock.timestamp_ms() / 1000;
+    let time_elapsed_s = current_time_s - vault.fee_last_update_timestamp_s;
+
+    if (time_elapsed_s == 0) {
+        return 0
+    };
+
+    // Calculate management fee reduction factor
+    let annual_fee_rate = decimal::from_bps(vault.management_fee_bps);
+
+    // Convert to per-second rate: annual_rate / seconds_per_year
+    let per_second_rate = decimal::div(annual_fee_rate, decimal::from(SECONDS_PER_YEAR));
+
+    let fee_factor = decimal::mul(decimal::from(time_elapsed_s), per_second_rate);
+
+    // Ensure fee factor doesn't exceed 100%
+    let fee_factor = if (decimal::gt(fee_factor, decimal::from(1))) {
+        decimal::from(1)
+    } else {
+        fee_factor
+    };
+
+    let circulating_shares = vault.treasury_cap.total_supply();
+
+    // Ensures fees represent exactly the correct percentage of total vault value
+    let one_minus_fee = decimal::sub(decimal::from(1), fee_factor);
+    let shares_to_mint = decimal::div(
+        decimal::mul(decimal::from(circulating_shares), fee_factor),
+        one_minus_fee,
+    );
+
+    decimal::floor(shares_to_mint)
+}
+
 // === Vault Value Aggregation ===
 // Required in order to accomodate conflicting LendingMarket type parameters
 
@@ -1031,6 +852,183 @@ public fun create_vault_value_aggregate<P, L, T>(
     }
 }
 
+// === Public Helpers ===
+
+/// Calculates the amount of shares that will be minted for deposit_amount of T
+public fun calculate_shares_to_mint<P, L, T>(
+    vault: &Vault<P, T>,
+    deposit_amount: u64,
+    lending_market: &LendingMarket<L>,
+    agg: &VaultValueAggregate,
+): u64 {
+    let nav_per_share = vault.calculate_nav_per_share(agg);
+    let deposit_usd_value = get_usd_value_for_token_amount<_, T>(
+        lending_market,
+        deposit_amount,
+    ).floor();
+    calculate_shares_from_usd(nav_per_share, deposit_usd_value)
+}
+
+/// Calculates the amount of shares that must be burned to redeem withdraw_amount of T
+public fun calculate_shares_to_burn<P, L, T>(
+    vault: &Vault<P, T>,
+    withdraw_amount: u64,
+    lending_market: &LendingMarket<L>,
+    agg: VaultValueAggregate,
+): u64 {
+    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let withdraw_usd_value = get_usd_value_for_token_amount<_, T>(
+        lending_market,
+        withdraw_amount,
+    ).floor();
+    calculate_shares_from_usd(nav_per_share, withdraw_usd_value)
+}
+
+/// Calculates the amount of T that can be redeemed for shares_amount
+public fun calculate_withdraw_amount<P, L, T>(
+    vault: &Vault<P, T>,
+    shares_amount: u64,
+    lending_market: &LendingMarket<L>,
+    agg: VaultValueAggregate,
+): u64 {
+    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let withdraw_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
+    get_token_amount_from_usd<_, T>(lending_market, withdraw_usd_value as u64).floor()
+}
+
+/// Calculates the amount of T that shares_amount will cost
+public fun calculate_deposit_amount<P, L, T>(
+    vault: &Vault<P, T>,
+    shares_amount: u64,
+    lending_market: &LendingMarket<L>,
+    agg: VaultValueAggregate,
+): u64 {
+    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let deposit_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
+    get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value as u64).floor()
+}
+
+/// Check if vault can deploy a USD amount of liquid assets (and vault remains under MAX_UTILIZATION_RATE_BPS)
+public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Decimal): bool {
+    let liquid_asset_value = agg.liquid_asset_value_usd;
+    let obligations_value_usd = agg.total_obligation_value_usd;
+    let usd_to_deploy = usd_amount.floor();
+
+    // Check if there is enough liquid assets to deploy
+    if (usd_to_deploy > liquid_asset_value) {
+        return false
+    };
+
+    // Calculate new values after deployment
+    let new_liquid_value = liquid_asset_value - usd_to_deploy;
+    let new_obligations_value = obligations_value_usd + usd_to_deploy;
+    let total_vault_value = new_liquid_value + new_obligations_value;
+
+    // If total value is zero, cannot deploy
+    if (total_vault_value == 0) {
+        return false
+    };
+
+    // Calculate new utilization rate: (obligations / total_value) * BASIS_POINTS
+    let new_utilization = (new_obligations_value * BASIS_POINTS) / total_vault_value;
+
+    new_utilization <= MAX_UTILIZATION_RATE_BPS
+}
+
+public fun calculate_nav_per_share<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate): u64 {
+    let current_shares = vault.treasury_cap.total_supply();
+    let vault_value = agg.total_obligation_value_usd + agg.liquid_asset_value_usd;
+    if (current_shares == 0 || vault_value == 0) {
+        NAV_PRECISION as u64 // 1.0 scaled
+    } else {
+        (((vault_value as u128) * NAV_PRECISION) / (current_shares as u128)) as u64
+    }
+}
+
+/// Total supply of shares
+public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
+    vault.treasury_cap.total_supply()
+}
+
+// === Private Helpers ===
+
+/// Calculates vault shares from USD amount
+/// TODO: Check for truncation
+fun calculate_shares_from_usd(nav_per_share: u64, usd_amount: u64): u64 {
+    (((usd_amount as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
+}
+
+/// Calculate total obligation value within one Lending Market in USD
+fun calculate_obligation_values_usd<L>(
+    obligation_ids: vector<ID>,
+    lending_market: &LendingMarket<L>,
+): u64 {
+    let mut total_asset_value = 0;
+
+    // Add value from all lending positions
+    obligation_ids.do!(|obligation_id| {
+        let obligation = lending_market.obligation(obligation_id);
+
+        let deposited_value_usd = obligation.deposited_value_usd().floor();
+        let unweighted_borrowed_value_usd = obligation.unweighted_borrowed_value_usd().floor();
+
+        let net_value = deposited_value_usd - unweighted_borrowed_value_usd;
+
+        total_asset_value = total_asset_value + net_value;
+    });
+
+    total_asset_value
+}
+
+/// Get the reserve for the base asset T
+fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Reserve<L> {
+    let reserves = lending_market.reserves();
+    let asset_type = type_name::with_defining_ids<T>();
+    let reserve_index = reserves.find_index!(|reserve| {
+        reserve.coin_type() == asset_type
+    });
+    if (reserve_index.is_some()) {
+        reserves.borrow(*reserve_index.borrow())
+    } else {
+        abort ENoReserveForAsset
+    }
+}
+
+/// Get T amount from USD amount
+fun get_token_amount_from_usd<L, T>(
+    lending_market: &LendingMarket<L>,
+    amount: u64,
+): decimal::Decimal {
+    let reserve = get_reserve_for_asset<L, T>(lending_market);
+    // TODO
+    //reserve.assert_price_is_fresh(clock);
+    reserve.usd_to_token_amount_lower_bound(decimal::from(amount))
+}
+
+/// Get USD amount from T amount
+fun get_usd_value_for_token_amount<L, T>(
+    lending_market: &LendingMarket<L>,
+    amount: u64,
+): decimal::Decimal {
+    let reserve = get_reserve_for_asset<L, T>(lending_market);
+    // TODO
+    //reserve.assert_price_is_fresh(clock);
+    reserve.market_value_lower_bound(decimal::from(amount))
+}
+
+/// Get obligation cap at lending_market_type + index (read-only)
+public(package) fun get_obligation_cap<P, L, T>(
+    vault: &Vault<P, T>,
+    // TODO: remove
+    lending_market_type: &TypeName,
+    index: u64,
+): &ObligationOwnerCap<L> {
+    // TODO: access checks + error codes
+    let obligations = vault.obligations.get(lending_market_type);
+    let obl = obligations.borrow(index);
+    obl.obligation_cap.borrow(OBLIGATION_CAP_BAG_KEY)
+}
+
 // === Test Functions ===
 
 #[test_only]
@@ -1044,4 +1042,13 @@ public fun create_vault_value_aggregate_for_testing<P, L, T>(
     };
     let agg = acc.create_vault_value_aggregate(vault, lending_market);
     agg
+}
+
+#[test_only]
+public fun accrue_fees_for_testing<P, T>(
+    vault: &mut Vault<P, T>,
+    agg: &VaultValueAggregate,
+    clock: &Clock,
+) {
+    accrue_all_fees(vault, agg, clock)
 }

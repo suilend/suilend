@@ -118,25 +118,6 @@ fun mint_test_coin(amount: u64, ctx: &mut TxContext): Coin<TEST_COIN> {
 }
 
 #[test]
-fun test_create_vault() {
-    let mut scenario = init_vault_scenario();
-
-    scenario.next_tx(ADMIN);
-    let vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-
-    // Test vault was created with correct parameters
-    assert!(vault::obligation_count(&vault) == 0);
-
-    {
-        ts::return_shared(vault);
-        ts::return_to_sender(&scenario, manager_cap);
-    };
-
-    scenario.end();
-}
-
-#[test]
 fun test_deposit_and_withdraw() {
     let mut scenario = init_vault_scenario();
 
@@ -324,9 +305,6 @@ fun test_manager_cap_validation() {
     let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
     let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-
-    // Test that manager cap validation works
-    vault::validate_manager_cap(&vault, &manager_cap);
 
     // Test obligation creation (manager only)
     vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
@@ -636,7 +614,7 @@ fun test_nav_changes() {
 
     // Apply fees
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    vault.accrue_all_fees(&agg, &clock);
+    vault.accrue_fees_for_testing(&agg, &clock);
 
     // Total shares should have increased due to fee shares being minted
     let new_total_shares = vault.total_supply();
