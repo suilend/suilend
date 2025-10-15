@@ -13,7 +13,6 @@ use sui::{
 use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, reserve};
 
 // === Errors ===
-const EIncorrectVersion: u64 = 1;
 const EInvalidManager: u64 = 2;
 const EInvalidDepositFeeBps: u64 = 3;
 const EInvalidWithdrawalFeeBps: u64 = 4;
@@ -28,7 +27,7 @@ const EInvalidShareCurrency: u64 = 12;
 const EMetadataCapExists: u64 = 13;
 
 // === Constants ===
-const CURRENT_VERSION: u64 = 1;
+const CURRENT_VERSION: u16 = 1;
 const MAX_DEPOSIT_FEE_BPS: u64 = 1000; // 10% max deposit fee
 const MAX_WITHDRAWAL_FEE_BPS: u64 = 1000; // 10% max withdrawal fee
 const MAX_PERFORMANCE_FEE_BPS: u64 = 5000; // 50% max performance fee
@@ -46,7 +45,7 @@ const VAULT_SHARE_SYMBOL: vector<u8> = b"VSHARES";
 // === Structs ===
 public struct Vault<phantom P, phantom T> has key, store {
     id: object::UID,
-    version: u64,
+    version: vaults::version::Version,
     // Keyed by 'L' from LendingMarket<L>
     obligations: sui::vec_map::VecMap<TypeName, vector<ObligationData>>,
     treasury_cap: TreasuryCap<P>,
@@ -177,7 +176,7 @@ public fun create_vault<P, T>(
     // Create vault
     let vault = Vault {
         id: vault_id,
-        version: CURRENT_VERSION,
+        version: vaults::version::new(CURRENT_VERSION),
         treasury_cap,
         obligations: sui::vec_map::empty(),
         deposit_asset: balance::zero<T>(),
@@ -217,7 +216,7 @@ public fun deposit<P, L, T>(
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ): Coin<P> {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     assert!(deposit.value() >= MIN_DEPOSIT, EInvalidDeposit);
 
     vault.accrue_all_fees(&agg, clock);
@@ -276,7 +275,7 @@ public fun withdraw<P, L, T>(
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ): Coin<T> {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     assert!(shares.value() > 0, EInsufficientShares);
 
     let shares_amount = shares.value();
@@ -680,7 +679,7 @@ public fun claim_manager_fees<P, T>(
     amount: u64,
     ctx: &mut TxContext,
 ): Coin<P> {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
 
     let accrued_fees = vault.manager_fees.value();
@@ -699,7 +698,7 @@ public fun create_obligation<P, L, T>(
     lending_market: &mut LendingMarket<L>,
     ctx: &mut TxContext,
 ) {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
 
     let obligation_cap = lending_market.create_obligation(ctx);
@@ -767,7 +766,7 @@ public fun deploy_funds<P, L, T>(
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ): u64 {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
     assert!(amount > 0, EInvalidDeposit);
 
@@ -836,7 +835,7 @@ public fun withdraw_deployed_funds<P, L, T>(
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ) {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
     assert!(ctoken_amount > 0, EInsufficientShares);
 
@@ -897,7 +896,7 @@ public fun compound_rewards<P, L, T>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version(CURRENT_VERSION);
 
     let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap<_, L, _>(&lm_type, obligation_index);
@@ -932,7 +931,7 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
-    assert!(vault.version == CURRENT_VERSION, EIncorrectVersion);
+    vault.version.assert_version(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
 
     let lm_type = type_name::with_defining_ids<L>();
