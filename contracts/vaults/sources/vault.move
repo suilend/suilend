@@ -731,20 +731,6 @@ public fun get_obligation_cap<P, L, T>(
     obl.obligation_cap.borrow(OBLIGATION_CAP_BAG_KEY)
 }
 
-/// Get mutable obligation cap at lending_market_type + index (manager only)
-public fun get_obligation_cap_mut<P, L, T>(
-    vault_manager_cap: &VaultManagerCap<P>,
-    vault: &mut Vault<P, T>,
-    lending_market_type: &TypeName,
-    index: u64,
-): &mut ObligationOwnerCap<L> {
-    // TODO: access checks + error codes
-    vault.validate_manager_cap(vault_manager_cap);
-    let obligations = vault.obligations.get_mut(lending_market_type);
-    let obl = obligations.borrow_mut(index);
-    obl.obligation_cap.borrow_mut(OBLIGATION_CAP_BAG_KEY)
-}
-
 /// Get number of obligations in vault
 public fun obligation_count<P, T>(vault: &Vault<P, T>): u64 {
     let keys = vault.obligations.keys();
