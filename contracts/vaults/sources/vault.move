@@ -13,18 +13,30 @@ use sui::{
 use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, reserve};
 
 // === Errors ===
-const EInvalidManager: u64 = 2;
-const EInvalidDepositFeeBps: u64 = 3;
-const EInvalidWithdrawalFeeBps: u64 = 4;
-const EInvalidPerformanceFeeBps: u64 = 5;
-const EInvalidManagementFeeBps: u64 = 6;
-const EInvalidDeposit: u64 = 7;
-const EInsufficientShares: u64 = 8;
-const EInsufficientLiquidity: u64 = 9;
-const ENoReserveForAsset: u64 = 10;
-const EIncompleteAccumulation: u64 = 11;
-const EInvalidShareCurrency: u64 = 12;
-const EMetadataCapExists: u64 = 13;
+#[error]
+const EInvalidManager: vector<u8> = b"Unauthorised VaultManagerCap";
+#[error]
+const EInvalidDepositFeeBps: vector<u8> = b"MAX_DEPOSIT_FEE_BPS exceeded";
+#[error]
+const EInvalidWithdrawalFeeBps: vector<u8> = b"MAX_WITHDRAWAL_FEE_BPS exceeded";
+#[error]
+const EInvalidPerformanceFeeBps: vector<u8> = b"MAX_PERFORMANCE_FEE_BPS exceeded";
+#[error]
+const EInvalidManagementFeeBps: vector<u8> = b"MAX_MANAGEMENT_FEE_BPS exceeded";
+#[error]
+const EInvalidDeposit: vector<u8> = b"Invalid deposit amount";
+#[error]
+const EInsufficientShares: vector<u8> = b"Invalid shares amount";
+#[error]
+const EInsufficientLiquidity: vector<u8> = b"Insufficient liquidity available";
+#[error]
+const ENoReserveForAsset: vector<u8> = b"Reserve does not exist";
+#[error]
+const EIncompleteAccumulation: vector<u8> = b"VaultValueAccumulator processing incomplete";
+#[error]
+const EInvalidShareCurrency: vector<u8> = b"Vault currency metadata is invalid";
+#[error]
+const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
 // === Constants ===
 const CURRENT_VERSION: u16 = 1;
