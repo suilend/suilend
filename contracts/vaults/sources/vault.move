@@ -146,6 +146,13 @@ public struct FeesAccrued has copy, drop {
     timestamp_ms: u64,
 }
 
+public struct VaultStats has copy, drop {
+    vault_id: object::ID,
+    nav_per_share_usd: u64,
+    utilization_rate_bps: u64,
+    aum_usd: u64,
+}
+
 // === Vault Manager Functions ===
 
 public fun create_vault<P, T>(
@@ -275,6 +282,20 @@ public fun deploy_funds<P, L, T>(
         timestamp_ms: clock.timestamp_ms(),
     });
 
+    {
+        let updated_liquid_asset_value_usd = {
+            let liquid_asset_value = vault.deposit_asset.value();
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+        };
+        let updated_obligation_value_usd = agg.total_obligation_value_usd + usd_to_deploy.floor();
+        let updated_agg = VaultValueAggregate {
+            liquid_asset_value_usd: updated_liquid_asset_value_usd,
+            total_obligation_value_usd: updated_obligation_value_usd,
+            lending_market_values: agg.lending_market_values,
+        };
+        vault.emit_stats_event(&updated_agg);
+    };
+
     ctokens_amount
 }
 
@@ -335,6 +356,28 @@ public fun withdraw_deployed_funds<P, L, T>(
         amount: withdrawn_amount,
         timestamp_ms: clock.timestamp_ms(),
     });
+
+    {
+        let updated_liquid_asset_value_usd = {
+            let liquid_asset_value = vault.deposit_asset.value();
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+        };
+        let usd_withdrawn = get_usd_value_for_token_amount<_, T>(
+            lending_market,
+            withdrawn_amount,
+        ).floor();
+        let updated_obligation_value_usd = if (agg.total_obligation_value_usd >= usd_withdrawn) {
+            agg.total_obligation_value_usd - usd_withdrawn
+        } else {
+            0
+        };
+        let updated_agg = VaultValueAggregate {
+            liquid_asset_value_usd: updated_liquid_asset_value_usd,
+            total_obligation_value_usd: updated_obligation_value_usd,
+            lending_market_values: agg.lending_market_values,
+        };
+        vault.emit_stats_event(&updated_agg);
+    };
 }
 
 /// Claim accumulated manager fees
@@ -451,6 +494,19 @@ public fun deposit<P, L, T>(
         timestamp_ms: current_time,
     });
 
+    {
+        let updated_liquid_asset_value_usd = {
+            let liquid_asset_value = vault.deposit_asset.value();
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+        };
+        let updated_agg = VaultValueAggregate {
+            liquid_asset_value_usd: updated_liquid_asset_value_usd,
+            total_obligation_value_usd: agg.total_obligation_value_usd,
+            lending_market_values: agg.lending_market_values,
+        };
+        vault.emit_stats_event(&updated_agg);
+    };
+
     vault_shares
 }
 
@@ -523,6 +579,19 @@ public fun withdraw<P, L, T>(
         shares_burned: shares_amount,
         timestamp_ms: current_time,
     });
+
+    {
+        let updated_liquid_asset_value_usd = {
+            let liquid_asset_value = vault.deposit_asset.value();
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+        };
+        let updated_agg = VaultValueAggregate {
+            liquid_asset_value_usd: updated_liquid_asset_value_usd,
+            total_obligation_value_usd: agg.total_obligation_value_usd,
+            lending_market_values: agg.lending_market_values,
+        };
+        vault.emit_stats_event(&updated_agg);
+    };
 
     coins
 }
@@ -908,10 +977,22 @@ public fun calculate_deposit_amount<P, L, T>(
     get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value as u64).floor()
 }
 
+public fun calculate_utilization_rate(agg: &VaultValueAggregate): u64 {
+    let total_vault_value = agg.liquid_asset_value_usd + agg.total_obligation_value_usd;
+
+    if (total_vault_value == 0) {
+        // TODO: should panic?
+        return 0
+    };
+
+    let utilization = (agg.total_obligation_value_usd * BASIS_POINTS) / total_vault_value;
+
+    utilization
+}
+
 /// Check if vault can deploy a USD amount of liquid assets (and vault remains under MAX_UTILIZATION_RATE_BPS)
 public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Decimal): bool {
     let liquid_asset_value = agg.liquid_asset_value_usd;
-    let obligations_value_usd = agg.total_obligation_value_usd;
     let usd_to_deploy = usd_amount.floor();
 
     // Check if there is enough liquid assets to deploy
@@ -919,18 +1000,13 @@ public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Deci
         return false
     };
 
-    // Calculate new values after deployment
-    let new_liquid_value = liquid_asset_value - usd_to_deploy;
-    let new_obligations_value = obligations_value_usd + usd_to_deploy;
-    let total_vault_value = new_liquid_value + new_obligations_value;
-
-    // If total value is zero, cannot deploy
-    if (total_vault_value == 0) {
-        return false
+    let updated_agg = VaultValueAggregate {
+        liquid_asset_value_usd: liquid_asset_value - usd_to_deploy,
+        total_obligation_value_usd: agg.total_obligation_value_usd + usd_to_deploy,
+        lending_market_values: agg.lending_market_values,
     };
 
-    // Calculate new utilization rate: (obligations / total_value) * BASIS_POINTS
-    let new_utilization = (new_obligations_value * BASIS_POINTS) / total_vault_value;
+    let new_utilization = updated_agg.calculate_utilization_rate();
 
     new_utilization <= MAX_UTILIZATION_RATE_BPS
 }
@@ -1014,6 +1090,18 @@ fun get_usd_value_for_token_amount<L, T>(
     // TODO
     //reserve.assert_price_is_fresh(clock);
     reserve.market_value_lower_bound(decimal::from(amount))
+}
+
+fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
+    let nav_per_share_usd = vault.calculate_nav_per_share(agg);
+    let aum_usd = agg.total_obligation_value_usd + agg.liquid_asset_value_usd;
+    let utilization_rate_bps = calculate_utilization_rate(agg);
+    event::emit(VaultStats {
+        vault_id: object::id(vault),
+        nav_per_share_usd,
+        utilization_rate_bps,
+        aum_usd,
+    });
 }
 
 /// Get obligation cap at lending_market_type + index (read-only)
