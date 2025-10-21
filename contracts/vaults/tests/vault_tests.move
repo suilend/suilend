@@ -322,7 +322,7 @@ fun test_manager_cap_validation() {
 }
 
 #[test]
-#[expected_failure]
+#[expected_failure(abort_code = vault::EInvalidDeposit)]
 fun test_minimum_deposit_failure() {
     let (prices, mut scenario) = init_vault_scenario();
 
@@ -334,7 +334,7 @@ fun test_minimum_deposit_failure() {
     let clock = scenario.take_shared<Clock>();
 
     // Try to deposit amount below minimum (should fail)
-    let small_deposit = mint_test_coin(100, scenario.ctx()); // Much less than MIN_DEPOSIT
+    let small_deposit = coin::mint_for_testing<TEST_COIN>(1, scenario.ctx()); // Less than MIN_DEPOSIT
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let _shares = vault.deposit(
         small_deposit,
@@ -349,7 +349,7 @@ fun test_minimum_deposit_failure() {
 }
 
 #[test]
-#[expected_failure]
+#[expected_failure(abort_code = vault::EInsufficientShares)]
 fun test_insufficient_shares_withdrawal() {
     let (prices, mut scenario) = init_vault_scenario();
 
@@ -410,15 +410,18 @@ fun test_fee_limits() {
 }
 
 #[test]
-#[expected_failure]
+#[expected_failure(abort_code = vault::EInvalidManagementFeeBps)]
 fun test_excessive_fee_failure() {
-    let mut scenario = ts::begin(ADMIN);
-    let clock = clock::create_for_testing(scenario.ctx());
+    let (_prices, mut scenario) = init_vault_scenario();
+
+    scenario.next_tx(ADMIN);
+
     let (curr, t_cap) = create_test_currency(scenario.ctx());
+    let clock = scenario.take_shared<Clock>();
     let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     // Try to create vault with excessive fees (should fail)
-    let manager_cap = vault::create_vault<_, _, TEST_COIN>(
+    let _manager_cap = vault::create_vault<_, _, TEST_COIN>(
         t_cap,
         &curr,
         &lending_market,
@@ -431,18 +434,11 @@ fun test_excessive_fee_failure() {
     );
 
     // Should not reach here
-    {
-        ts::return_shared(lending_market);
-        test_utils::destroy(curr);
-        transfer::public_transfer(manager_cap, ADMIN);
-        clock.destroy_for_testing();
-    };
-
-    scenario.end();
+    abort 0
 }
 
 #[test]
-#[expected_failure]
+#[expected_failure(abort_code = vault::EInsufficientLiquidity)]
 fun test_utilization_rate_guard() {
     let (prices, mut scenario) = init_vault_scenario();
 
@@ -461,7 +457,7 @@ fun test_utilization_rate_guard() {
     let deposit_value = deposit_coin.value();
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let vault_shares = vault.deposit(
+    let _vault_shares = vault.deposit(
         deposit_coin,
         prices.get_price_obj<TEST_COIN>(),
         &clock,
@@ -492,16 +488,7 @@ fun test_utilization_rate_guard() {
     );
 
     // Should not reach here
-    {
-        test_utils::destroy(prices);
-        coin::burn_for_testing(vault_shares);
-        ts::return_shared(clock);
-        ts::return_shared(vault);
-        ts::return_shared(lending_market);
-        transfer::public_transfer(manager_cap, ADMIN);
-    };
-
-    scenario.end();
+    abort 0
 }
 
 #[test]
