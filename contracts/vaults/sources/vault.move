@@ -173,8 +173,6 @@ public fun create_vault<P, L, T>(
     vault_share_treasury_cap: TreasuryCap<P>,
     vault_share_currency: &coin_registry::Currency<P>,
     lending_market: &LendingMarket<L>,
-    // TODO: needs to come from metadata
-    base_token_decimals: u8,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
@@ -201,6 +199,7 @@ public fun create_vault<P, L, T>(
     let vault_id = object::new(ctx);
 
     let reserve = lending_market.reserve<_, T>();
+    let base_token_decimals = get_mint_decimals(reserve);
     let price_identifier = *reserve.price_identifier();
 
     let current_time_s = clock.timestamp_ms() / 1000;
@@ -1085,6 +1084,48 @@ public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
 /// TODO: Check for truncation
 fun calculate_shares_from_usd(nav_per_share: u64, usd_amount: u64): u64 {
     (((usd_amount as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
+}
+
+// Temporary
+// reserve.mint_decimals is not exposed
+fun get_mint_decimals<L>(reserve: &suilend::reserve::Reserve<L>): u8 {
+    let price_upper = reserve.price_upper_bound();
+
+    // usd_to_token_amount_lower_bound returns (10^decimals * usd_amount) / price_upper
+    // If we pass usd_amount = price_upper, we get 10^decimals
+    let power_of_ten = reserve.usd_to_token_amount_lower_bound(price_upper);
+
+    let mut decimals = 0;
+    while (decimals <= 18) {
+        let test_power = decimal::from(10u64.pow(decimals));
+        if (test_power.eq(power_of_ten)) {
+            return decimals
+        };
+        decimals = decimals + 1;
+    };
+
+    // If exact match not found, find closest
+    let mut best_decimals = 0;
+    let mut best_diff = decimal::from(10u64.pow(18));
+
+    decimals = 0;
+    while (decimals <= 18) {
+        let test_power = decimal::from(10u64.pow(decimals));
+        let diff = if (test_power.le(power_of_ten)) {
+            power_of_ten.sub(test_power)
+        } else {
+            test_power.sub(power_of_ten)
+        };
+
+        if (diff.le(best_diff)) {
+            best_diff = diff;
+            best_decimals = decimals;
+        };
+
+        decimals = decimals + 1;
+    };
+
+    best_decimals
 }
 
 /// Calculate total obligation value within one Lending Market in USD

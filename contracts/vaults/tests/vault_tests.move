@@ -76,7 +76,6 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
         treasury_cap,
         &curr,
         &lending_market,
-        TEST_COIN_DECIMALS,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -391,7 +390,6 @@ fun test_fee_limits() {
         t_cap,
         &curr,
         &lending_market,
-        TEST_COIN_DECIMALS,
         1000, // 10% management fee (at limit)
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
@@ -424,7 +422,6 @@ fun test_excessive_fee_failure() {
         t_cap,
         &curr,
         &lending_market,
-        TEST_COIN_DECIMALS,
         2000, // 20% management fee (above 10% limit)
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -793,7 +790,6 @@ fun test_compound_rewards_with_swap() {
         treasury_cap,
         &curr,
         &lending_market,
-        b_token_decimals,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
