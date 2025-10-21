@@ -164,6 +164,7 @@ public struct VaultStats has copy, drop {
     nav_per_share_usd: u64,
     utilization_rate_bps: u64,
     aum_usd: u64,
+    total_shares: u64,
 }
 
 // === Vault Manager Functions ===
@@ -1188,6 +1189,7 @@ fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
         nav_per_share_usd,
         utilization_rate_bps,
         aum_usd,
+        total_shares: vault.total_supply(),
     });
 }
 
