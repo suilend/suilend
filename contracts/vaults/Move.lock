@@ -2,19 +2,21 @@
 
 [move]
 version = 3
-manifest_digest = "4AEA2DBFF8CF567D54B6425BBE9CB5DF39E1D4817062EA42B5AC1BC1DD756F45"
-deps_digest = "397E6A9F7A624706DBDFEE056CE88391A15876868FD18A88504DA74EB458D697"
+manifest_digest = "9AB6DA67F01C829B2D3A4FE73281BE86F3663CC3709E36193C72704868AC03F7"
+deps_digest = "CAFAD8A7CF51067FB4358215BECB86BD100DD64E57C2AC8A7AE7D74B688F5965"
 dependencies = [
   { id = "Bridge", name = "Bridge" },
   { id = "MoveStdlib", name = "MoveStdlib" },
+  { id = "Pyth", name = "Pyth" },
   { id = "Sui", name = "Sui" },
   { id = "SuiSystem", name = "SuiSystem" },
+  { id = "steamm", name = "steamm" },
   { id = "suilend", name = "suilend" },
 ]
 
 [[move.package]]
 id = "Bridge"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "f63c9fc78e2171fa174dc43e757ded416c204558", subdir = "crates/sui-framework/packages/bridge" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "4e8b6eda7d6411d80c62f39ac8a4f028e8d174c4", subdir = "crates/sui-framework/packages/bridge" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
@@ -24,7 +26,7 @@ dependencies = [
 
 [[move.package]]
 id = "MoveStdlib"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "f63c9fc78e2171fa174dc43e757ded416c204558", subdir = "crates/sui-framework/packages/move-stdlib" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "4e8b6eda7d6411d80c62f39ac8a4f028e8d174c4", subdir = "crates/sui-framework/packages/move-stdlib" }
 
 [[move.package]]
 id = "Pyth"
@@ -37,7 +39,7 @@ dependencies = [
 
 [[move.package]]
 id = "Sui"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "f63c9fc78e2171fa174dc43e757ded416c204558", subdir = "crates/sui-framework/packages/sui-framework" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "4e8b6eda7d6411d80c62f39ac8a4f028e8d174c4", subdir = "crates/sui-framework/packages/sui-framework" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
@@ -45,10 +47,18 @@ dependencies = [
 
 [[move.package]]
 id = "SuiSystem"
-source = { git = "https://github.com/MystenLabs/sui.git", rev = "f63c9fc78e2171fa174dc43e757ded416c204558", subdir = "crates/sui-framework/packages/sui-system" }
+source = { git = "https://github.com/MystenLabs/sui.git", rev = "4e8b6eda7d6411d80c62f39ac8a4f028e8d174c4", subdir = "crates/sui-framework/packages/sui-system" }
 
 dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
+  { id = "Sui", name = "Sui" },
+]
+
+[[move.package]]
+id = "Switchboard"
+source = { git = "https://github.com/suilend/switchboard.git", rev = "mainnet", subdir = "on_demand/" }
+
+dependencies = [
   { id = "Sui", name = "Sui" },
 ]
 
@@ -72,6 +82,19 @@ dependencies = [
 ]
 
 [[move.package]]
+id = "oracles"
+source = { git = "https://github.com/solendprotocol/suilend.git", rev = "mainnet", subdir = "contracts/oracles" }
+
+dependencies = [
+  { id = "Bridge", name = "Bridge" },
+  { id = "MoveStdlib", name = "MoveStdlib" },
+  { id = "Pyth", name = "Pyth" },
+  { id = "Sui", name = "Sui" },
+  { id = "SuiSystem", name = "SuiSystem" },
+  { id = "Switchboard", name = "Switchboard" },
+]
+
+[[move.package]]
 id = "sprungsui"
 source = { local = "../sprungsui" }
 
@@ -80,6 +103,19 @@ dependencies = [
   { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Sui", name = "Sui" },
   { id = "SuiSystem", name = "SuiSystem" },
+]
+
+[[move.package]]
+id = "steamm"
+source = { git = "https://github.com/suilend/steamm-public.git", rev = "main", subdir = "contracts/steamm" }
+
+dependencies = [
+  { id = "Bridge", name = "Bridge" },
+  { id = "MoveStdlib", name = "MoveStdlib" },
+  { id = "Sui", name = "Sui" },
+  { id = "SuiSystem", name = "SuiSystem" },
+  { id = "oracles", name = "oracles" },
+  { id = "suilend", name = "suilend" },
 ]
 
 [[move.package]]
@@ -105,6 +141,6 @@ flavor = "sui"
 
 [env.mainnet]
 chain-id = "35834a8a"
-original-published-id = "0x9e51dca2a7823b87b9fd3ad9fc7d8059d2d26731b31eb880f66b96754d7e031d"
-latest-published-id = "0x9e51dca2a7823b87b9fd3ad9fc7d8059d2d26731b31eb880f66b96754d7e031d"
+original-published-id = "0x7822c7db824c1b1f7db5374604e2fb61ce3f0601a60645631800ab65c2d7160a"
+latest-published-id = "0x7822c7db824c1b1f7db5374604e2fb61ce3f0601a60645631800ab65c2d7160a"
 published-version = "1"

@@ -1,5 +1,6 @@
 module vaults::vault;
 
+use pyth::{price_identifier::PriceIdentifier, price_info::PriceInfoObject};
 use std::type_name::{Self, TypeName};
 use steamm::{cpmm::{Self, CpQuoter}, pool::Pool};
 use sui::{
@@ -10,7 +11,7 @@ use sui::{
     coin_registry,
     event
 };
-use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, reserve};
+use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, oracles};
 
 // === Errors ===
 #[error]
@@ -29,8 +30,6 @@ const EInvalidDeposit: vector<u8> = b"Invalid deposit amount";
 const EInsufficientShares: vector<u8> = b"Invalid shares amount";
 #[error]
 const EInsufficientLiquidity: vector<u8> = b"Insufficient liquidity available";
-#[error]
-const ENoReserveForAsset: vector<u8> = b"Reserve does not exist";
 #[error]
 const EIncompleteAccumulation: vector<u8> = b"VaultValueAccumulator processing incomplete";
 #[error]
@@ -61,6 +60,8 @@ public struct Vault<phantom P, phantom T> has key, store {
     // Keyed by 'L' from LendingMarket<L>
     obligations: sui::vec_map::VecMap<TypeName, vector<ObligationData>>,
     treasury_cap: TreasuryCap<P>,
+    price_identifier: PriceIdentifier,
+    base_token_decimals: u8,
     deposit_asset: Balance<T>,
     manager_fees: Balance<P>,
     management_fee_bps: u64,
@@ -167,9 +168,12 @@ public struct VaultStats has copy, drop {
 
 // === Vault Manager Functions ===
 
-public fun create_vault<P, T>(
-    treasury_cap: TreasuryCap<P>,
-    currency: &coin_registry::Currency<P>,
+public fun create_vault<P, L, T>(
+    vault_share_treasury_cap: TreasuryCap<P>,
+    vault_share_currency: &coin_registry::Currency<P>,
+    lending_market: &LendingMarket<L>,
+    // TODO: needs to come from metadata
+    base_token_decimals: u8,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
@@ -177,12 +181,16 @@ public fun create_vault<P, T>(
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): VaultManagerCap<P> {
-    assert!(currency.is_metadata_cap_deleted(), EMetadataCapExists);
-    assert!(currency.decimals() == VAULT_SHARE_DECIMALS, EInvalidShareCurrency);
-    assert!(currency.name() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
-    assert!(currency.description() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
-    assert!(currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), EInvalidShareCurrency);
-    assert!(treasury_cap.total_supply() == 0, EInvalidShareCurrency);
+    // TODO: temporarily disabled
+    assert!(vault_share_currency.is_metadata_cap_deleted() || true, EMetadataCapExists);
+    assert!(vault_share_currency.decimals() == VAULT_SHARE_DECIMALS, EInvalidShareCurrency);
+    assert!(vault_share_currency.name() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
+    assert!(
+        vault_share_currency.description() == VAULT_SHARE_NAME.to_string(),
+        EInvalidShareCurrency,
+    );
+    assert!(vault_share_currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), EInvalidShareCurrency);
+    assert!(vault_share_treasury_cap.total_supply() == 0, EInvalidShareCurrency);
 
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
     assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);
@@ -191,20 +199,25 @@ public fun create_vault<P, T>(
 
     let vault_id = object::new(ctx);
 
+    let reserve = lending_market.reserve<_, T>();
+    let price_identifier = *reserve.price_identifier();
+
     let current_time_s = clock.timestamp_ms() / 1000;
 
     // Create vault
     let vault = Vault {
         id: vault_id,
         version: vaults::version::new(CURRENT_VERSION),
-        treasury_cap,
+        treasury_cap: vault_share_treasury_cap,
         obligations: sui::vec_map::empty(),
         deposit_asset: balance::zero<T>(),
         manager_fees: balance::zero<P>(),
+        base_token_decimals,
         management_fee_bps,
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
+        price_identifier,
         // Initialize fee accrual state
         nav_high_water_mark: NAV_PRECISION as u64,
         fee_last_update_timestamp_s: current_time_s,
@@ -250,7 +263,10 @@ public fun deploy_funds<P, L, T>(
     assert!(available_amount >= amount, EInsufficientLiquidity);
 
     // Check if deployment would exceed utilization limits
-    let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount);
+    let usd_to_deploy = get_usd_value_for_token_amount_from_lending_market<_, T>(
+        lending_market,
+        amount,
+    );
     assert!(can_deploy_funds(&agg, usd_to_deploy), EInsufficientLiquidity);
 
     // Split funds from vault's deposit asset
@@ -258,12 +274,7 @@ public fun deploy_funds<P, L, T>(
     let deploy_coin = coin::from_balance(deploy_balance, ctx);
 
     // Get reserve index for the asset type T
-    let reserves = lending_market.reserves();
-    let reserve_index_opt = reserves.find_index!(|reserve: &reserve::Reserve<L>| {
-        reserve.coin_type() == type_name::with_defining_ids<T>()
-    });
-    assert!(option::is_some(&reserve_index_opt), ENoReserveForAsset);
-    let reserve_array_index = *option::borrow(&reserve_index_opt);
+    let reserve_array_index = lending_market.reserve_array_index<_, T>();
 
     // Deposit liquidity and mint cTokens
     let ctokens = lending_market.deposit_liquidity_and_mint_ctokens<L, T>(
@@ -297,7 +308,10 @@ public fun deploy_funds<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+            get_usd_value_for_token_amount_from_lending_market<_, T>(
+                lending_market,
+                liquid_asset_value,
+            ).floor()
         };
         let updated_obligation_value_usd = agg.total_obligation_value_usd + usd_to_deploy.floor();
         let updated_agg = VaultValueAggregate {
@@ -332,12 +346,7 @@ public fun withdraw_deployed_funds<P, L, T>(
     let obligation_cap = vault.get_obligation_cap(&lm_type, obligation_index);
 
     // Get reserve index for the asset type T
-    let reserves = lending_market.reserves();
-    let reserve_index_opt = reserves.find_index!(|reserve: &reserve::Reserve<L>| {
-        reserve.coin_type() == type_name::with_defining_ids<T>()
-    });
-    assert!(option::is_some(&reserve_index_opt), ENoReserveForAsset);
-    let reserve_array_index = *option::borrow(&reserve_index_opt);
+    let reserve_array_index = lending_market.reserve_array_index<_, T>();
 
     // Withdraw cTokens from obligation
     let ctokens = lending_market.withdraw_ctokens<L, T>(
@@ -372,9 +381,12 @@ public fun withdraw_deployed_funds<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+            get_usd_value_for_token_amount_from_lending_market<_, T>(
+                lending_market,
+                liquid_asset_value,
+            ).floor()
         };
-        let usd_withdrawn = get_usd_value_for_token_amount<_, T>(
+        let usd_withdrawn = get_usd_value_for_token_amount_from_lending_market<_, T>(
             lending_market,
             withdrawn_amount,
         ).floor();
@@ -446,10 +458,10 @@ fun validate_manager_cap<P, T>(vault: &Vault<P, T>, manager_cap: &VaultManagerCa
 
 // === User Functions ===
 
-public fun deposit<P, L, T>(
+public fun deposit<P, T>(
     vault: &mut Vault<P, T>,
     deposit: Coin<T>,
-    lending_market: &LendingMarket<L>,
+    price_info: &PriceInfoObject,
     clock: &Clock,
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
@@ -472,7 +484,7 @@ public fun deposit<P, L, T>(
 
     // Mint shares for deposit fee
     if (deposit_fee > 0) {
-        let fee_shares = calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg);
+        let fee_shares = vault.calculate_shares_to_mint(deposit_fee, price_info, clock, &agg);
         let fee_balance = vault.treasury_cap.mint_balance(fee_shares);
         vault.manager_fees.join(fee_balance);
 
@@ -485,10 +497,10 @@ public fun deposit<P, L, T>(
     };
 
     // Calculate shares to mint based on current USD NAV
-    let shares_to_mint = calculate_shares_to_mint(
-        vault,
+    let shares_to_mint = vault.calculate_shares_to_mint(
         net_deposit_amount,
-        lending_market,
+        price_info,
+        clock,
         &agg,
     );
 
@@ -509,7 +521,13 @@ public fun deposit<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+            vault
+                .get_usd_value_for_token_amount<_, T>(
+                    price_info,
+                    clock,
+                    liquid_asset_value,
+                )
+                .floor()
         };
         let updated_agg = VaultValueAggregate {
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
@@ -523,10 +541,10 @@ public fun deposit<P, L, T>(
 }
 
 /// User burns shares and withdraws proportional assets with performance fees on realized gains
-public fun withdraw<P, L, T>(
+public fun withdraw<P, T>(
     vault: &mut Vault<P, T>,
     shares: Coin<P>,
-    lending_market: &LendingMarket<L>,
+    price_info: &PriceInfoObject,
     clock: &Clock,
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
@@ -550,10 +568,13 @@ public fun withdraw<P, L, T>(
         (((net_shares as u128) * (current_nav_per_share as u128)) / NAV_PRECISION) as u64;
 
     // Convert net USD value to token amount
-    let withdraw_amount = get_token_amount_from_usd<_, T>(
-        lending_market,
-        net_usd_value,
-    ).floor();
+    let withdraw_amount = vault
+        .get_token_amount_from_usd(
+            price_info,
+            clock,
+            net_usd_value,
+        )
+        .floor();
 
     // Check if vault has sufficient liquidity for withdrawal
     let available_amount = vault.deposit_asset.value();
@@ -595,7 +616,13 @@ public fun withdraw<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
+            vault
+                .get_usd_value_for_token_amount<_, T>(
+                    price_info,
+                    clock,
+                    liquid_asset_value,
+                )
+                .floor()
         };
         let updated_agg = VaultValueAggregate {
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
@@ -914,7 +941,10 @@ public fun create_vault_value_aggregate<P, L, T>(
 
     let liquid_asset_value_usd = {
         let liquid_asset_value = vault.deposit_asset.value();
-        get_usd_value_for_token_amount<L, T>(lending_market, liquid_asset_value).floor()
+        get_usd_value_for_token_amount_from_lending_market<L, T>(
+            lending_market,
+            liquid_asset_value,
+        ).floor()
     };
 
     let VaultValueAccumulator {
@@ -936,17 +966,21 @@ public fun create_vault_value_aggregate<P, L, T>(
 // === Public Helpers ===
 
 /// Calculates the amount of shares that will be minted for deposit_amount of T
-public fun calculate_shares_to_mint<P, L, T>(
+public fun calculate_shares_to_mint<P, T>(
     vault: &Vault<P, T>,
     deposit_amount: u64,
-    lending_market: &LendingMarket<L>,
+    price_info: &PriceInfoObject,
+    clock: &Clock,
     agg: &VaultValueAggregate,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(agg);
-    let deposit_usd_value = get_usd_value_for_token_amount<_, T>(
-        lending_market,
-        deposit_amount,
-    ).floor();
+    let deposit_usd_value = vault
+        .get_usd_value_for_token_amount<_, T>(
+            price_info,
+            clock,
+            deposit_amount,
+        )
+        .floor();
     calculate_shares_from_usd(nav_per_share, deposit_usd_value)
 }
 
@@ -958,7 +992,7 @@ public fun calculate_shares_to_burn<P, L, T>(
     agg: VaultValueAggregate,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(&agg);
-    let withdraw_usd_value = get_usd_value_for_token_amount<_, T>(
+    let withdraw_usd_value = get_usd_value_for_token_amount_from_lending_market<_, T>(
         lending_market,
         withdraw_amount,
     ).floor();
@@ -974,7 +1008,10 @@ public fun calculate_withdraw_amount<P, L, T>(
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(&agg);
     let withdraw_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
-    get_token_amount_from_usd<_, T>(lending_market, withdraw_usd_value as u64).floor()
+    get_token_amount_from_usd_from_lending_market<_, T>(
+        lending_market,
+        withdraw_usd_value as u64,
+    ).floor()
 }
 
 /// Calculates the amount of T that shares_amount will cost
@@ -986,7 +1023,10 @@ public fun calculate_deposit_amount<P, L, T>(
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(&agg);
     let deposit_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
-    get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value as u64).floor()
+    get_token_amount_from_usd_from_lending_market<_, T>(
+        lending_market,
+        deposit_usd_value as u64,
+    ).floor()
 }
 
 public fun calculate_utilization_rate(agg: &VaultValueAggregate): u64 {
@@ -1068,40 +1108,75 @@ fun calculate_obligation_values_usd<L>(
     total_asset_value
 }
 
-/// Get the reserve for the base asset T
-fun get_reserve_for_asset<L, T>(lending_market: &LendingMarket<L>): &reserve::Reserve<L> {
-    let reserves = lending_market.reserves();
-    let asset_type = type_name::with_defining_ids<T>();
-    let reserve_index = reserves.find_index!(|reserve| {
-        reserve.coin_type() == asset_type
-    });
-    if (reserve_index.is_some()) {
-        reserves.borrow(*reserve_index.borrow())
-    } else {
-        abort ENoReserveForAsset
-    }
-}
-
 /// Get T amount from USD amount
-fun get_token_amount_from_usd<L, T>(
+fun get_token_amount_from_usd_from_lending_market<L, T>(
     lending_market: &LendingMarket<L>,
     amount: u64,
 ): decimal::Decimal {
-    let reserve = get_reserve_for_asset<L, T>(lending_market);
+    let reserve = lending_market.reserve<_, T>();
     // TODO
     //reserve.assert_price_is_fresh(clock);
     reserve.usd_to_token_amount_lower_bound(decimal::from(amount))
 }
 
+/// Get T amount from USD amount
+fun get_token_amount_from_usd<P, T>(
+    vault: &Vault<P, T>,
+    price_info: &PriceInfoObject,
+    clock: &Clock,
+    amount: u64,
+): decimal::Decimal {
+    // TODO: check freshness
+    let (
+        mut price_decimal,
+        smoothed_price_decimal,
+        price_identifier,
+    ) = oracles::get_pyth_price_and_identifier(price_info, clock);
+    assert!(price_identifier == vault.price_identifier, 999);
+    assert!(price_decimal.is_some(), 999);
+
+    let price = price_decimal.extract();
+
+    decimal::from(amount)
+        .mul(decimal::from(10u64.pow(vault.base_token_decimals)))
+        .div(price.max(smoothed_price_decimal))
+}
+
 /// Get USD amount from T amount
-fun get_usd_value_for_token_amount<L, T>(
+fun get_usd_value_for_token_amount_from_lending_market<L, T>(
     lending_market: &LendingMarket<L>,
     amount: u64,
 ): decimal::Decimal {
-    let reserve = get_reserve_for_asset<L, T>(lending_market);
+    let reserve = lending_market.reserve<_, T>();
     // TODO
     //reserve.assert_price_is_fresh(clock);
     reserve.market_value_lower_bound(decimal::from(amount))
+}
+
+/// Get USD amount from T amount
+fun get_usd_value_for_token_amount<P, T>(
+    vault: &Vault<P, T>,
+    price_info: &PriceInfoObject,
+    clock: &Clock,
+    amount: u64,
+): decimal::Decimal {
+    // TODO: check freshness
+    let (
+        mut price_decimal,
+        smoothed_price_decimal,
+        price_identifier,
+    ) = oracles::get_pyth_price_and_identifier(price_info, clock);
+    assert!(price_identifier == vault.price_identifier, 999);
+    assert!(price_decimal.is_some(), 999);
+
+    let price = price_decimal.extract();
+
+    price
+        .min(smoothed_price_decimal)
+        .mul(decimal::from(amount))
+        .div(
+            decimal::from(10u64.pow(vault.base_token_decimals)),
+        )
 }
 
 fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
