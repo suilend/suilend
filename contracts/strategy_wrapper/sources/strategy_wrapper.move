@@ -3,13 +3,10 @@ module strategy_wrapper::strategy_wrapper {
     use suilend::lending_market::{Self, ObligationOwnerCap, LendingMarket, RateLimiterExemption};
     use suilend::obligation::Obligation;
     use suilend::reserve::CToken;
-    use sui::coin::{Self, Coin};
+    use sui::coin::Coin;
     use sui::clock::Clock;
-    use sui::object::{Self, UID, ID};
-    use sui::tx_context::{Self, TxContext};
     use sui::sui::SUI;
     use sui_system::sui_system::SuiSystemState;
-    use std::option::{Self, Option};
 
 
     // === Errors ===
@@ -68,6 +65,7 @@ module strategy_wrapper::strategy_wrapper {
         strategy_type: u8,
     }
 
+    #[allow(unused_field)]
     public struct EjectedInnerCap has copy, drop {
         cap_id: address,
         obligation_id: address,
@@ -190,6 +188,7 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     /// Borrow the obligation cap for rebalancing (creates hot potato)
+    #[allow(lint(prefer_mut_tx_context))]
     public fun borrow_obligation_cap<P>(
         wrapped_cap: &mut WrappedObligationCap<P>,
         relayer_cap: &RelayerCap<P>,
@@ -219,6 +218,7 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     /// Return the obligation cap (consumes hot potato)
+    #[allow(lint(prefer_mut_tx_context))]
     public fun return_obligation_cap<P>(
         wrapped_cap: &mut WrappedObligationCap<P>,
         inner_cap: ObligationOwnerCap<P>,
@@ -244,6 +244,7 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     /// Convert back to StrategyOwnerCap (for user to regain full control)
+    #[allow(unused_let_mut)]
     public fun convert_back_to_strategy_cap<P>(
         mut wrapped_cap: WrappedObligationCap<P>,
         relayer_cap: RelayerCap<P>,

@@ -195,7 +195,7 @@ module suilend::reserve {
             id: object::new(ctx),
             lending_market_id,
             array_index,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             config: cell::new(config),
             mint_decimals,
             price_identifier,
@@ -1197,7 +1197,7 @@ module suilend::reserve {
 
         let spread_fee = mul(net_new_debt, spread_fee(config(reserve)));
 
-        return (
+        (
             reserve.borrowed_amount.add(net_new_debt),
             reserve.unclaimed_spread_fees.add(spread_fee)
         )
@@ -1239,7 +1239,7 @@ module suilend::reserve {
             let spread_fees = {
                 let liquidity_request = LiquidityRequest<P, T> { amount: claimable_spread_fees, fee: 0 };
 
-                if (type_name::get<T>() == type_name::get<SUI>()) {
+                if (type_name::with_defining_ids<T>() == type_name::with_defining_ids<SUI>()) {
                     unstake_sui_from_staker(reserve, &liquidity_request, system_state, ctx);
                 };
 
@@ -1405,7 +1405,7 @@ module suilend::reserve {
         ctx: &mut TxContext
     ) {
         assert!(!dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerAlreadyInitialized);
-        assert!(type_name::get<S>() == type_name::get<SPRUNGSUI>(), EWrongType);
+        assert!(type_name::with_defining_ids<S>() == type_name::with_defining_ids<SPRUNGSUI>(), EWrongType);
 
         let staker = staker::create_staker(treasury_cap, ctx);
         dynamic_field::add(&mut reserve.id, StakerKey {}, staker);
@@ -1479,7 +1479,7 @@ module suilend::reserve {
         system_state: &mut SuiSystemState,
         ctx: &mut TxContext
     ) {
-        assert!(reserve.coin_type == type_name::get<SUI>() && type_name::get<T>() == type_name::get<SUI>(), EWrongType);
+        assert!(reserve.coin_type == type_name::with_defining_ids<SUI>() && type_name::with_defining_ids<T>() == type_name::with_defining_ids<SUI>(), EWrongType);
         if (!dynamic_field::exists_(&reserve.id, StakerKey {})) {
             return
         };
@@ -1775,7 +1775,7 @@ module suilend::reserve {
             id: object::new(test_scenario::ctx(&mut scenario)),
             lending_market_id: object::uid_to_inner(&id),
             array_index: 0,
-            coin_type: type_name::get<TEST_USDC>(),
+            coin_type: type_name::with_defining_ids<TEST_USDC>(),
             config: cell::new(default_reserve_config(scenario.ctx())),
             mint_decimals: 9,
             price_identifier: example_price_identifier(),
@@ -1793,12 +1793,12 @@ module suilend::reserve {
             borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(test_scenario::ctx(&mut scenario))
         };
 
-        assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10), 0);
-        assert!(ctoken_market_value(&reserve, 10_000_000_000) == decimal::from(50), 0);
-        assert!(cumulative_borrow_rate(&reserve) == decimal::from(1), 0);
-        assert!(total_supply(&reserve) == decimal::from(1000), 0);
-        assert!(calculate_utilization_rate(&reserve) == decimal::from_percent(50), 0);
-        assert!(ctoken_ratio(&reserve) == decimal::from(5), 0);
+        assert!(market_value(&reserve, decimal::from(10_000_000_000)) == decimal::from(10));
+        assert!(ctoken_market_value(&reserve, 10_000_000_000) == decimal::from(50));
+        assert!(cumulative_borrow_rate(&reserve) == decimal::from(1));
+        assert!(total_supply(&reserve) == decimal::from(1000));
+        assert!(calculate_utilization_rate(&reserve) == decimal::from_percent(50));
+        assert!(ctoken_ratio(&reserve) == decimal::from(5));
 
         sui::test_utils::destroy(id);
         sui::test_utils::destroy(reserve);
@@ -1819,7 +1819,7 @@ module suilend::reserve {
             id: object::new(test_scenario::ctx(&mut scenario)),
             lending_market_id: object::uid_to_inner(&lending_market_id),
             array_index: 0,
-            coin_type: type_name::get<TEST_USDC>(),
+            coin_type: type_name::with_defining_ids<TEST_USDC>(),
             config: cell::new({
                 let config = default_reserve_config(scenario.ctx());
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
@@ -1861,21 +1861,21 @@ module suilend::reserve {
 
         compound_interest(&mut reserve, &clock);
 
-        assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050), 0);
-        assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)), 0);
-        assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50), 0);
-        assert!(ctoken_ratio(&reserve) == decimal::from_percent_u64(501), 0);
-        assert!(reserve.interest_last_update_timestamp_s == 1, 0);
+        assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050));
+        assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)));
+        assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50));
+        assert!(ctoken_ratio(&reserve) == decimal::from_percent_u64(501));
+        assert!(reserve.interest_last_update_timestamp_s == 1);
 
 
         // test idempotency
 
         compound_interest(&mut reserve, &clock);
 
-        assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050), 0);
-        assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)), 0);
-        assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50), 0);
-        assert!(reserve.interest_last_update_timestamp_s == 1, 0);
+        assert!(cumulative_borrow_rate(&reserve) == decimal::from_bps(10_050));
+        assert!(reserve.borrowed_amount == add(decimal::from(500), decimal::from_percent(250)));
+        assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50));
+        assert!(reserve.interest_last_update_timestamp_s == 1);
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(clock);
@@ -1905,7 +1905,7 @@ module suilend::reserve {
             id: object::new(ctx),
             lending_market_id: object::uid_to_inner(&lending_market_id),
             array_index,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             config: cell::new(config),
             mint_decimals,
             price_identifier: {
@@ -2000,7 +2000,7 @@ module suilend::reserve {
             id: object::new(ctx),
             lending_market_id,
             array_index,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             config: cell::new(config),
             mint_decimals,
             price_identifier: price_identifier::from_byte_vec(price_identifier),

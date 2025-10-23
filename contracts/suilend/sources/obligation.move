@@ -1008,7 +1008,7 @@ module suilend::obligation {
         let mut i = 0;
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow(&obligation.deposits, i);
-            if (deposit.coin_type == type_name::get<T>()) {
+            if (deposit.coin_type == type_name::with_defining_ids<T>()) {
                 return deposit.deposited_ctoken_amount
             };
 
@@ -1023,7 +1023,7 @@ module suilend::obligation {
         let mut i = 0;
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow(&obligation.borrows, i);
-            if (borrow.coin_type == type_name::get<T>()) {
+            if (borrow.coin_type == type_name::with_defining_ids<T>()) {
                 return borrow.borrowed_amount
             };
 

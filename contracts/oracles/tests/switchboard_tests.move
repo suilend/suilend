@@ -54,7 +54,7 @@ module oracles::switchboard_tests {
             aggregator.id()
         );
 
-        assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)), 0);
+        assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)));
         assert!(current_result == aggregator.current_result());
 
         switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));

@@ -63,9 +63,9 @@ module oracles::pyth_tests {
             example_price_identifier(),
         );
 
-        assert!(actual_spot_price == from_pyth_price(&spot_price), 0);
-        assert!(actual_ema_price == from_pyth_price(&ema_price), 0);
-        assert!(price_feed == price_info_object.get_price_info_from_price_info_object().get_price_feed(), 0);
+        assert!(actual_spot_price == from_pyth_price(&spot_price));
+        assert!(actual_ema_price == from_pyth_price(&ema_price));
+        assert!(price_feed == price_info_object.get_price_info_from_price_info_object().get_price_feed());
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);

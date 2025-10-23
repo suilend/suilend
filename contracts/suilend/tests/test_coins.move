@@ -64,8 +64,8 @@ module suilend::mock_metadata {
         test_utils::destroy(test_usdc_cap);
         test_utils::destroy(test_sui_cap);
 
-        bag::add(&mut bag, type_name::get<TEST_USDC>(), test_usdc_metadata);
-        bag::add(&mut bag, type_name::get<TEST_SUI>(), test_sui_metadata);
+        bag::add(&mut bag, type_name::with_defining_ids<TEST_USDC>(), test_usdc_metadata);
+        bag::add(&mut bag, type_name::with_defining_ids<TEST_SUI>(), test_sui_metadata);
 
         Metadata {
             metadata: bag,
@@ -73,6 +73,6 @@ module suilend::mock_metadata {
     }
 
     public fun get<T>(metadata: &Metadata): &CoinMetadata<T> {
-        bag::borrow(&metadata.metadata, type_name::get<T>())
+        bag::borrow(&metadata.metadata, type_name::with_defining_ids<T>())
     }
 }

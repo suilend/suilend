@@ -84,6 +84,7 @@ module suilend::rate_limiter {
     /// # Panics
     ///
     /// * If `cur_time` is less than the rate limiter's `window_start` (`EInvalidTime`).
+    #[allow(lint(unneeded_return))]
     fun update_internal(rate_limiter: &mut RateLimiter, cur_time: u64) {
         assert!(cur_time >= rate_limiter.window_start, EInvalidTime);
 
@@ -209,15 +210,15 @@ module suilend::rate_limiter {
 
         let mut i = 0;
         while (i < 10) {
-            assert!(current_outflow(&rate_limiter, i) == decimal::from(100), 0);
+            assert!(current_outflow(&rate_limiter, i) == decimal::from(100));
             i = i + 1;
         };
 
         i = 10;
         while (i < 19) {
             process_qty(&mut rate_limiter, i, decimal::from(10));
-            assert!(current_outflow(&rate_limiter, i) == decimal::from(100), 0);
-            assert!(remaining_outflow(&mut rate_limiter, i) == decimal::from(0), 0);
+            assert!(current_outflow(&rate_limiter, i) == decimal::from(100));
+            assert!(remaining_outflow(&mut rate_limiter, i) == decimal::from(0));
             i = i + 1;
         };
 

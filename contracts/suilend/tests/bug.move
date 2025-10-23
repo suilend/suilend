@@ -24,9 +24,9 @@ module suilend::test_dynamic_field {
         let container = create_container_with_field(ctx);
         
         // Verify the dynamic field exists and has the correct value
-        assert!(df::exists_(&container.id, b"field_key"), 1);
+        assert!(df::exists_(&container.id, b"field_key"));
         let value: &u64 = df::borrow(&container.id, b"field_key");
-        assert!(*value == 42, 2);
+        assert!(*value == 42);
 
         destroy(container);
         test_scenario::end(scenario);
@@ -39,9 +39,9 @@ module suilend::test_dynamic_field {
         let container = create_container_with_field(ctx);
         
         // Verify the dynamic field exists and has the correct value
-        assert!(df::exists_(&container.id, b"field_key"), 1);
+        assert!(df::exists_(&container.id, b"field_key"));
         let value: &u64 = df::borrow(&container.id, b"field_key");
-        assert!(*value == 42, 2);
+        assert!(*value == 42);
 
         destroy(container);
         test_scenario::end(scenario);
