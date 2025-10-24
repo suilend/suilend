@@ -33,6 +33,9 @@ const NAV_PRECISION: u128 = 1_000_000_000;
 
 const TEST_COIN_DECIMALS: u8 = 6;
 
+#[error]
+const EShouldNotReach: u8 = 0;
+
 fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
     let mut scenario = ts::begin(ADMIN);
 
@@ -345,7 +348,7 @@ fun test_minimum_deposit_failure() {
     );
 
     // Should not reach here
-    abort 0
+    abort EShouldNotReach
 }
 
 #[test]
@@ -374,7 +377,7 @@ fun test_insufficient_shares_withdrawal() {
     test_utils::destroy(prices);
 
     // Should not reach here
-    abort 0
+    abort EShouldNotReach
 }
 
 #[test]
@@ -434,7 +437,7 @@ fun test_excessive_fee_failure() {
     );
 
     // Should not reach here
-    abort 0
+    abort EShouldNotReach
 }
 
 #[test]
@@ -488,7 +491,7 @@ fun test_utilization_rate_guard() {
     );
 
     // Should not reach here
-    abort 0
+    abort EShouldNotReach
 }
 
 #[test]

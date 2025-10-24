@@ -36,6 +36,8 @@ const EIncompleteAccumulation: vector<u8> = b"VaultValueAccumulator processing i
 const EInvalidShareCurrency: vector<u8> = b"Vault currency metadata is invalid";
 #[error]
 const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
+#[error]
+const EInvalidPrice: vector<u8> = b"Invalid PriceInfoObject supplied";
 
 // === Constants ===
 const CURRENT_VERSION: u16 = 1;
@@ -1174,8 +1176,8 @@ fun get_token_amount_from_usd<P, T>(
         smoothed_price_decimal,
         price_identifier,
     ) = oracles::get_pyth_price_and_identifier(price_info, clock);
-    assert!(price_identifier == vault.price_identifier, 999);
-    assert!(price_decimal.is_some(), 999);
+    assert!(price_identifier == vault.price_identifier, EInvalidPrice);
+    assert!(price_decimal.is_some(), EInvalidPrice);
 
     let price = price_decimal.extract();
 
@@ -1208,8 +1210,8 @@ fun get_usd_value_for_token_amount<P, T>(
         smoothed_price_decimal,
         price_identifier,
     ) = oracles::get_pyth_price_and_identifier(price_info, clock);
-    assert!(price_identifier == vault.price_identifier, 999);
-    assert!(price_decimal.is_some(), 999);
+    assert!(price_identifier == vault.price_identifier, EInvalidPrice);
+    assert!(price_decimal.is_some(), EInvalidPrice);
 
     let price = price_decimal.extract();
 
