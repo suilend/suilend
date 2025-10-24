@@ -3,6 +3,7 @@ module sprungsui::sprungsui {
 
     public struct SPRUNGSUI has drop {}
 
+    #[allow(deprecated_usage)] // create_currency -> coin_registry::new_currency_with_otw
     fun init(witness: SPRUNGSUI, ctx: &mut TxContext) {
         let (treasury, metadata) = coin::create_currency(
             witness, 

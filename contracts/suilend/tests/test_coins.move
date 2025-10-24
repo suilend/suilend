@@ -5,6 +5,7 @@ module suilend::test_usdc {
     public struct TEST_USDC has drop {}
 
     #[test_only]
+    #[allow(deprecated_usage)] // create_currency -> coin_registry::new_currency_with_otw
     public fun create_currency(
         ctx: &mut TxContext,
     ): (TreasuryCap<TEST_USDC>, CoinMetadata<TEST_USDC>) {
@@ -27,6 +28,7 @@ module suilend::test_sui {
     public struct TEST_SUI has drop {}
 
     #[test_only]
+    #[allow(deprecated_usage)] // create_currency -> coin_registry::new_currency_with_otw
     public fun create_currency(
         ctx: &mut TxContext,
     ): (TreasuryCap<TEST_SUI>, CoinMetadata<TEST_SUI>) {
