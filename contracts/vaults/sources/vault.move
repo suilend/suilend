@@ -566,8 +566,7 @@ public fun withdraw<P, T>(
 
     // Calculate total USD value of net shares being redeemed
     let current_nav_per_share = vault.calculate_nav_per_share(&agg);
-    let net_usd_value =
-        (((net_shares as u128) * (current_nav_per_share as u128)) / NAV_PRECISION) as u64;
+    let net_usd_value = shares_to_usd(net_shares, current_nav_per_share);
 
     // Convert net USD value to token amount
     let withdraw_amount = vault
@@ -817,8 +816,8 @@ fun calculate_all_fees<P, T>(
     let new_nav = if (total_fee_shares == 0) {
         base_nav
     } else {
-        let total_value = ((base_nav as u128) * (current_shares as u128)) / NAV_PRECISION;
-        ((total_value * NAV_PRECISION) / ((current_shares + total_fee_shares) as u128)) as u64
+        let total_value = shares_to_usd(current_shares, base_nav);
+        calculate_shares_from_usd(current_shares + total_fee_shares, total_value)
     };
 
     FeeAccrual {
@@ -846,11 +845,10 @@ fun calculate_performance_fee_shares<P, T>(
     };
 
     // Total value at current NAV
-    let total_value = ((current_nav_per_share as u128) * (current_shares as u128)) / NAV_PRECISION;
+    let total_value = shares_to_usd(current_shares, current_nav_per_share) as u128;
 
     // Total value at high water mark (baseline for performance)
-    let baseline_value =
-        ((vault.nav_high_water_mark as u128) * (current_shares as u128)) / NAV_PRECISION;
+    let baseline_value = shares_to_usd(current_shares, vault.nav_high_water_mark) as u128;
 
     // Gain = total_value - baseline_value
     let gain = total_value - baseline_value;
@@ -861,10 +859,10 @@ fun calculate_performance_fee_shares<P, T>(
     // Calculate shares accounting for management fee dilution
     // NAV after mgmt fees = total_value / (current_shares + mgmt_shares)
     let shares_after_mgmt = current_shares + mgmt_shares_to_mint;
-    let nav_after_mgmt = (total_value * NAV_PRECISION) / (shares_after_mgmt as u128);
+    let nav_after_mgmt = calculate_shares_from_usd(shares_after_mgmt, total_value as u64) as u128;
 
     // Convert performance fee value to shares at post-mgmt NAV
-    ((perf_fee_value * NAV_PRECISION) / nav_after_mgmt) as u64
+    calculate_shares_from_usd(nav_after_mgmt as u64, perf_fee_value as u64)
 }
 
 fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u64 {
@@ -1009,10 +1007,10 @@ public fun calculate_withdraw_amount<P, L, T>(
     agg: VaultValueAggregate,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(&agg);
-    let withdraw_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
+    let withdraw_usd_value = shares_to_usd(shares_amount, nav_per_share);
     get_token_amount_from_usd_from_lending_market<_, T>(
         lending_market,
-        withdraw_usd_value as u64,
+        withdraw_usd_value,
     ).floor()
 }
 
@@ -1024,10 +1022,10 @@ public fun calculate_deposit_amount<P, L, T>(
     agg: VaultValueAggregate,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(&agg);
-    let deposit_usd_value = (((shares_amount as u128) * (nav_per_share as u128)) / NAV_PRECISION);
+    let deposit_usd_value = shares_to_usd(shares_amount, nav_per_share);
     get_token_amount_from_usd_from_lending_market<_, T>(
         lending_market,
-        deposit_usd_value as u64,
+        deposit_usd_value,
     ).floor()
 }
 
@@ -1071,7 +1069,7 @@ public fun calculate_nav_per_share<P, T>(vault: &Vault<P, T>, agg: &VaultValueAg
     if (current_shares == 0 || vault_value == 0) {
         NAV_PRECISION as u64 // 1.0 scaled
     } else {
-        (((vault_value as u128) * NAV_PRECISION) / (current_shares as u128)) as u64
+        calculate_shares_from_usd(current_shares, vault_value)
     }
 }
 
@@ -1081,6 +1079,11 @@ public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
 }
 
 // === Private Helpers ===
+
+/// Convert shares to USD value using NAV per share
+fun shares_to_usd(shares: u64, nav_per_share: u64): u64 {
+    (((shares as u128) * (nav_per_share as u128)) / NAV_PRECISION) as u64
+}
 
 /// Calculates vault shares from USD amount
 /// TODO: Check for truncation
