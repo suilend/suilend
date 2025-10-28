@@ -75,10 +75,8 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
     );
 
     // Create vault and manager cap
-    let manager_cap = vault::create_vault<_, _, TEST_COIN>(
+    let manager_cap = vault::create_vault<_, TEST_COIN>(
         treasury_cap,
-        &curr,
-        &lending_market,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -138,7 +136,7 @@ fun test_deposit_and_withdraw() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let mut vault_shares = vault.deposit(
         deposit_coin,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -157,7 +155,7 @@ fun test_deposit_and_withdraw() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let withdrawn_coins = vault.withdraw(
         withdraw_shares,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -198,7 +196,7 @@ fun test_fees_collected() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let vault_shares = vault.deposit(
         deposit_coin,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -208,7 +206,7 @@ fun test_fees_collected() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let withdrawn_coins = vault.withdraw(
         vault_shares,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -243,7 +241,7 @@ fun test_multiple_users() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let shares1 = vault.deposit(
         deposit1,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -255,7 +253,7 @@ fun test_multiple_users() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let shares2 = vault.deposit(
         deposit2,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -270,7 +268,7 @@ fun test_multiple_users() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let withdrawn1 = vault.withdraw(
         shares1,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -282,7 +280,7 @@ fun test_multiple_users() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let withdrawn2 = vault.withdraw(
         shares2,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -327,7 +325,7 @@ fun test_manager_cap_validation() {
 #[test]
 #[expected_failure(abort_code = vault::EInvalidDeposit)]
 fun test_minimum_deposit_failure() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (_prices, mut scenario) = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
     let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
@@ -341,7 +339,7 @@ fun test_minimum_deposit_failure() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let _shares = vault.deposit(
         small_deposit,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -354,7 +352,7 @@ fun test_minimum_deposit_failure() {
 #[test]
 #[expected_failure(abort_code = vault::EInsufficientShares)]
 fun test_insufficient_shares_withdrawal() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (_prices, mut scenario) = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
     let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
@@ -368,13 +366,11 @@ fun test_insufficient_shares_withdrawal() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let _withdrawn = vault.withdraw(
         zero_shares,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
     );
-
-    test_utils::destroy(prices);
 
     // Should not reach here
     abort EShouldNotReach
@@ -386,13 +382,10 @@ fun test_fee_limits() {
     scenario.next_tx(ADMIN);
     let clock = scenario.take_shared<Clock>();
     let (curr, t_cap) = create_test_currency(scenario.ctx());
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     // Test that fee limits are enforced during vault creation
-    let manager_cap = vault::create_vault<_, _, TEST_COIN>(
+    let manager_cap = vault::create_vault<_, TEST_COIN>(
         t_cap,
-        &curr,
-        &lending_market,
         1000, // 10% management fee (at limit)
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
@@ -403,7 +396,6 @@ fun test_fee_limits() {
 
     {
         test_utils::destroy(prices);
-        ts::return_shared(lending_market);
         ts::return_shared(clock);
         test_utils::destroy(curr);
         transfer::public_transfer(manager_cap, ADMIN);
@@ -419,15 +411,12 @@ fun test_excessive_fee_failure() {
 
     scenario.next_tx(ADMIN);
 
-    let (curr, t_cap) = create_test_currency(scenario.ctx());
+    let (_curr, t_cap) = create_test_currency(scenario.ctx());
     let clock = scenario.take_shared<Clock>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
     // Try to create vault with excessive fees (should fail)
-    let _manager_cap = vault::create_vault<_, _, TEST_COIN>(
+    let _manager_cap = vault::create_vault<_, TEST_COIN>(
         t_cap,
-        &curr,
-        &lending_market,
         2000, // 20% management fee (above 10% limit)
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -443,7 +432,7 @@ fun test_excessive_fee_failure() {
 #[test]
 #[expected_failure(abort_code = vault::EInsufficientLiquidity)]
 fun test_utilization_rate_guard() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (_prices, mut scenario) = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
 
@@ -462,7 +451,7 @@ fun test_utilization_rate_guard() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let _vault_shares = vault.deposit(
         deposit_coin,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -513,7 +502,7 @@ fun test_allocate_and_divest() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let mut vault_shares = vault.deposit(
         deposit_coin,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -562,7 +551,7 @@ fun test_allocate_and_divest() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let withdrawn_coins = vault.withdraw(
         shares_to_withdraw,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -600,7 +589,7 @@ fun test_nav_changes() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let shares = vault.deposit(
         deposit_coin,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -664,7 +653,7 @@ fun test_compound_rewards() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let vault_shares = vault.deposit(
         deposit_coin,
-        prices.get_price_obj<TEST_COIN>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
@@ -776,10 +765,8 @@ fun test_compound_rewards_with_swap() {
         scenario.ctx(),
     );
 
-    let manager_cap = vault::create_vault<_, _, B_TEST_SUI>(
+    let manager_cap = vault::create_vault<_, B_TEST_SUI>(
         treasury_cap,
-        &curr,
-        &lending_market,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -830,7 +817,7 @@ fun test_compound_rewards_with_swap() {
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let vault_shares = vault.deposit(
         deposit_coin,
-        prices.get_price_obj<B_TEST_SUI>(),
+        &lending_market,
         &clock,
         agg,
         scenario.ctx(),
