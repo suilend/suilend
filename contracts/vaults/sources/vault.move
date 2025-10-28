@@ -2,7 +2,14 @@ module vaults::vault;
 
 use std::type_name::{Self, TypeName};
 use steamm::{cpmm::{Self, CpQuoter}, pool::Pool};
-use sui::{bag, balance::{Self, Balance}, clock::Clock, coin::{Self, TreasuryCap, Coin}, event};
+use sui::{
+    bag,
+    balance::{Self, Balance},
+    clock::Clock,
+    coin::{Self, TreasuryCap, Coin},
+    event,
+    vec_map
+};
 use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}};
 
 // === Errors ===
@@ -50,7 +57,7 @@ public struct Vault<phantom P, phantom T> has key, store {
     id: object::UID,
     version: vaults::version::Version,
     // Keyed by 'L' from LendingMarket<L>
-    obligations: sui::vec_map::VecMap<TypeName, vector<ObligationData>>,
+    obligations: vec_map::VecMap<TypeName, vector<ObligationData>>,
     treasury_cap: TreasuryCap<P>,
     deposit_asset: Balance<T>,
     manager_fees: Balance<P>,
@@ -78,15 +85,29 @@ public struct VaultManagerCap<phantom P> has key, store {
 /// Must be consumed in PTB
 public struct VaultValueAccumulator {
     // Keyed by 'L' from LendingMarket<L>
-    obligation_ids: sui::vec_map::VecMap<TypeName, vector<ID>>,
-    lending_market_values: sui::vec_map::VecMap<TypeName, u64>,
+    obligation_ids: vec_map::VecMap<TypeName, vector<ID>>,
+    lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 }
 
 /// Created from a VaultValueAggregate once it has been fully processed
 public struct VaultValueAggregate has drop {
     liquid_asset_value_usd: u64,
     total_obligation_value_usd: u64,
-    lending_market_values: sui::vec_map::VecMap<TypeName, u64>,
+    lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
+}
+
+public struct LendingMarketAllocation has copy, drop, store {
+    deposited_value_usd: u64,
+    borrowed_value_usd: u64,
+    net_value_usd: u64,
+    obligations: vector<ObligationAllocation>,
+}
+
+public struct ObligationAllocation has copy, drop, store {
+    obligation_id: ID,
+    deposited_value_usd: u64,
+    borrowed_value_usd: u64,
+    net_value_usd: u64,
 }
 
 public struct FeeAccrual has drop {
@@ -151,10 +172,12 @@ public struct FeesAccrued has copy, drop {
 
 public struct VaultStats has copy, drop {
     vault_id: object::ID,
+    base_token_type: type_name::TypeName,
     nav_per_share_usd: u64,
     utilization_rate_bps: u64,
     aum_usd: u64,
     total_shares: u64,
+    lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 }
 
 // === Vault Manager Functions ===
@@ -194,7 +217,7 @@ public fun create_vault<P, T>(
         id: vault_id,
         version: vaults::version::new(CURRENT_VERSION),
         treasury_cap: vault_share_treasury_cap,
-        obligations: sui::vec_map::empty(),
+        obligations: vec_map::empty(),
         deposit_asset: balance::zero<T>(),
         manager_fees: balance::zero<P>(),
         management_fee_bps,
@@ -291,10 +314,22 @@ public fun deploy_funds<P, L, T>(
             get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value).floor()
         };
         let updated_obligation_value_usd = agg.total_obligation_value_usd + usd_to_deploy.floor();
+
+        // Update the obligation allocations for this lending market
+        let lm_type = type_name::with_defining_ids<L>();
+        let mut updated_allocations = agg.lending_market_allocations;
+
+        if (updated_allocations.contains(&lm_type)) {
+            let allocation = updated_allocations.get_mut(&lm_type);
+            // Increase deposited value and net value by the deployed amount
+            allocation.deposited_value_usd = allocation.deposited_value_usd + usd_to_deploy.floor();
+            allocation.net_value_usd = allocation.net_value_usd + usd_to_deploy.floor();
+        };
+
         let updated_agg = VaultValueAggregate {
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: updated_obligation_value_usd,
-            lending_market_values: agg.lending_market_values,
+            lending_market_allocations: updated_allocations,
         };
         vault.emit_stats_event(&updated_agg);
     };
@@ -369,10 +404,30 @@ public fun withdraw_deployed_funds<P, L, T>(
         } else {
             0
         };
+
+        // Update the obligation allocations for this lending market
+        let lm_type = type_name::with_defining_ids<L>();
+        let mut updated_allocations = agg.lending_market_allocations;
+
+        if (updated_allocations.contains(&lm_type)) {
+            let allocation = updated_allocations.get_mut(&lm_type);
+            // Decrease deposited value and net value by the withdrawn amount
+            allocation.deposited_value_usd = if (allocation.deposited_value_usd >= usd_withdrawn) {
+                allocation.deposited_value_usd - usd_withdrawn
+            } else {
+                0
+            };
+            allocation.net_value_usd = if (allocation.net_value_usd >= usd_withdrawn) {
+                allocation.net_value_usd - usd_withdrawn
+            } else {
+                0
+            };
+        };
+
         let updated_agg = VaultValueAggregate {
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: updated_obligation_value_usd,
-            lending_market_values: agg.lending_market_values,
+            lending_market_allocations: updated_allocations,
         };
         vault.emit_stats_event(&updated_agg);
     };
@@ -500,7 +555,7 @@ public fun deposit<P, L, T>(
         let updated_agg = VaultValueAggregate {
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: agg.total_obligation_value_usd,
-            lending_market_values: agg.lending_market_values,
+            lending_market_allocations: agg.lending_market_allocations,
         };
         vault.emit_stats_event(&updated_agg);
     };
@@ -585,7 +640,7 @@ public fun withdraw<P, L, T>(
         let updated_agg = VaultValueAggregate {
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: agg.total_obligation_value_usd,
-            lending_market_values: agg.lending_market_values,
+            lending_market_allocations: agg.lending_market_allocations,
         };
         vault.emit_stats_event(&updated_agg);
     };
@@ -873,8 +928,8 @@ public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValue
         })
     });
     VaultValueAccumulator {
-        obligation_ids: sui::vec_map::from_keys_values(keys, obligation_ids),
-        lending_market_values: sui::vec_map::empty(),
+        obligation_ids: vec_map::from_keys_values(keys, obligation_ids),
+        lending_market_allocations: vec_map::empty(),
     }
 }
 
@@ -884,9 +939,27 @@ public fun process_lending_market<L>(
 ) {
     let lending_market_type = type_name::with_defining_ids<L>();
     let (_, obligation_ids) = acc.obligation_ids.remove(&lending_market_type);
-    let obligation_values_usd = calculate_obligation_values_usd(obligation_ids, lending_market);
+    let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
 
-    acc.lending_market_values.insert(lending_market_type, obligation_values_usd);
+    // Calculate aggregated values for this lending market
+    let mut total_deposited = 0u64;
+    let mut total_borrowed = 0u64;
+    let mut total_net = 0u64;
+
+    obligation_allocations.do_ref!(|alloc| {
+        total_deposited = total_deposited + alloc.deposited_value_usd;
+        total_borrowed = total_borrowed + alloc.borrowed_value_usd;
+        total_net = total_net + alloc.net_value_usd;
+    });
+
+    let lending_market_allocation = LendingMarketAllocation {
+        deposited_value_usd: total_deposited,
+        borrowed_value_usd: total_borrowed,
+        net_value_usd: total_net,
+        obligations: obligation_allocations,
+    };
+
+    acc.lending_market_allocations.insert(lending_market_type, lending_market_allocation);
 }
 
 public fun create_vault_value_aggregate<P, L, T>(
@@ -903,17 +976,20 @@ public fun create_vault_value_aggregate<P, L, T>(
 
     let VaultValueAccumulator {
         obligation_ids: _,
-        lending_market_values,
+        lending_market_allocations,
     } = acc;
-    let ks = lending_market_values.keys();
+
+    // Calculate total obligation value from all lending markets
+    let ks = lending_market_allocations.keys();
     let total_obligation_value_usd = ks.fold!(0, |acc, k| {
-        let val = *lending_market_values.get(&k);
-        acc + val
+        let allocation = lending_market_allocations.get(&k);
+        acc + allocation.net_value_usd
     });
+
     VaultValueAggregate {
         liquid_asset_value_usd,
         total_obligation_value_usd,
-        lending_market_values,
+        lending_market_allocations,
     }
 }
 
@@ -999,7 +1075,7 @@ public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Deci
     let updated_agg = VaultValueAggregate {
         liquid_asset_value_usd: liquid_asset_value - usd_to_deploy,
         total_obligation_value_usd: agg.total_obligation_value_usd + usd_to_deploy,
-        lending_market_values: agg.lending_market_values,
+        lending_market_allocations: agg.lending_market_allocations,
     };
 
     let new_utilization = updated_agg.calculate_utilization_rate();
@@ -1035,12 +1111,12 @@ fun calculate_shares_from_usd(nav_per_share: u64, usd_amount: u64): u64 {
     (((usd_amount as u128) * NAV_PRECISION) / (nav_per_share as u128)) as u64
 }
 
-/// Calculate total obligation value within one Lending Market in USD
-fun calculate_obligation_values_usd<L>(
+/// Calculate obligations state within one Lending Market
+fun calculate_obligation_values<L>(
     obligation_ids: vector<ID>,
     lending_market: &LendingMarket<L>,
-): u64 {
-    let mut total_asset_value = 0;
+): vector<ObligationAllocation> {
+    let mut allocations = vector::empty<ObligationAllocation>();
 
     // Add value from all lending positions
     obligation_ids.do!(|obligation_id| {
@@ -1051,10 +1127,15 @@ fun calculate_obligation_values_usd<L>(
 
         let net_value = deposited_value_usd - unweighted_borrowed_value_usd;
 
-        total_asset_value = total_asset_value + net_value;
+        allocations.push_back(ObligationAllocation {
+            obligation_id,
+            deposited_value_usd,
+            borrowed_value_usd: unweighted_borrowed_value_usd,
+            net_value_usd: net_value,
+        });
     });
 
-    total_asset_value
+    allocations
 }
 
 /// Get T amount from USD amount
@@ -1085,10 +1166,12 @@ fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
     let utilization_rate_bps = calculate_utilization_rate(agg);
     event::emit(VaultStats {
         vault_id: object::id(vault),
+        base_token_type: type_name::with_defining_ids<T>(),
         nav_per_share_usd,
         utilization_rate_bps,
         aum_usd,
         total_shares: vault.total_supply(),
+        lending_market_allocations: agg.lending_market_allocations,
     });
 }
 
