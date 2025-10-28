@@ -2,12 +2,11 @@
 
 [move]
 version = 3
-manifest_digest = "9AB6DA67F01C829B2D3A4FE73281BE86F3663CC3709E36193C72704868AC03F7"
-deps_digest = "CAFAD8A7CF51067FB4358215BECB86BD100DD64E57C2AC8A7AE7D74B688F5965"
+manifest_digest = "E9E42E63B33424EDA206645FA528017F43CE043E2BD2C3AFC76F7A95850E2ACA"
+deps_digest = "52B406A7A21811BEF51751CF88DA0E76DAEFFEAC888D4F4060B1A72BBE7D8D35"
 dependencies = [
   { id = "Bridge", name = "Bridge" },
   { id = "MoveStdlib", name = "MoveStdlib" },
-  { id = "Pyth", name = "Pyth" },
   { id = "Sui", name = "Sui" },
   { id = "SuiSystem", name = "SuiSystem" },
   { id = "steamm", name = "steamm" },
@@ -141,6 +140,6 @@ flavor = "sui"
 
 [env.mainnet]
 chain-id = "35834a8a"
-original-published-id = "0x7822c7db824c1b1f7db5374604e2fb61ce3f0601a60645631800ab65c2d7160a"
-latest-published-id = "0x7822c7db824c1b1f7db5374604e2fb61ce3f0601a60645631800ab65c2d7160a"
+original-published-id = "0x56fe89cfd89fc6362fd3cdc130a7b630509d1fa68edab43b3b2885e2de96d84b"
+latest-published-id = "0x56fe89cfd89fc6362fd3cdc130a7b630509d1fa68edab43b3b2885e2de96d84b"
 published-version = "1"

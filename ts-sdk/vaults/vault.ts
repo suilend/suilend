@@ -10,7 +10,6 @@ import * as version from './version.js';
 import * as vec_map from './deps/sui/vec_map.js';
 import * as type_name from './deps/std/type_name.js';
 import * as coin from './deps/sui/coin.js';
-import * as price_identifier from './deps/pyth/price_identifier.js';
 import * as balance from './deps/sui/balance.js';
 const $moduleName = '@local-pkg/vault::vault';
 export const ObligationData = new MoveStruct({ name: `${$moduleName}::ObligationData`, fields: {
@@ -22,8 +21,6 @@ export const Vault = new MoveStruct({ name: `${$moduleName}::Vault`, fields: {
         version: version.Version,
         obligations: vec_map.VecMap(type_name.TypeName, bcs.vector(ObligationData)),
         treasury_cap: coin.TreasuryCap,
-        price_identifier: price_identifier.PriceIdentifier,
-        base_token_decimals: bcs.u8(),
         deposit_asset: balance.Balance,
         manager_fees: balance.Balance,
         management_fee_bps: bcs.u64(),
@@ -101,13 +98,11 @@ export const VaultStats = new MoveStruct({ name: `${$moduleName}::VaultStats`, f
         vault_id: bcs.Address,
         nav_per_share_usd: bcs.u64(),
         utilization_rate_bps: bcs.u64(),
-        aum_usd: bcs.u64()
+        aum_usd: bcs.u64(),
+        total_shares: bcs.u64()
     } });
 export interface CreateVaultArguments {
     vaultShareTreasuryCap: RawTransactionArgument<string>;
-    vaultShareCurrency: RawTransactionArgument<string>;
-    lendingMarket: RawTransactionArgument<string>;
-    baseTokenDecimals: RawTransactionArgument<number>;
     managementFeeBps: RawTransactionArgument<number | bigint>;
     performanceFeeBps: RawTransactionArgument<number | bigint>;
     depositFeeBps: RawTransactionArgument<number | bigint>;
@@ -117,16 +112,12 @@ export interface CreateVaultOptions {
     package?: string;
     arguments: CreateVaultArguments | [
         vaultShareTreasuryCap: RawTransactionArgument<string>,
-        vaultShareCurrency: RawTransactionArgument<string>,
-        lendingMarket: RawTransactionArgument<string>,
-        baseTokenDecimals: RawTransactionArgument<number>,
         managementFeeBps: RawTransactionArgument<number | bigint>,
         performanceFeeBps: RawTransactionArgument<number | bigint>,
         depositFeeBps: RawTransactionArgument<number | bigint>,
         withdrawalFeeBps: RawTransactionArgument<number | bigint>
     ];
     typeArguments: [
-        string,
         string,
         string
     ];
@@ -135,16 +126,13 @@ export function createVault(options: CreateVaultOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
         `0x0000000000000000000000000000000000000000000000000000000000000002::coin::TreasuryCap<${options.typeArguments[0]}>`,
-        `0x0000000000000000000000000000000000000000000000000000000000000002::coin_registry::Currency<${options.typeArguments[0]}>`,
-        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
-        'u8',
         'u64',
         'u64',
         'u64',
         'u64',
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
     ] satisfies string[];
-    const parameterNames = ["vaultShareTreasuryCap", "vaultShareCurrency", "lendingMarket", "baseTokenDecimals", "managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
+    const parameterNames = ["vaultShareTreasuryCap", "managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -315,7 +303,7 @@ export function createObligation(options: CreateObligationOptions) {
 export interface DepositArguments {
     vault: RawTransactionArgument<string>;
     deposit: RawTransactionArgument<string>;
-    priceInfo: RawTransactionArgument<string>;
+    lendingMarket: RawTransactionArgument<string>;
     agg: RawTransactionArgument<string>;
 }
 export interface DepositOptions {
@@ -323,10 +311,11 @@ export interface DepositOptions {
     arguments: DepositArguments | [
         vault: RawTransactionArgument<string>,
         deposit: RawTransactionArgument<string>,
-        priceInfo: RawTransactionArgument<string>,
+        lendingMarket: RawTransactionArgument<string>,
         agg: RawTransactionArgument<string>
     ];
     typeArguments: [
+        string,
         string,
         string
     ];
@@ -334,13 +323,13 @@ export interface DepositOptions {
 export function deposit(options: DepositOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
-        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
-        `0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<${options.typeArguments[1]}>`,
-        '0x8d97f1cd6ac663735be08d1d2b6d02a159e711586461306ce60a2b7a6a565a9e::price_info::PriceInfoObject',
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`,
+        `0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<${options.typeArguments[2]}>`,
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock',
         `${packageAddress}::vault::VaultValueAggregate`
     ] satisfies string[];
-    const parameterNames = ["vault", "deposit", "priceInfo", "agg"];
+    const parameterNames = ["vault", "deposit", "lendingMarket", "agg"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -352,7 +341,7 @@ export function deposit(options: DepositOptions) {
 export interface WithdrawArguments {
     vault: RawTransactionArgument<string>;
     shares: RawTransactionArgument<string>;
-    priceInfo: RawTransactionArgument<string>;
+    lendingMarket: RawTransactionArgument<string>;
     agg: RawTransactionArgument<string>;
 }
 export interface WithdrawOptions {
@@ -360,10 +349,11 @@ export interface WithdrawOptions {
     arguments: WithdrawArguments | [
         vault: RawTransactionArgument<string>,
         shares: RawTransactionArgument<string>,
-        priceInfo: RawTransactionArgument<string>,
+        lendingMarket: RawTransactionArgument<string>,
         agg: RawTransactionArgument<string>
     ];
     typeArguments: [
+        string,
         string,
         string
     ];
@@ -375,13 +365,13 @@ export interface WithdrawOptions {
 export function withdraw(options: WithdrawOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
-        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`,
         `0x0000000000000000000000000000000000000000000000000000000000000002::coin::Coin<${options.typeArguments[0]}>`,
-        '0x8d97f1cd6ac663735be08d1d2b6d02a159e711586461306ce60a2b7a6a565a9e::price_info::PriceInfoObject',
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock',
         `${packageAddress}::vault::VaultValueAggregate`
     ] satisfies string[];
-    const parameterNames = ["vault", "shares", "priceInfo", "agg"];
+    const parameterNames = ["vault", "shares", "lendingMarket", "agg"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -594,7 +584,7 @@ export function createVaultValueAggregate(options: CreateVaultValueAggregateOpti
 export interface CalculateSharesToMintArguments {
     vault: RawTransactionArgument<string>;
     depositAmount: RawTransactionArgument<number | bigint>;
-    priceInfo: RawTransactionArgument<string>;
+    lendingMarket: RawTransactionArgument<string>;
     agg: RawTransactionArgument<string>;
 }
 export interface CalculateSharesToMintOptions {
@@ -602,10 +592,11 @@ export interface CalculateSharesToMintOptions {
     arguments: CalculateSharesToMintArguments | [
         vault: RawTransactionArgument<string>,
         depositAmount: RawTransactionArgument<number | bigint>,
-        priceInfo: RawTransactionArgument<string>,
+        lendingMarket: RawTransactionArgument<string>,
         agg: RawTransactionArgument<string>
     ];
     typeArguments: [
+        string,
         string,
         string
     ];
@@ -614,13 +605,12 @@ export interface CalculateSharesToMintOptions {
 export function calculateSharesToMint(options: CalculateSharesToMintOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
-        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`,
         'u64',
-        '0x8d97f1cd6ac663735be08d1d2b6d02a159e711586461306ce60a2b7a6a565a9e::price_info::PriceInfoObject',
-        '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock',
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
         `${packageAddress}::vault::VaultValueAggregate`
     ] satisfies string[];
-    const parameterNames = ["vault", "depositAmount", "priceInfo", "agg"];
+    const parameterNames = ["vault", "depositAmount", "lendingMarket", "agg"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
