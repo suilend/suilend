@@ -508,12 +508,25 @@ public fun deposit<P, L, T>(
     let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
     let net_deposit_amount = deposit_amount - deposit_fee;
 
-    // Add deposited coins to vault's asset balance
+    // Calculate shares BEFORE adding deposit to vault or minting any shares
+    let fee_shares = if (deposit_fee > 0) {
+        calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg)
+    } else {
+        0
+    };
+
+    let shares_to_mint = calculate_shares_to_mint(
+        vault,
+        net_deposit_amount,
+        lending_market,
+        &agg,
+    );
+
+    // Add deposited coins to vault
     vault.deposit_asset.join(coin::into_balance(deposit));
 
     // Mint shares for deposit fee
-    if (deposit_fee > 0) {
-        let fee_shares = calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg);
+    if (fee_shares > 0) {
         let fee_balance = vault.treasury_cap.mint_balance(fee_shares);
         vault.manager_fees.join(fee_balance);
 
@@ -524,14 +537,6 @@ public fun deposit<P, L, T>(
             timestamp_ms: current_time,
         });
     };
-
-    // Calculate shares to mint based on current USD NAV
-    let shares_to_mint = calculate_shares_to_mint(
-        vault,
-        net_deposit_amount,
-        lending_market,
-        &agg,
-    );
 
     assert!(shares_to_mint > 0, EInvalidDeposit);
 
@@ -1122,16 +1127,18 @@ fun calculate_obligation_values<L>(
     obligation_ids.do!(|obligation_id| {
         let obligation = lending_market.obligation(obligation_id);
 
-        let deposited_value_usd = obligation.deposited_value_usd().floor();
-        let unweighted_borrowed_value_usd = obligation.unweighted_borrowed_value_usd().floor();
+        let deposited_value_usd_decimal = obligation.deposited_value_usd();
+        let unweighted_borrowed_value_usd_decimal = obligation.unweighted_borrowed_value_usd();
 
-        let net_value = deposited_value_usd - unweighted_borrowed_value_usd;
+        let net_value_decimal = deposited_value_usd_decimal.sub(
+            unweighted_borrowed_value_usd_decimal,
+        );
 
         allocations.push_back(ObligationAllocation {
             obligation_id,
-            deposited_value_usd,
-            borrowed_value_usd: unweighted_borrowed_value_usd,
-            net_value_usd: net_value,
+            deposited_value_usd: deposited_value_usd_decimal.floor(),
+            borrowed_value_usd: unweighted_borrowed_value_usd_decimal.floor(),
+            net_value_usd: net_value_decimal.floor(),
         });
     });
 

@@ -34,14 +34,26 @@ export const VaultManagerCap = new MoveStruct({ name: `${$moduleName}::VaultMana
         id: object.UID,
         vault_id: bcs.Address
     } });
+export const ObligationAllocation = new MoveStruct({ name: `${$moduleName}::ObligationAllocation`, fields: {
+        obligation_id: bcs.Address,
+        deposited_value_usd: bcs.u64(),
+        borrowed_value_usd: bcs.u64(),
+        net_value_usd: bcs.u64()
+    } });
+export const LendingMarketAllocation = new MoveStruct({ name: `${$moduleName}::LendingMarketAllocation`, fields: {
+        deposited_value_usd: bcs.u64(),
+        borrowed_value_usd: bcs.u64(),
+        net_value_usd: bcs.u64(),
+        obligations: bcs.vector(ObligationAllocation)
+    } });
 export const VaultValueAccumulator = new MoveStruct({ name: `${$moduleName}::VaultValueAccumulator`, fields: {
         obligation_ids: vec_map.VecMap(type_name.TypeName, bcs.vector(bcs.Address)),
-        lending_market_values: vec_map.VecMap(type_name.TypeName, bcs.u64())
+        lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
     } });
 export const VaultValueAggregate = new MoveStruct({ name: `${$moduleName}::VaultValueAggregate`, fields: {
         liquid_asset_value_usd: bcs.u64(),
         total_obligation_value_usd: bcs.u64(),
-        lending_market_values: vec_map.VecMap(type_name.TypeName, bcs.u64())
+        lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
     } });
 export const FeeAccrual = new MoveStruct({ name: `${$moduleName}::FeeAccrual`, fields: {
         management_fee_shares: bcs.u64(),
@@ -96,10 +108,12 @@ export const FeesAccrued = new MoveStruct({ name: `${$moduleName}::FeesAccrued`,
     } });
 export const VaultStats = new MoveStruct({ name: `${$moduleName}::VaultStats`, fields: {
         vault_id: bcs.Address,
+        base_token_type: type_name.TypeName,
         nav_per_share_usd: bcs.u64(),
         utilization_rate_bps: bcs.u64(),
         aum_usd: bcs.u64(),
-        total_shares: bcs.u64()
+        total_shares: bcs.u64(),
+        lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
     } });
 export interface CreateVaultArguments {
     vaultShareTreasuryCap: RawTransactionArgument<string>;
