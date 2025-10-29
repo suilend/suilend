@@ -144,6 +144,9 @@ public struct VaultWithdraw has copy, drop {
 
 public struct ManagerAllocate has copy, drop {
     vault_id: object::ID,
+    lending_market_id: object::ID,
+    reserve_index: u64,
+    obligation_index: u64,
     user: address,
     deposit_amount: u64,
     timestamp_ms: u64,
@@ -151,6 +154,9 @@ public struct ManagerAllocate has copy, drop {
 
 public struct ManagerDivest has copy, drop {
     vault_id: object::ID,
+    lending_market_id: object::ID,
+    reserve_index: u64,
+    obligation_index: u64,
     user: address,
     amount: u64,
     timestamp_ms: u64,
@@ -303,6 +309,9 @@ public fun deploy_funds<P, L, T>(
 
     event::emit(ManagerAllocate {
         vault_id: object::id(vault),
+        lending_market_id: object::id(lending_market),
+        reserve_index: reserve_array_index,
+        obligation_index,
         user: ctx.sender(),
         deposit_amount: amount,
         timestamp_ms: clock.timestamp_ms(),
@@ -385,6 +394,9 @@ public fun withdraw_deployed_funds<P, L, T>(
 
     event::emit(ManagerDivest {
         vault_id: object::id(vault),
+        lending_market_id: object::id(lending_market),
+        reserve_index: reserve_array_index,
+        obligation_index,
         user: ctx.sender(),
         amount: withdrawn_amount,
         timestamp_ms: clock.timestamp_ms(),
