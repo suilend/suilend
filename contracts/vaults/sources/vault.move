@@ -522,6 +522,8 @@ public fun deposit<P, L, T>(
         &agg,
     );
 
+    assert!(shares_to_mint > 0, EInvalidDeposit);
+
     // Add deposited coins to vault
     vault.deposit_asset.join(coin::into_balance(deposit));
 
@@ -537,8 +539,6 @@ public fun deposit<P, L, T>(
             timestamp_ms: current_time,
         });
     };
-
-    assert!(shares_to_mint > 0, EInvalidDeposit);
 
     // Mint vault shares
     let vault_shares = vault.treasury_cap.mint(shares_to_mint, ctx);
