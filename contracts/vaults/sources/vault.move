@@ -42,7 +42,7 @@ const MAX_DEPOSIT_FEE_BPS: u64 = 1000; // 10% max deposit fee
 const MAX_WITHDRAWAL_FEE_BPS: u64 = 1000; // 10% max withdrawal fee
 const MAX_PERFORMANCE_FEE_BPS: u64 = 5000; // 50% max performance fee
 const MAX_MANAGEMENT_FEE_BPS: u64 = 1000; // 10% max management fee
-const MIN_DEPOSIT: u64 = 1000000; // Minimum deposit 0.001 SUI to prevent dust
+const MIN_DEPOSIT_USD_SCALED: u256 = 100_000_000_000_000_000; // Minimum deposit 0.1 USD (0.1 * 1e18)
 const BASIS_POINTS: u64 = 10000; // 100%
 const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
 const MAX_UTILIZATION_RATE_BPS: u64 = 7000; // 70% max utilization
@@ -496,7 +496,6 @@ public fun deposit<P, L, T>(
     ctx: &mut TxContext,
 ): Coin<P> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
-    assert!(deposit.value() >= MIN_DEPOSIT, EInvalidDeposit);
 
     vault.accrue_all_fees(&agg, clock);
 
@@ -507,6 +506,16 @@ public fun deposit<P, L, T>(
     // Calculate deposit fee
     let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
     let net_deposit_amount = deposit_amount - deposit_fee;
+
+    // Check minimum deposit in USD terms
+    let net_deposit_usd_value = get_usd_value_for_token_amount<_, T>(
+        lending_market,
+        net_deposit_amount,
+    );
+    assert!(
+        decimal::from_scaled_val(MIN_DEPOSIT_USD_SCALED).le(net_deposit_usd_value),
+        EInvalidDeposit,
+    );
 
     // Calculate shares BEFORE adding deposit to vault or minting any shares
     let fee_shares = if (deposit_fee > 0) {
