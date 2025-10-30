@@ -48,7 +48,7 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
 
     let mut prices = mock_pyth::init_state(ctx);
     mock_pyth::register<TEST_COIN>(&mut prices, ctx);
-    mock_pyth::update_price<TEST_COIN>(&mut prices, 1, TEST_COIN_DECIMALS, &clock); // $1
+    mock_pyth::update_price<TEST_COIN>(&mut prices, 1, 0, &clock); // $1
 
     let mut lending_market = lending_market::mock_for_testing<TEST_LENDING_MARKET>(
         vector::empty(),
@@ -597,7 +597,7 @@ fun test_nav_changes() {
 
     // Calculate initial NAV per share (should be 1.0 scaled)
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let initial_nav = vault.calculate_nav_per_share(&agg);
+    let initial_nav = vault.calculate_nav_per_share(&agg).floor();
     assert!(initial_nav == NAV_PRECISION as u64);
 
     // Record initial total shares
@@ -616,7 +616,7 @@ fun test_nav_changes() {
 
     // Calculate new NAV per share after dilution
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let diluted_nav = vault.calculate_nav_per_share(&agg);
+    let diluted_nav = vault.calculate_nav_per_share(&agg).floor();
 
     // NAV per share should have decreased due to share dilution from fee minting
     assert!(diluted_nav < initial_nav);
@@ -750,9 +750,9 @@ fun test_compound_rewards_with_swap() {
 
     let b_token_decimals = 9;
     mock_pyth::register<B_TEST_SUI>(&mut prices, scenario.ctx());
-    mock_pyth::update_price<B_TEST_SUI>(&mut prices, 1, b_token_decimals, &clock);
+    mock_pyth::update_price<B_TEST_SUI>(&mut prices, 4, 0, &clock); // $4
     mock_pyth::register<B_TEST_USDC>(&mut prices, scenario.ctx());
-    mock_pyth::update_price<B_TEST_USDC>(&mut prices, 1, b_token_decimals, &clock);
+    mock_pyth::update_price<B_TEST_USDC>(&mut prices, 1, 0, &clock); // $1
 
     // Setup B_TEST_SUI reserve (vault's underlying asset)
     lending_market::add_reserve_for_testing<TEST_LENDING_MARKET, B_TEST_SUI>(
@@ -828,7 +828,7 @@ fun test_compound_rewards_with_swap() {
     vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
     let obligation_index = 0;
 
-    let deploy_amount = 500000;
+    let deploy_amount = 500_000_000_000; // 500 SUI (with 9 decimals)
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
     vault.deploy_funds(
         &manager_cap,
@@ -844,7 +844,7 @@ fun test_compound_rewards_with_swap() {
 
     // Add B_TEST_USDC reward pool for B_TEST_SUI deposits
     let sui_reserve_index = 1; // Reserve order: [TEST_COIN, B_TEST_SUI, B_TEST_USDC]
-    let reward_amount = 100000;
+    let reward_amount = 100_000_000_000; // 100 USDC (with 9 decimals)
     let reward_coin = coin::mint_for_testing<B_TEST_USDC>(reward_amount, scenario.ctx());
     let start_time_ms = clock.timestamp_ms();
     let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000);
@@ -928,12 +928,12 @@ fun test_share_precision() {
 
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
 
-    // === Test 1: First deposit (1.01 tokens) ===
-    let small_deposit = (101 * exp) / 100; // 1.01 tokens = 1,010,000 base units
+    // === First deposit (1000 tokens) ===
+    let small_deposit = 1000 * exp; // 1000 tokens = 1,000,000,000 base units
     let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, scenario.ctx());
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let initial_nav = vault.calculate_nav_per_share(&agg);
+    let initial_nav = vault.calculate_nav_per_share(&agg).floor();
 
     // Initial NAV should be exactly 1.0 (NAV_PRECISION)
     assert!(initial_nav == NAV_PRECISION as u64);
@@ -949,28 +949,28 @@ fun test_share_precision() {
     let small_shares_amount = small_shares.value();
     let total_supply_after_first = vault.total_supply();
 
-    // After 5% fee: net deposit = 959,500 base units, fee = 50,500 base units
-    // Both should get proportional shares at 1:1 ratio (NAV = 1.0)
-    assert!(small_shares_amount == 959500);
-    assert!(total_supply_after_first == 1010000); // user + fee shares
+    // After 5% fee: net deposit = 950 tokens (worth $950), fee = 50 tokens
+    // At NAV = 1.0, get 950 shares for user, 50 shares for fees (in base units with 6 decimals)
+    assert!(small_shares_amount == 950 * exp);
+    assert!(total_supply_after_first == 1000 * exp); // user + fee shares
 
     // Check NAV remains stable after first deposit
     let agg_after_first = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let nav_after_first = vault.calculate_nav_per_share(&agg_after_first);
+    let nav_after_first = vault.calculate_nav_per_share(&agg_after_first).floor();
     assert!(nav_after_first == NAV_PRECISION as u64);
 
-    // === Test 2: Second deposit (95.5 tokens) ===
+    // === Second deposit (95.5 tokens) ===
     scenario.next_tx(USER2);
     let large_deposit = (955 * exp) / 10; // 95.5 tokens = 95,500,000 base units
     let large_coin = coin::mint_for_testing<TEST_COIN>(large_deposit, scenario.ctx());
 
     let agg2 = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let nav_before_second = vault.calculate_nav_per_share(&agg2);
+    let nav_before_second = vault.calculate_nav_per_share(&agg2).floor();
     let supply_before_second = vault.total_supply();
 
     // NAV should still be 1.0 before second deposit
     assert!(nav_before_second == NAV_PRECISION as u64);
-    assert!(supply_before_second == 1010000);
+    assert!(supply_before_second == 1000 * exp);
 
     let large_shares = vault.deposit(
         large_coin,
@@ -982,33 +982,33 @@ fun test_share_precision() {
 
     let large_shares_amount = large_shares.value();
 
-    // After 5% fee: net deposit = 90,725,000 base units
-    // At NAV = 1.0, should get 90,725,000 shares
-    assert!(large_shares_amount == 90725000);
+    // After 5% fee: net deposit = 90.725 tokens (worth $90.725)
+    // At NAV = 1.0, should get 90.725 shares in base units = 90,725,000 base units
+    assert!(large_shares_amount == 90_725_000);
 
-    // === Test 3: Verify proportional share distribution ===
-    // Small net deposit: 959,500 base units → 959,500 shares
-    // Large net deposit: 90,725,000 base units → 90,725,000 shares
-    // Ratio: 90,725,000 / 959,500 ≈ 94.55
+    // === Verify proportional share distribution ===
+    // Small net deposit: 950 tokens → 950,000,000 share base units
+    // Large net deposit: 90.725 tokens → 90,725,000 share base units
+    // Ratio: 90.725 / 950 ≈ 0.0955
 
-    let actual_ratio = (large_shares_amount * 100) / small_shares_amount;
-    assert!(actual_ratio == 9455);
+    let actual_ratio = (large_shares_amount * 1000) / small_shares_amount;
+    assert!(actual_ratio == 95); // 95.5 rounded down
 
-    // === Test 4: Verify NAV stability ===
-    // NAV should remain at 1.0 throughout (no value creation, just deposits)
     let agg_final = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let nav_final = vault.calculate_nav_per_share(&agg_final);
+    let nav_final = vault.calculate_nav_per_share(&agg_final).floor();
+
+    // NAV should remain at 1.0
     assert!(nav_final == NAV_PRECISION as u64);
 
-    // === Test 5: Verify total supply is correct ===
+    // === Verify total supply is correct ===
     // Total = first_user_shares + first_fee_shares + second_user_shares + second_fee_shares
-    // Total = 959,500 + 50,500 + 90,725,000 + 4,775,000 = 96,510,000
+    // Total = 950,000,000 + 50,000,000 + 90,725,000 + 4,775,000 = 1,095,500,000
     let final_total_supply = vault.total_supply();
-    assert!(final_total_supply == 96510000);
+    assert!(final_total_supply == 1_095_500_000);
 
-    // === Test 6: Test small withdrawal to verify reverse calculation ===
+    // === Test small withdrawal to verify reverse calculation ===
     scenario.next_tx(USER1);
-    let withdraw_shares = coin::split(&mut small_shares, 100000, scenario.ctx());
+    let withdraw_shares = coin::split(&mut small_shares, 100 * exp, scenario.ctx());
     let agg3 = vault.create_vault_value_aggregate_for_testing(&lending_market);
     let withdrawn = vault.withdraw(
         withdraw_shares,
@@ -1018,17 +1018,55 @@ fun test_share_precision() {
         scenario.ctx(),
     );
 
-    // After 3% withdrawal fee: net shares = 97,000
-    // At NAV = 1.0, should get ~97,000 base units back
+    // Withdrawing 100 shares (100 * 1e6 base units) at NAV = 1.0 means $100 worth
+    // After 3% withdrawal fee: get 97 tokens = 97,000,000 base units
     let withdrawn_amount = withdrawn.value();
-    // Allow for withdrawal fee: 100,000 * 0.97 = 97,000 base units expected
-    assert!(withdrawn_amount == 97000);
+    assert!(withdrawn_amount == 97 * exp);
 
     {
         test_utils::destroy(prices);
         coin::burn_for_testing(small_shares);
         coin::burn_for_testing(large_shares);
         coin::burn_for_testing(withdrawn);
+        ts::return_shared(clock);
+        ts::return_shared(vault);
+        ts::return_shared(lending_market);
+        transfer::public_transfer(manager_cap, ADMIN);
+    };
+
+    scenario.end();
+}
+
+#[test]
+fun test_small_deposit() {
+    let (prices, mut scenario) = init_vault_scenario();
+
+    scenario.next_tx(ADMIN);
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+
+    scenario.next_tx(USER1);
+    let clock = scenario.take_shared<Clock>();
+
+    let exp = 10u64.pow(TEST_COIN_DECIMALS);
+
+    let small_deposit = (27 * exp) / 100; // $0.27
+    let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, scenario.ctx());
+
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+
+    let small_shares = vault.deposit(
+        small_coin,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    {
+        test_utils::destroy(prices);
+        coin::burn_for_testing(small_shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
