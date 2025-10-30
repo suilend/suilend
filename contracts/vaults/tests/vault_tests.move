@@ -535,7 +535,7 @@ fun test_allocate_and_divest() {
         &manager_cap,
         &mut lending_market,
         obligation_index,
-        ctokens_amt / 2,
+        ctokens_amt - 100, // Leave MIN_AVAILABLE_AMOUNT in reserve
         &clock,
         agg,
         scenario.ctx(),
