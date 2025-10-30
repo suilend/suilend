@@ -11,6 +11,7 @@ import * as vec_map from './deps/sui/vec_map.js';
 import * as type_name from './deps/std/type_name.js';
 import * as coin from './deps/sui/coin.js';
 import * as balance from './deps/sui/balance.js';
+import * as decimal from './deps/suilend/decimal.js';
 const $moduleName = '@local-pkg/vault::vault';
 export const ObligationData = new MoveStruct({ name: `${$moduleName}::ObligationData`, fields: {
         obligation_cap: bag.Bag,
@@ -27,7 +28,7 @@ export const Vault = new MoveStruct({ name: `${$moduleName}::Vault`, fields: {
         performance_fee_bps: bcs.u64(),
         deposit_fee_bps: bcs.u64(),
         withdrawal_fee_bps: bcs.u64(),
-        nav_high_water_mark: bcs.u64(),
+        nav_high_water_mark: decimal.Decimal,
         fee_last_update_timestamp_s: bcs.u64()
     } });
 export const VaultManagerCap = new MoveStruct({ name: `${$moduleName}::VaultManagerCap`, fields: {
@@ -36,14 +37,14 @@ export const VaultManagerCap = new MoveStruct({ name: `${$moduleName}::VaultMana
     } });
 export const ObligationAllocation = new MoveStruct({ name: `${$moduleName}::ObligationAllocation`, fields: {
         obligation_id: bcs.Address,
-        deposited_value_usd: bcs.u64(),
-        borrowed_value_usd: bcs.u64(),
-        net_value_usd: bcs.u64()
+        deposited_value_usd: decimal.Decimal,
+        borrowed_value_usd: decimal.Decimal,
+        net_value_usd: decimal.Decimal
     } });
 export const LendingMarketAllocation = new MoveStruct({ name: `${$moduleName}::LendingMarketAllocation`, fields: {
-        deposited_value_usd: bcs.u64(),
-        borrowed_value_usd: bcs.u64(),
-        net_value_usd: bcs.u64(),
+        deposited_value_usd: decimal.Decimal,
+        borrowed_value_usd: decimal.Decimal,
+        net_value_usd: decimal.Decimal,
         obligations: bcs.vector(ObligationAllocation)
     } });
 export const VaultValueAccumulator = new MoveStruct({ name: `${$moduleName}::VaultValueAccumulator`, fields: {
@@ -51,15 +52,15 @@ export const VaultValueAccumulator = new MoveStruct({ name: `${$moduleName}::Vau
         lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
     } });
 export const VaultValueAggregate = new MoveStruct({ name: `${$moduleName}::VaultValueAggregate`, fields: {
-        liquid_asset_value_usd: bcs.u64(),
-        total_obligation_value_usd: bcs.u64(),
+        liquid_asset_value_usd: decimal.Decimal,
+        total_obligation_value_usd: decimal.Decimal,
         lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
     } });
 export const FeeAccrual = new MoveStruct({ name: `${$moduleName}::FeeAccrual`, fields: {
         management_fee_shares: bcs.u64(),
         performance_fee_shares: bcs.u64(),
         total_fee_shares: bcs.u64(),
-        new_nav_per_share: bcs.u64()
+        new_nav_per_share: decimal.Decimal
     } });
 export const VaultCreated = new MoveStruct({ name: `${$moduleName}::VaultCreated`, fields: {
         vault_id: bcs.Address,
@@ -84,12 +85,18 @@ export const VaultWithdraw = new MoveStruct({ name: `${$moduleName}::VaultWithdr
     } });
 export const ManagerAllocate = new MoveStruct({ name: `${$moduleName}::ManagerAllocate`, fields: {
         vault_id: bcs.Address,
+        lending_market_id: bcs.Address,
+        reserve_index: bcs.u64(),
+        obligation_index: bcs.u64(),
         user: bcs.Address,
         deposit_amount: bcs.u64(),
         timestamp_ms: bcs.u64()
     } });
 export const ManagerDivest = new MoveStruct({ name: `${$moduleName}::ManagerDivest`, fields: {
         vault_id: bcs.Address,
+        lending_market_id: bcs.Address,
+        reserve_index: bcs.u64(),
+        obligation_index: bcs.u64(),
         user: bcs.Address,
         amount: bcs.u64(),
         timestamp_ms: bcs.u64()
