@@ -2499,7 +2499,7 @@ module suilend::lending_market_tests {
                 let mut bag = bag::new(scenario.ctx());
                 bag::add(
                     &mut bag,
-                    type_name::get<TEST_USDC>(),
+                    type_name::with_defining_ids<TEST_USDC>(),
                     ReserveArgs {
                         config: {
                             let config = default_reserve_config(scenario.ctx());
@@ -2519,7 +2519,7 @@ module suilend::lending_market_tests {
                 );
                 bag::add(
                     &mut bag,
-                    type_name::get<TEST_SUI>(),
+                    type_name::with_defining_ids<TEST_SUI>(),
                     ReserveArgs {
                         config: reserve_config::default_reserve_config(scenario.ctx()),
                         initial_deposit: 1000 * 1_000_000_000,
@@ -2537,7 +2537,7 @@ module suilend::lending_market_tests {
         lending_market::add_pool_reward<LENDING_MARKET, TEST_USDC>(
             &owner_cap,
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_USDC>()),
             true,
             usdc_rewards,
             0,
@@ -2558,14 +2558,14 @@ module suilend::lending_market_tests {
         );
         let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_USDC>()),
             &clock,
             coins,
             scenario.ctx(),
         );
         lending_market::deposit_ctokens_into_obligation<LENDING_MARKET, TEST_USDC>(
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_USDC>()),
             &obligation_owner_cap,
             &clock,
             ctokens,
@@ -2577,13 +2577,13 @@ module suilend::lending_market_tests {
         mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock);
         lending_market::refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_USDC>()),
             &clock,
             mock_pyth::get_price_obj<TEST_USDC>(&prices),
         );
         lending_market::refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_SUI>()),
             &clock,
             mock_pyth::get_price_obj<TEST_SUI>(&prices),
         );
@@ -2591,7 +2591,7 @@ module suilend::lending_market_tests {
         // Borrow SUI
         let sui = lending_market::borrow<LENDING_MARKET, TEST_SUI>(
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_SUI>()),
             &obligation_owner_cap,
             &clock,
             4 * 1_000_000_000, // 4 SUI = $40
@@ -2608,13 +2608,13 @@ module suilend::lending_market_tests {
         mock_pyth::update_price<TEST_SUI>(&mut prices, 1, 1, &clock); // $10
         lending_market::refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_USDC>()),
             &clock,
             mock_pyth::get_price_obj<TEST_USDC>(&prices),
         );
         lending_market::refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
-            *bag::borrow(&type_to_index, type_name::get<TEST_SUI>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_SUI>()),
             &clock,
             mock_pyth::get_price_obj<TEST_SUI>(&prices),
         );
@@ -2626,7 +2626,7 @@ module suilend::lending_market_tests {
             &mut lending_market,
             &obligation_owner_cap,
             &clock,
-            *bag::borrow(&type_to_index, type_name::get<TEST_USDC>()),
+            *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_USDC>()),
             0,
             true,
             scenario.ctx(),
