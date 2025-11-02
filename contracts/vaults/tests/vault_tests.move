@@ -430,60 +430,6 @@ fun test_excessive_fee_failure() {
 }
 
 #[test]
-#[expected_failure(abort_code = vault::EInsufficientLiquidity)]
-fun test_utilization_rate_guard() {
-    let (_prices, mut scenario) = init_vault_scenario();
-
-    scenario.next_tx(ADMIN);
-
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-
-    scenario.next_tx(USER1);
-
-    let clock = scenario.take_shared<Clock>();
-
-    let deposit_amount = 1000;
-    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
-    let deposit_value = deposit_coin.value();
-
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let _vault_shares = vault.deposit(
-        deposit_coin,
-        &lending_market,
-        &clock,
-        agg,
-        scenario.ctx(),
-    );
-
-    scenario.next_tx(ADMIN);
-
-    vault.create_obligation(
-        &manager_cap,
-        &mut lending_market,
-        scenario.ctx(),
-    );
-    let obligation_index = 0;
-
-    // Try to deploy 80% of deposit
-    let deploy_amount_80_percent = (deposit_value * 80) / 100;
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
-    let _ctokens_amt = vault.deploy_funds(
-        &manager_cap,
-        &mut lending_market,
-        obligation_index,
-        deploy_amount_80_percent,
-        &clock,
-        agg,
-        scenario.ctx(),
-    );
-
-    // Should not reach here
-    abort EShouldNotReach
-}
-
-#[test]
 fun test_allocate_and_divest() {
     let (prices, mut scenario) = init_vault_scenario();
 

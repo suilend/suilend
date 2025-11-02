@@ -45,7 +45,6 @@ const MAX_MANAGEMENT_FEE_BPS: u64 = 1000; // 10% max management fee
 const MIN_DEPOSIT_USD_SCALED: u256 = 100_000_000_000_000_000; // Minimum deposit 0.1 USD (0.1 * 1e18)
 const BASIS_POINTS: u64 = 10000; // 100%
 const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
-const MAX_UTILIZATION_RATE_BPS: u64 = 7000; // 70% max utilization
 const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 * 24 * 60 * 60
 const OBLIGATION_CAP_BAG_KEY: u8 = 0;
 const VAULT_SHARE_DECIMALS: u8 = 6;
@@ -274,9 +273,7 @@ public fun deploy_funds<P, L, T>(
     let available_amount = vault.deposit_asset.value();
     assert!(available_amount >= amount, EInsufficientLiquidity);
 
-    // Check if deployment would exceed utilization limits
     let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount);
-    assert!(can_deploy_funds(&agg, usd_to_deploy), EInsufficientLiquidity);
 
     // Split funds from vault's deposit asset
     let deploy_balance = vault.deposit_asset.split(amount);
@@ -1100,27 +1097,6 @@ public fun calculate_utilization_rate(agg: &VaultValueAggregate): u64 {
     );
 
     decimal::floor(utilization_decimal)
-}
-
-/// Check if vault can deploy a USD amount of liquid assets (and vault remains under MAX_UTILIZATION_RATE_BPS)
-public fun can_deploy_funds(agg: &VaultValueAggregate, usd_amount: decimal::Decimal): bool {
-    let liquid_asset_value = agg.liquid_asset_value_usd;
-    let usd_to_deploy = usd_amount;
-
-    // Check if there is enough liquid assets to deploy
-    if (decimal::gt(usd_to_deploy, liquid_asset_value)) {
-        return false
-    };
-
-    let updated_agg = VaultValueAggregate {
-        liquid_asset_value_usd: decimal::sub(liquid_asset_value, usd_to_deploy),
-        total_obligation_value_usd: decimal::add(agg.total_obligation_value_usd, usd_to_deploy),
-        lending_market_allocations: agg.lending_market_allocations,
-    };
-
-    let new_utilization = updated_agg.calculate_utilization_rate();
-
-    new_utilization <= MAX_UTILIZATION_RATE_BPS
 }
 
 public fun calculate_nav_per_share<P, T>(
