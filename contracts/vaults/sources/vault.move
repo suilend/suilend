@@ -33,6 +33,8 @@ const EInsufficientLiquidity: vector<u8> = b"Insufficient liquidity available";
 const EIncompleteAccumulation: vector<u8> = b"VaultValueAccumulator processing incomplete";
 #[error]
 const EInvalidShareCurrency: vector<u8> = b"Vault currency metadata is invalid";
+#[error]
+const EVaultMismatch: vector<u8> = b"Vault ID mismatch";
 //#[error]
 //const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
@@ -83,6 +85,7 @@ public struct VaultManagerCap<phantom P> has key, store {
 /// Used to aggregate the obligation values from all live LendingMarkets
 /// Must be consumed in PTB
 public struct VaultValueAccumulator {
+    vault_id: ID,
     // Keyed by 'L' from LendingMarket<L>
     obligation_ids: vec_map::VecMap<TypeName, vector<ID>>,
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
@@ -90,6 +93,7 @@ public struct VaultValueAccumulator {
 
 /// Created from a VaultValueAggregate once it has been fully processed
 public struct VaultValueAggregate has drop {
+    vault_id: ID,
     liquid_asset_value_usd: decimal::Decimal,
     total_obligation_value_usd: decimal::Decimal,
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
@@ -337,6 +341,7 @@ public fun deploy_funds<P, L, T>(
         };
 
         let updated_agg = VaultValueAggregate {
+            vault_id: agg.vault_id,
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: updated_obligation_value_usd,
             lending_market_allocations: updated_allocations,
@@ -431,6 +436,7 @@ public fun withdraw_deployed_funds<P, L, T>(
         };
 
         let updated_agg = VaultValueAggregate {
+            vault_id: agg.vault_id,
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: updated_obligation_value_usd,
             lending_market_allocations: updated_allocations,
@@ -491,6 +497,11 @@ fun validate_manager_cap<P, T>(vault: &Vault<P, T>, manager_cap: &VaultManagerCa
     assert!(manager_cap.vault_id == object::id(vault), EInvalidManager);
 }
 
+/// Validate that a VaultValueAggregate belongs to a specific vault
+fun validate_aggregate<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
+    assert!(agg.vault_id == object::id(vault), EVaultMismatch);
+}
+
 // === User Functions ===
 
 public fun deposit<P, L, T>(
@@ -502,6 +513,7 @@ public fun deposit<P, L, T>(
     ctx: &mut TxContext,
 ): Coin<P> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.validate_aggregate(&agg);
 
     vault.accrue_all_fees(&agg, clock);
 
@@ -573,6 +585,7 @@ public fun deposit<P, L, T>(
             get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value)
         };
         let updated_agg = VaultValueAggregate {
+            vault_id: agg.vault_id,
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: agg.total_obligation_value_usd,
             lending_market_allocations: agg.lending_market_allocations,
@@ -593,6 +606,7 @@ public fun withdraw<P, L, T>(
     ctx: &mut TxContext,
 ): Coin<T> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.validate_aggregate(&agg);
     assert!(shares.value() > 0, EInsufficientShares);
 
     let shares_amount = shares.value();
@@ -658,6 +672,7 @@ public fun withdraw<P, L, T>(
             get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value)
         };
         let updated_agg = VaultValueAggregate {
+            vault_id: agg.vault_id,
             liquid_asset_value_usd: updated_liquid_asset_value_usd,
             total_obligation_value_usd: agg.total_obligation_value_usd,
             lending_market_allocations: agg.lending_market_allocations,
@@ -959,6 +974,7 @@ public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValue
         })
     });
     VaultValueAccumulator {
+        vault_id: object::id(vault),
         obligation_ids: vec_map::from_keys_values(keys, obligation_ids),
         lending_market_allocations: vec_map::empty(),
     }
@@ -998,6 +1014,7 @@ public fun create_vault_value_aggregate<P, L, T>(
     vault: &Vault<P, T>,
     lending_market: &LendingMarket<L>,
 ): VaultValueAggregate {
+    assert!(acc.vault_id == object::id(vault), EVaultMismatch);
     assert!(acc.obligation_ids.is_empty(), EIncompleteAccumulation);
 
     let liquid_asset_value_usd = {
@@ -1006,6 +1023,7 @@ public fun create_vault_value_aggregate<P, L, T>(
     };
 
     let VaultValueAccumulator {
+        vault_id: _,
         obligation_ids: _,
         lending_market_allocations,
     } = acc;
@@ -1018,6 +1036,7 @@ public fun create_vault_value_aggregate<P, L, T>(
     });
 
     VaultValueAggregate {
+        vault_id: object::id(vault),
         liquid_asset_value_usd,
         total_obligation_value_usd,
         lending_market_allocations,
