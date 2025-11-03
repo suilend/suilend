@@ -246,7 +246,7 @@ public fun create_vault<P, T>(
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
-        nav_high_water_mark: decimal::from(NAV_PRECISION as u64),
+        nav_high_water_mark: decimal::from_u128(NAV_PRECISION),
         last_cranked_ms: current_time_ms,
     };
 
@@ -1019,19 +1019,22 @@ fun calculate_performance_fee_shares<P, T>(
     let gain = total_value - baseline_value;
 
     // Performance fee on the gain
-    let perf_fee_value = (gain * (vault.performance_fee_bps as u128)) / (BASIS_POINTS as u128);
+    let perf_fee_value = decimal::mul(
+        decimal::from_u128(gain),
+        decimal::from_bps(vault.performance_fee_bps),
+    );
 
     // Calculate shares accounting for management fee dilution
     // NAV after mgmt fees = total_value / (current_shares + mgmt_shares)
-    let shares_after_mgmt = current_shares + mgmt_shares_to_mint;
+    let shares_after_mgmt = (current_shares as u128) + (mgmt_shares_to_mint as u128);
     let nav_after_mgmt = calculate_nav_from_shares_and_value(
-        decimal::from(shares_after_mgmt),
+        decimal::from_u128(shares_after_mgmt),
         decimal::from_u128(total_value),
     );
 
     // Convert performance fee value to shares at post-mgmt NAV
     calculate_shares_from_usd_and_nav(
-        decimal::from(perf_fee_value as u64),
+        perf_fee_value,
         nav_after_mgmt,
     ).floor()
 }
@@ -1056,13 +1059,13 @@ fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u
     // Convert to per-second rate: annual_rate / seconds_per_year
     let per_second_rate = decimal::div(annual_fee_rate, decimal::from(SECONDS_PER_YEAR));
 
-    let fee_factor = decimal::mul(decimal::from(time_elapsed_s), per_second_rate);
+    let mut fee_factor = decimal::mul(decimal::from(time_elapsed_s), per_second_rate);
 
-    // Ensure fee factor doesn't exceed 100%
-    let fee_factor = if (decimal::gt(fee_factor, decimal::from(1))) {
-        decimal::from(1)
-    } else {
-        fee_factor
+    // TODO - potentially change
+    // Cap the fee factor at 30%
+    let max_fee_factor = decimal::from_bps(3000);
+    if (decimal::gt(fee_factor, max_fee_factor)) {
+        fee_factor = max_fee_factor;
     };
 
     let circulating_shares = vault.treasury_cap.total_supply();
@@ -1240,7 +1243,7 @@ public fun calculate_nav_per_share<P, T>(
     let current_shares = vault.treasury_cap.total_supply();
     let vault_value = decimal::add(agg.total_obligation_value_usd, agg.liquid_asset_value_usd);
     if (current_shares == 0 || decimal::eq(vault_value, decimal::from(0))) {
-        decimal::from(NAV_PRECISION as u64) // 1.0 scaled
+        decimal::from_u128(NAV_PRECISION) // 1.0 scaled
     } else {
         calculate_nav_from_shares_and_value(
             decimal::from(current_shares),
@@ -1292,7 +1295,7 @@ fun share_decimals_factor_decimal(): decimal::Decimal {
 fun shares_to_usd(shares: decimal::Decimal, nav_per_share: decimal::Decimal): decimal::Decimal {
     shares
         .mul(nav_per_share)
-        .div(decimal::from(NAV_PRECISION as u64).mul(share_decimals_factor_decimal()))
+        .div(decimal::from_u128(NAV_PRECISION).mul(share_decimals_factor_decimal()))
 }
 
 /// Calculates NAV per share from total shares and total USD value
@@ -1302,10 +1305,10 @@ fun calculate_nav_from_shares_and_value(
     total_value_usd: decimal::Decimal,
 ): decimal::Decimal {
     if (total_shares.eq(decimal::from(0))) {
-        decimal::from(NAV_PRECISION as u64)
+        decimal::from_u128(NAV_PRECISION)
     } else {
         total_value_usd
-            .mul(decimal::from(NAV_PRECISION as u64))
+            .mul(decimal::from_u128(NAV_PRECISION))
             .mul(share_decimals_factor_decimal())
             .div(total_shares)
     }
@@ -1317,7 +1320,7 @@ fun calculate_shares_from_usd_and_nav(
     nav_per_share: decimal::Decimal,
 ): decimal::Decimal {
     usd_amount
-        .mul(decimal::from(NAV_PRECISION as u64))
+        .mul(decimal::from_u128(NAV_PRECISION))
         .mul(
             share_decimals_factor_decimal(),
         )
