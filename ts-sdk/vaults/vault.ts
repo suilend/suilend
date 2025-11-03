@@ -29,7 +29,7 @@ export const Vault = new MoveStruct({ name: `${$moduleName}::Vault`, fields: {
         deposit_fee_bps: bcs.u64(),
         withdrawal_fee_bps: bcs.u64(),
         nav_high_water_mark: decimal.Decimal,
-        fee_last_update_timestamp_s: bcs.u64()
+        last_cranked_ms: bcs.u64()
     } });
 export const VaultManagerCap = new MoveStruct({ name: `${$moduleName}::VaultManagerCap`, fields: {
         id: object.UID,
@@ -48,12 +48,19 @@ export const LendingMarketAllocation = new MoveStruct({ name: `${$moduleName}::L
         obligations: bcs.vector(ObligationAllocation)
     } });
 export const VaultValueAccumulator = new MoveStruct({ name: `${$moduleName}::VaultValueAccumulator`, fields: {
+        vault_id: bcs.Address,
         obligation_ids: vec_map.VecMap(type_name.TypeName, bcs.vector(bcs.Address)),
         lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
     } });
 export const VaultValueAggregate = new MoveStruct({ name: `${$moduleName}::VaultValueAggregate`, fields: {
+        vault_id: bcs.Address,
         liquid_asset_value_usd: decimal.Decimal,
         total_obligation_value_usd: decimal.Decimal,
+        lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
+    } });
+export const VaultCrankAccumulator = new MoveStruct({ name: `${$moduleName}::VaultCrankAccumulator`, fields: {
+        vault_id: bcs.Address,
+        pending_lending_markets: vec_map.VecMap(type_name.TypeName, bcs.vector(bcs.Address)),
         lending_market_allocations: vec_map.VecMap(type_name.TypeName, LendingMarketAllocation)
     } });
 export const FeeAccrual = new MoveStruct({ name: `${$moduleName}::FeeAccrual`, fields: {
@@ -512,6 +519,110 @@ export function compoundRewardsWithSwap(options: CompoundRewardsWithSwapOptions)
         typeArguments: options.typeArguments
     });
 }
+export interface CreateVaultCrankAccumulatorArguments {
+    vault: RawTransactionArgument<string>;
+}
+export interface CreateVaultCrankAccumulatorOptions {
+    package?: string;
+    arguments: CreateVaultCrankAccumulatorArguments | [
+        vault: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string
+    ];
+}
+/**
+ * Create a vault crank accumulator for processing all lending markets Tracks all
+ * LMs and obligations that need processing
+ */
+export function createVaultCrankAccumulator(options: CreateVaultCrankAccumulatorOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`
+    ] satisfies string[];
+    const parameterNames = ["vault"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'create_vault_crank_accumulator',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface ProcessLendingMarketForCrankArguments {
+    acc: RawTransactionArgument<string>;
+    lendingMarket: RawTransactionArgument<string>;
+}
+export interface ProcessLendingMarketForCrankOptions {
+    package?: string;
+    arguments: ProcessLendingMarketForCrankArguments | [
+        acc: RawTransactionArgument<string>,
+        lendingMarket: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string
+    ];
+}
+/**
+ * Process a lending market into the crank accumulator after rewards have been
+ * compounded This gathers fresh obligation valuations that include compounded
+ * rewards Removes the LM from pending_lending_markets
+ */
+export function processLendingMarketForCrank(options: ProcessLendingMarketForCrankOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::VaultCrankAccumulator`,
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[0]}>`
+    ] satisfies string[];
+    const parameterNames = ["acc", "lendingMarket"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'process_lending_market_for_crank',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface FinalizeVaultCrankArguments {
+    vault: RawTransactionArgument<string>;
+    acc: RawTransactionArgument<string>;
+    lendingMarket: RawTransactionArgument<string>;
+}
+export interface FinalizeVaultCrankOptions {
+    package?: string;
+    arguments: FinalizeVaultCrankArguments | [
+        vault: RawTransactionArgument<string>,
+        acc: RawTransactionArgument<string>,
+        lendingMarket: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string,
+        string
+    ];
+}
+/**
+ * Finalize vault crank: creates aggregate, accrues fees, updates timestamp
+ * Confirms all lending markets have been processed
+ */
+export function finalizeVaultCrank(options: FinalizeVaultCrankOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`,
+        `${packageAddress}::vault::VaultCrankAccumulator`,
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
+        '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
+    ] satisfies string[];
+    const parameterNames = ["vault", "acc", "lendingMarket"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'finalize_vault_crank',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
 export interface CreateVaultValueAccumulatorArguments {
     vault: RawTransactionArgument<string>;
 }
@@ -779,35 +890,6 @@ export function calculateUtilizationRate(options: CalculateUtilizationRateOption
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
     });
 }
-export interface CanDeployFundsArguments {
-    agg: RawTransactionArgument<string>;
-    usdAmount: RawTransactionArgument<string>;
-}
-export interface CanDeployFundsOptions {
-    package?: string;
-    arguments: CanDeployFundsArguments | [
-        agg: RawTransactionArgument<string>,
-        usdAmount: RawTransactionArgument<string>
-    ];
-}
-/**
- * Check if vault can deploy a USD amount of liquid assets (and vault remains under
- * MAX_UTILIZATION_RATE_BPS)
- */
-export function canDeployFunds(options: CanDeployFundsOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        `${packageAddress}::vault::VaultValueAggregate`,
-        '0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::decimal::Decimal'
-    ] satisfies string[];
-    const parameterNames = ["agg", "usdAmount"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'can_deploy_funds',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
 export interface CalculateNavPerShareArguments {
     vault: RawTransactionArgument<string>;
     agg: RawTransactionArgument<string>;
@@ -834,6 +916,92 @@ export function calculateNavPerShare(options: CalculateNavPerShareOptions) {
         package: packageAddress,
         module: 'vault',
         function: 'calculate_nav_per_share',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface GetObligationIdsForMarketArguments {
+    vault: RawTransactionArgument<string>;
+}
+export interface GetObligationIdsForMarketOptions {
+    package?: string;
+    arguments: GetObligationIdsForMarketArguments | [
+        vault: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string,
+        string
+    ];
+}
+/** Get all obligation IDs for a specific lending market */
+export function getObligationIdsForMarket(options: GetObligationIdsForMarketOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`
+    ] satisfies string[];
+    const parameterNames = ["vault"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'get_obligation_ids_for_market',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface GetObligationCountForMarketArguments {
+    vault: RawTransactionArgument<string>;
+}
+export interface GetObligationCountForMarketOptions {
+    package?: string;
+    arguments: GetObligationCountForMarketArguments | [
+        vault: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string,
+        string
+    ];
+}
+/** Get obligation count for a specific lending market */
+export function getObligationCountForMarket(options: GetObligationCountForMarketOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[2]}>`
+    ] satisfies string[];
+    const parameterNames = ["vault"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'get_obligation_count_for_market',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface GetLendingMarketTypesArguments {
+    vault: RawTransactionArgument<string>;
+}
+export interface GetLendingMarketTypesOptions {
+    package?: string;
+    arguments: GetLendingMarketTypesArguments | [
+        vault: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string
+    ];
+}
+/** Get all lending market types that have obligations */
+export function getLendingMarketTypes(options: GetLendingMarketTypesOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`
+    ] satisfies string[];
+    const parameterNames = ["vault"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'get_lending_market_types',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

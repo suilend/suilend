@@ -1,7 +1,7 @@
 [package]
 name = "vaults"
 edition = "2024"
-published-at = "0x12421a81aa2472364eb89d004ae43d07ca296122e08cfc5f5acf407768ac976b"
+published-at = "0x852b2c11f7eae5b8505a258dec1471d19ab52ab1d598968608379299db3df3e9"
 
 [dependencies]
 steamm = { git = "https://github.com/suilend/steamm-public.git", subdir = "contracts/steamm", rev = "main" }
@@ -13,7 +13,7 @@ subdir = "target_chains/sui/contracts"
 rev = "98e218c64bb75cf1350eb7b021e1ffcc3aedfd62"
 
 [addresses]
-vaults = "0x12421a81aa2472364eb89d004ae43d07ca296122e08cfc5f5acf407768ac976b"
+vaults = "0x852b2c11f7eae5b8505a258dec1471d19ab52ab1d598968608379299db3df3e9"
 
 [dev-dependencies]
 
