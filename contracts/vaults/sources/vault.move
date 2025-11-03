@@ -1065,9 +1065,9 @@ public fun calculate_shares_to_burn<P, L, T>(
     vault: &Vault<P, T>,
     withdraw_amount: u64,
     lending_market: &LendingMarket<L>,
-    agg: VaultValueAggregate,
+    agg: &VaultValueAggregate,
 ): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let nav_per_share = vault.calculate_nav_per_share(agg);
     let withdraw_usd_value = get_usd_value_for_token_amount<_, T>(
         lending_market,
         withdraw_amount,
@@ -1080,9 +1080,9 @@ public fun calculate_withdraw_amount<P, L, T>(
     vault: &Vault<P, T>,
     shares_amount: u64,
     lending_market: &LendingMarket<L>,
-    agg: VaultValueAggregate,
+    agg: &VaultValueAggregate,
 ): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let nav_per_share = vault.calculate_nav_per_share(agg);
     let withdraw_usd_value = shares_to_usd(decimal::from(shares_amount), nav_per_share);
     get_token_amount_from_usd<_, T>(lending_market, withdraw_usd_value).floor()
 }
@@ -1092,9 +1092,9 @@ public fun calculate_deposit_amount<P, L, T>(
     vault: &Vault<P, T>,
     shares_amount: u64,
     lending_market: &LendingMarket<L>,
-    agg: VaultValueAggregate,
+    agg: &VaultValueAggregate,
 ): u64 {
-    let nav_per_share = vault.calculate_nav_per_share(&agg);
+    let nav_per_share = vault.calculate_nav_per_share(agg);
     let deposit_usd_value = shares_to_usd(decimal::from(shares_amount), nav_per_share);
     get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value).floor()
 }
