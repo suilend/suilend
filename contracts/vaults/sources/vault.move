@@ -35,6 +35,8 @@ const EIncompleteAccumulation: vector<u8> = b"VaultValueAccumulator processing i
 const EInvalidShareCurrency: vector<u8> = b"Vault currency metadata is invalid";
 #[error]
 const EVaultMismatch: vector<u8> = b"Vault ID mismatch";
+#[error]
+const ERewardsStale: vector<u8> = b"Rewards must be compounded";
 //#[error]
 //const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
@@ -47,6 +49,7 @@ const MAX_MANAGEMENT_FEE_BPS: u64 = 1000; // 10% max management fee
 const MIN_DEPOSIT_USD_SCALED: u256 = 100_000_000_000_000_000; // Minimum deposit 0.1 USD (0.1 * 1e18)
 const BASIS_POINTS: u64 = 10000; // 100%
 const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
+const MAX_REWARDS_STALENESS_MS: u64 = 3_600_000; // 1 hour in ms
 const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 * 24 * 60 * 60
 const OBLIGATION_CAP_BAG_KEY: u8 = 0;
 const VAULT_SHARE_DECIMALS: u8 = 6;
@@ -66,9 +69,8 @@ public struct Vault<phantom P, phantom T> has key, store {
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
-    // Fee accrual state
     nav_high_water_mark: decimal::Decimal, // Highest NAV per share achieved (for performance fees)
-    fee_last_update_timestamp_s: u64,
+    last_cranked_ms: u64, // timestamp_ms when rewards were last compounded and fees were last accrued
 }
 
 public struct ObligationData has store {
@@ -96,6 +98,17 @@ public struct VaultValueAggregate has drop {
     vault_id: ID,
     liquid_asset_value_usd: decimal::Decimal,
     total_obligation_value_usd: decimal::Decimal,
+    lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
+}
+
+/// Accumulator for vault crank operations (rewards + fees)
+/// Processes all lending markets in the vault
+/// Must be consumed in PTB by calling finalize_vault_crank
+public struct VaultCrankAccumulator {
+    vault_id: ID,
+    // Keyed by LM TypeName -> obligation IDs (removed as each LM is processed)
+    pending_lending_markets: vec_map::VecMap<TypeName, vector<ID>>,
+    // Accumulated obligation valuations (built up as LMs processed)
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 }
 
@@ -219,7 +232,7 @@ public fun create_vault<P, T>(
 
     let vault_id = object::new(ctx);
 
-    let current_time_s = clock.timestamp_ms() / 1000;
+    let current_time_ms = clock.timestamp_ms();
 
     // Create vault
     let vault = Vault {
@@ -233,9 +246,8 @@ public fun create_vault<P, T>(
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
-        // Initialize fee accrual state
         nav_high_water_mark: decimal::from(NAV_PRECISION as u64),
-        fee_last_update_timestamp_s: current_time_s,
+        last_cranked_ms: current_time_ms,
     };
 
     let vault_manager_cap = VaultManagerCap {
@@ -269,9 +281,8 @@ public fun deploy_funds<P, L, T>(
 ): u64 {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
+    vault.assert_vault_state_fresh<P, T>(clock);
     assert!(amount > 0, EInvalidDeposit);
-
-    vault.accrue_all_fees(&agg, clock);
 
     // Check if vault has sufficient liquid assets
     let available_amount = vault.deposit_asset.value();
@@ -365,9 +376,8 @@ public fun withdraw_deployed_funds<P, L, T>(
 ) {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
+    vault.assert_vault_state_fresh<P, T>(clock);
     assert!(ctoken_amount > 0, EInsufficientShares);
-
-    vault.accrue_all_fees(&agg, clock);
 
     let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap(&lm_type, obligation_index);
@@ -502,6 +512,13 @@ fun validate_aggregate<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
     assert!(agg.vault_id == object::id(vault), EVaultMismatch);
 }
 
+/// Check that vault was cranked within MAX_REWARDS_STALENESS_MS
+fun assert_vault_state_fresh<P, T>(vault: &Vault<P, T>, clock: &Clock) {
+    let current_time = clock.timestamp_ms();
+
+    assert!(current_time - vault.last_cranked_ms <= MAX_REWARDS_STALENESS_MS, ERewardsStale);
+}
+
 // === User Functions ===
 
 public fun deposit<P, L, T>(
@@ -514,8 +531,7 @@ public fun deposit<P, L, T>(
 ): Coin<P> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_aggregate(&agg);
-
-    vault.accrue_all_fees(&agg, clock);
+    vault.assert_vault_state_fresh<P, T>(clock);
 
     let deposit_amount = deposit.value();
     let current_time = clock.timestamp_ms();
@@ -607,13 +623,12 @@ public fun withdraw<P, L, T>(
 ): Coin<T> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.validate_aggregate(&agg);
+    vault.assert_vault_state_fresh<P, T>(clock);
     assert!(shares.value() > 0, EInsufficientShares);
 
     let shares_amount = shares.value();
     let user = ctx.sender();
     let current_time = clock.timestamp_ms();
-
-    vault.accrue_all_fees(&agg, clock);
 
     // Calculate withdrawal fee in shares
     let withdrawal_fee_shares = (shares_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
@@ -791,6 +806,106 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     );
 }
 
+// === Vault Crank Functions ===
+
+/// Create a vault crank accumulator for processing all lending markets
+/// Tracks all LMs and obligations that need processing
+public fun create_vault_crank_accumulator<P, T>(vault: &Vault<P, T>): VaultCrankAccumulator {
+    vault.version.assert_version(CURRENT_VERSION);
+
+    // Get all lending market types and their obligation IDs
+    let keys = vault.obligations.keys();
+    let obligation_ids = keys.map_ref!(|k| {
+        let obligations = vault.obligations.get(k);
+        obligations.map_ref!(|obl_data| {
+            obl_data.obligation_id
+        })
+    });
+
+    VaultCrankAccumulator {
+        vault_id: object::id(vault),
+        pending_lending_markets: vec_map::from_keys_values(keys, obligation_ids),
+        lending_market_allocations: vec_map::empty(),
+    }
+}
+
+/// Process a lending market into the crank accumulator after rewards have been compounded
+/// This gathers fresh obligation valuations that include compounded rewards
+/// Removes the LM from pending_lending_markets
+public fun process_lending_market_for_crank<L>(
+    acc: &mut VaultCrankAccumulator,
+    lending_market: &LendingMarket<L>,
+) {
+    let lending_market_type = type_name::with_defining_ids<L>();
+
+    let (_, obligation_ids) = acc.pending_lending_markets.remove(&lending_market_type);
+
+    let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
+
+    let mut total_deposited = decimal::from(0);
+    let mut total_borrowed = decimal::from(0);
+    let mut total_net = decimal::from(0);
+
+    obligation_allocations.do_ref!(|alloc| {
+        total_deposited = decimal::add(total_deposited, alloc.deposited_value_usd);
+        total_borrowed = decimal::add(total_borrowed, alloc.borrowed_value_usd);
+        total_net = decimal::add(total_net, alloc.net_value_usd);
+    });
+
+    let lending_market_allocation = LendingMarketAllocation {
+        deposited_value_usd: total_deposited,
+        borrowed_value_usd: total_borrowed,
+        net_value_usd: total_net,
+        obligations: obligation_allocations,
+    };
+
+    acc.lending_market_allocations.insert(lending_market_type, lending_market_allocation);
+}
+
+/// Finalize vault crank: creates aggregate, accrues fees, updates timestamp
+/// Confirms all lending markets have been processed
+public fun finalize_vault_crank<P, L, T>(
+    vault: &mut Vault<P, T>,
+    acc: VaultCrankAccumulator,
+    lending_market: &LendingMarket<L>,
+    clock: &Clock,
+) {
+    vault.version.assert_version(CURRENT_VERSION);
+    assert!(acc.vault_id == object::id(vault), EVaultMismatch);
+
+    let VaultCrankAccumulator {
+        vault_id: _,
+        pending_lending_markets,
+        lending_market_allocations,
+    } = acc;
+
+    assert!(pending_lending_markets.is_empty(), EIncompleteAccumulation);
+
+    let liquid_asset_value_usd = {
+        let liquid_asset_value = vault.deposit_asset.value();
+        get_usd_value_for_token_amount<L, T>(lending_market, liquid_asset_value)
+    };
+
+    let ks = lending_market_allocations.keys();
+    let total_obligation_value_usd = ks.fold!(decimal::from(0), |acc, k| {
+        let allocation = lending_market_allocations.get(&k);
+        decimal::add(acc, allocation.net_value_usd)
+    });
+
+    // Create aggregate with fresh post-compound state
+    let agg = VaultValueAggregate {
+        vault_id: object::id(vault),
+        liquid_asset_value_usd,
+        total_obligation_value_usd,
+        lending_market_allocations,
+    };
+
+    // Accrue fees based on post-compound NAV (includes newly compounded rewards)
+    vault.accrue_all_fees(&agg, clock);
+
+    vault.last_cranked_ms = clock.timestamp_ms();
+}
+
 // === Fee Management Functions ===
 
 /// Apply calculated fees to the vault, minting shares and updating state
@@ -826,8 +941,6 @@ fun apply_fee_accrual<P, T>(vault: &mut Vault<P, T>, accrual: FeeAccrual, clock:
     if (accrual.new_nav_per_share.gt(vault.nav_high_water_mark)) {
         vault.nav_high_water_mark = accrual.new_nav_per_share;
     };
-
-    vault.fee_last_update_timestamp_s = clock.timestamp_ms() / 1000;
 }
 
 /// Unified fee accrual function - calculates and applies all fees atomically
@@ -928,12 +1041,14 @@ fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u
         return 0
     };
 
-    let current_time_s = clock.timestamp_ms() / 1000;
-    let time_elapsed_s = current_time_s - vault.fee_last_update_timestamp_s;
+    let current_time_ms = clock.timestamp_ms();
+    let time_elapsed_ms = current_time_ms - vault.last_cranked_ms;
 
-    if (time_elapsed_s == 0) {
+    if (time_elapsed_ms == 0) {
         return 0
     };
+
+    let time_elapsed_s = time_elapsed_ms / 1000;
 
     // Calculate management fee reduction factor
     let annual_fee_rate = decimal::from_bps(vault.management_fee_bps);
@@ -1132,6 +1247,33 @@ public fun calculate_nav_per_share<P, T>(
             vault_value,
         )
     }
+}
+
+/// Get all obligation IDs for a specific lending market
+public fun get_obligation_ids_for_market<P, L, T>(vault: &Vault<P, T>): vector<ID> {
+    let lending_market_type = type_name::with_defining_ids<L>();
+    if (vault.obligations.contains(&lending_market_type)) {
+        let obligations = vault.obligations.get(&lending_market_type);
+        obligations.map_ref!(|obl| obl.obligation_id)
+    } else {
+        vector::empty()
+    }
+}
+
+/// Get obligation count for a specific lending market
+public fun get_obligation_count_for_market<P, L, T>(vault: &Vault<P, T>): u64 {
+    let lending_market_type = type_name::with_defining_ids<L>();
+    if (vault.obligations.contains(&lending_market_type)) {
+        let obligations = vault.obligations.get(&lending_market_type);
+        obligations.length()
+    } else {
+        0
+    }
+}
+
+/// Get all lending market types that have obligations
+public fun get_lending_market_types<P, T>(vault: &Vault<P, T>): vector<TypeName> {
+    vault.obligations.keys()
 }
 
 /// Total supply of shares
