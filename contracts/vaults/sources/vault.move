@@ -37,6 +37,8 @@ const EInvalidShareCurrency: vector<u8> = b"Vault currency metadata is invalid";
 const EVaultMismatch: vector<u8> = b"Vault ID mismatch";
 #[error]
 const ERewardsStale: vector<u8> = b"Rewards must be compounded";
+#[error]
+const EBaseTokenReward: vector<u8> = b"Base token rewards should not be swapped";
 //#[error]
 //const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
@@ -754,6 +756,12 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
 ) {
     vault.version.assert_version(CURRENT_VERSION);
     vault.validate_manager_cap(vault_manager_cap);
+
+    // Ensure reward is not base token
+    assert!(
+        type_name::with_defining_ids<T>() != type_name::with_defining_ids<R>(),
+        EBaseTokenReward,
+    );
 
     let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap<_, L, _>(&lm_type, obligation_index);
