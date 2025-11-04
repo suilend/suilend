@@ -1136,7 +1136,7 @@ public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValue
     }
 }
 
-public fun process_lending_market<L>(
+public fun process_lending_market_for_value_accumulator<L>(
     acc: &mut VaultValueAccumulator,
     lending_market: &LendingMarket<L>,
 ) {
@@ -1462,7 +1462,7 @@ public fun create_vault_value_aggregate_for_testing<P, L, T>(
 ): VaultValueAggregate {
     let mut acc = vault.create_vault_value_accumulator();
     if (!vault.obligations.is_empty()) {
-        acc.process_lending_market(lending_market);
+        acc.process_lending_market_for_value_accumulator(lending_market);
     };
     let agg = acc.create_vault_value_aggregate(vault, lending_market, clock);
     agg
