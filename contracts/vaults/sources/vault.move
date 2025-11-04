@@ -96,7 +96,7 @@ public struct VaultValueAccumulator {
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 }
 
-/// Created from a VaultValueAggregate once it has been fully processed
+/// Created from a VaultValueAccumulator once it has been fully processed
 public struct VaultValueAggregate has drop {
     vault_id: ID,
     liquid_asset_value_usd: decimal::Decimal,
