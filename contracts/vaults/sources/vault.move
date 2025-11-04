@@ -1375,7 +1375,7 @@ fun get_usd_value_for_token_amount<L, T>(
     let reserve = lending_market.reserve<_, T>();
     // TODO
     //reserve.assert_price_is_fresh(clock);
-    reserve.market_value_lower_bound(decimal::from(amount))
+    reserve.market_value(decimal::from(amount))
 }
 
 fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
