@@ -133,7 +133,7 @@ fun test_deposit_and_withdraw() {
     let token_amount = 1000;
     let deposit_coin = mint_test_coin(token_amount, scenario.ctx());
 
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let mut vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -152,7 +152,7 @@ fun test_deposit_and_withdraw() {
         scenario.ctx(),
     );
 
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn_coins = vault.withdraw(
         withdraw_shares,
         &lending_market,
@@ -193,7 +193,7 @@ fun test_fees_collected() {
     // User deposits 1000 tokens
     let deposit_amount = 1000000;
     let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -203,7 +203,7 @@ fun test_fees_collected() {
     );
 
     // Withdraw and check withdrawal fee
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn_coins = vault.withdraw(
         vault_shares,
         &lending_market,
@@ -238,7 +238,7 @@ fun test_multiple_users() {
     // User 1 deposits
     scenario.next_tx(USER1);
     let deposit1 = mint_test_coin(1000000, scenario.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let shares1 = vault.deposit(
         deposit1,
         &lending_market,
@@ -250,7 +250,7 @@ fun test_multiple_users() {
     // User 2 deposits
     scenario.next_tx(USER2);
     let deposit2 = mint_test_coin(2000000, scenario.ctx()); // Above MIN_DEPOSIT
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let shares2 = vault.deposit(
         deposit2,
         &lending_market,
@@ -265,7 +265,7 @@ fun test_multiple_users() {
 
     // User 1 withdraws
     scenario.next_tx(USER1);
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn1 = vault.withdraw(
         shares1,
         &lending_market,
@@ -277,7 +277,7 @@ fun test_multiple_users() {
 
     // User 2 withdraws
     scenario.next_tx(USER2);
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn2 = vault.withdraw(
         shares2,
         &lending_market,
@@ -336,7 +336,7 @@ fun test_minimum_deposit_failure() {
 
     // Try to deposit amount below minimum (should fail)
     let small_deposit = coin::mint_for_testing<TEST_COIN>(1, scenario.ctx()); // Less than MIN_DEPOSIT
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let _shares = vault.deposit(
         small_deposit,
         &lending_market,
@@ -363,7 +363,7 @@ fun test_insufficient_shares_withdrawal() {
 
     // Try to withdraw with zero shares (should fail)
     let zero_shares = coin::zero<VAULT_TESTS>(scenario.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let _withdrawn = vault.withdraw(
         zero_shares,
         &lending_market,
@@ -445,7 +445,7 @@ fun test_allocate_and_divest() {
     let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
     let manager_deploy_amount = deposit_coin.value() / 2;
 
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let mut vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -463,7 +463,7 @@ fun test_allocate_and_divest() {
         scenario.ctx(),
     );
     let obligation_index = 0;
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let ctokens_amt = vault.deploy_funds(
         &manager_cap,
         &mut lending_market,
@@ -476,7 +476,7 @@ fun test_allocate_and_divest() {
 
     scenario.next_tx(ADMIN);
 
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     vault.withdraw_deployed_funds(
         &manager_cap,
         &mut lending_market,
@@ -494,7 +494,7 @@ fun test_allocate_and_divest() {
         user_withdraw_amount,
         scenario.ctx(),
     );
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn_coins = vault.withdraw(
         shares_to_withdraw,
         &lending_market,
@@ -518,12 +518,12 @@ fun test_allocate_and_divest() {
 
 #[test]
 fun test_nav_changes() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (mut prices, mut scenario) = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
 
     let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
     let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
     let mut clock = scenario.take_shared<Clock>();
 
@@ -532,7 +532,7 @@ fun test_nav_changes() {
     // Deposit funds
     let deposit_amount = 1000000;
     let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -542,7 +542,7 @@ fun test_nav_changes() {
     );
 
     // Calculate initial NAV per share (should be 1.0 scaled)
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let initial_nav = vault.calculate_nav_per_share(&agg).floor();
     assert!(initial_nav == NAV_PRECISION as u64);
 
@@ -552,8 +552,16 @@ fun test_nav_changes() {
     // Advance clock by 1 year to accrue management fees
     clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
 
+    // Refresh price
+    prices.update_decimal_price<TEST_COIN>(1, 8, true, &clock);
+    lending_market.refresh_reserve_price(
+        0, // reserve_array_index
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
     // Apply fees
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     vault.accrue_fees_for_testing(&agg, &clock);
 
     // Total shares should have increased due to fee shares being minted
@@ -561,7 +569,7 @@ fun test_nav_changes() {
     assert!(new_total_shares > initial_total_shares);
 
     // Calculate new NAV per share after dilution
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let diluted_nav = vault.calculate_nav_per_share(&agg).floor();
 
     // NAV per share should have decreased due to share dilution from fee minting
@@ -596,7 +604,7 @@ fun test_compound_rewards() {
     scenario.next_tx(USER1);
     let deposit_amount = 1000000;
     let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -611,7 +619,7 @@ fun test_compound_rewards() {
     let obligation_index = 0;
 
     let deploy_amount = 500000;
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     vault.deploy_funds(
         &manager_cap,
         &mut lending_market,
@@ -760,7 +768,7 @@ fun test_compound_rewards_with_swap() {
     // User deposits B_TEST_SUI into vault
     scenario.next_tx(USER1);
     let deposit_coin = coin::mint_for_testing<B_TEST_SUI>(1_000_000_000_000, scenario.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -775,7 +783,7 @@ fun test_compound_rewards_with_swap() {
     let obligation_index = 0;
 
     let deploy_amount = 500_000_000_000; // 500 SUI (with 9 decimals)
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     vault.deploy_funds(
         &manager_cap,
         &mut lending_market,
@@ -878,7 +886,7 @@ fun test_share_precision() {
     let small_deposit = 1000 * exp; // 1000 tokens = 1,000,000,000 base units
     let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, scenario.ctx());
 
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let initial_nav = vault.calculate_nav_per_share(&agg).floor();
 
     // Initial NAV should be exactly 1.0 (NAV_PRECISION)
@@ -901,7 +909,7 @@ fun test_share_precision() {
     assert!(total_supply_after_first == 1000 * exp); // user + fee shares
 
     // Check NAV remains stable after first deposit
-    let agg_after_first = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg_after_first = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let nav_after_first = vault.calculate_nav_per_share(&agg_after_first).floor();
     assert!(nav_after_first == NAV_PRECISION as u64);
 
@@ -910,7 +918,7 @@ fun test_share_precision() {
     let large_deposit = (955 * exp) / 10; // 95.5 tokens = 95,500,000 base units
     let large_coin = coin::mint_for_testing<TEST_COIN>(large_deposit, scenario.ctx());
 
-    let agg2 = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg2 = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let nav_before_second = vault.calculate_nav_per_share(&agg2).floor();
     let supply_before_second = vault.total_supply();
 
@@ -940,7 +948,7 @@ fun test_share_precision() {
     let actual_ratio = (large_shares_amount * 1000) / small_shares_amount;
     assert!(actual_ratio == 95); // 95.5 rounded down
 
-    let agg_final = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg_final = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let nav_final = vault.calculate_nav_per_share(&agg_final).floor();
 
     // NAV should remain at 1.0
@@ -955,7 +963,7 @@ fun test_share_precision() {
     // === Test small withdrawal to verify reverse calculation ===
     scenario.next_tx(USER1);
     let withdraw_shares = coin::split(&mut small_shares, 100 * exp, scenario.ctx());
-    let agg3 = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg3 = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn = vault.withdraw(
         withdraw_shares,
         &lending_market,
@@ -1000,7 +1008,7 @@ fun test_small_deposit() {
     let small_deposit = (27 * exp) / 100; // $0.27
     let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, scenario.ctx());
 
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
 
     let small_shares = vault.deposit(
         small_coin,

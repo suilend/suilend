@@ -288,7 +288,7 @@ public fun deploy_funds<P, L, T>(
     let available_amount = vault.deposit_asset.value();
     assert!(available_amount >= amount, EInsufficientLiquidity);
 
-    let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount);
+    let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount, clock);
 
     // Split funds from vault's deposit asset
     let deploy_balance = vault.deposit_asset.split(amount);
@@ -332,7 +332,7 @@ public fun deploy_funds<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value)
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
         let updated_obligation_value_usd = decimal::add(
             agg.total_obligation_value_usd,
@@ -421,11 +421,12 @@ public fun withdraw_deployed_funds<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value)
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
         let usd_withdrawn = get_usd_value_for_token_amount<_, T>(
             lending_market,
             withdrawn_amount,
+            clock,
         );
         let updated_obligation_value_usd = decimal::saturating_sub(
             agg.total_obligation_value_usd,
@@ -545,6 +546,7 @@ public fun deposit<P, L, T>(
     let net_deposit_usd_value = get_usd_value_for_token_amount<_, T>(
         lending_market,
         net_deposit_amount,
+        clock,
     );
     assert!(
         decimal::from_scaled_val(MIN_DEPOSIT_USD_SCALED).le(net_deposit_usd_value),
@@ -553,7 +555,7 @@ public fun deposit<P, L, T>(
 
     // Calculate shares BEFORE adding deposit to vault or minting any shares
     let fee_shares = if (deposit_fee > 0) {
-        calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg)
+        calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg, clock)
     } else {
         0
     };
@@ -563,6 +565,7 @@ public fun deposit<P, L, T>(
         net_deposit_amount,
         lending_market,
         &agg,
+        clock,
     );
 
     assert!(shares_to_mint > 0, EInvalidDeposit);
@@ -598,7 +601,7 @@ public fun deposit<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value)
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
         let updated_agg = VaultValueAggregate {
             vault_id: agg.vault_id,
@@ -642,6 +645,7 @@ public fun withdraw<P, L, T>(
     let withdraw_amount = get_token_amount_from_usd<_, T>(
         lending_market,
         net_usd_value,
+        clock,
     ).floor();
 
     // Check if vault has sufficient liquidity for withdrawal
@@ -684,7 +688,7 @@ public fun withdraw<P, L, T>(
     {
         let updated_liquid_asset_value_usd = {
             let liquid_asset_value = vault.deposit_asset.value();
-            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value)
+            get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
         let updated_agg = VaultValueAggregate {
             vault_id: agg.vault_id,
@@ -883,7 +887,7 @@ public fun finalize_vault_crank<P, L, T>(
 
     let liquid_asset_value_usd = {
         let liquid_asset_value = vault.deposit_asset.value();
-        get_usd_value_for_token_amount<L, T>(lending_market, liquid_asset_value)
+        get_usd_value_for_token_amount<L, T>(lending_market, liquid_asset_value, clock)
     };
 
     let ks = lending_market_allocations.keys();
@@ -1131,13 +1135,14 @@ public fun create_vault_value_aggregate<P, L, T>(
     acc: VaultValueAccumulator,
     vault: &Vault<P, T>,
     lending_market: &LendingMarket<L>,
+    clock: &Clock,
 ): VaultValueAggregate {
     assert!(acc.vault_id == object::id(vault), EVaultMismatch);
     assert!(acc.obligation_ids.is_empty(), EIncompleteAccumulation);
 
     let liquid_asset_value_usd = {
         let liquid_asset_value = vault.deposit_asset.value();
-        get_usd_value_for_token_amount<L, T>(lending_market, liquid_asset_value)
+        get_usd_value_for_token_amount<L, T>(lending_market, liquid_asset_value, clock)
     };
 
     let VaultValueAccumulator {
@@ -1169,11 +1174,13 @@ public fun calculate_shares_to_mint<P, L, T>(
     deposit_amount: u64,
     lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
+    clock: &Clock,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(agg);
     let deposit_usd_value = get_usd_value_for_token_amount<_, T>(
         lending_market,
         deposit_amount,
+        clock,
     );
     calculate_shares_from_usd_and_nav(deposit_usd_value, nav_per_share).floor()
 }
@@ -1184,11 +1191,13 @@ public fun calculate_shares_to_burn<P, L, T>(
     withdraw_amount: u64,
     lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
+    clock: &Clock,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(agg);
     let withdraw_usd_value = get_usd_value_for_token_amount<_, T>(
         lending_market,
         withdraw_amount,
+        clock,
     );
     calculate_shares_from_usd_and_nav(withdraw_usd_value, nav_per_share).floor()
 }
@@ -1199,10 +1208,11 @@ public fun calculate_withdraw_amount<P, L, T>(
     shares_amount: u64,
     lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
+    clock: &Clock,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(agg);
     let withdraw_usd_value = shares_to_usd(decimal::from(shares_amount), nav_per_share);
-    get_token_amount_from_usd<_, T>(lending_market, withdraw_usd_value).floor()
+    get_token_amount_from_usd<_, T>(lending_market, withdraw_usd_value, clock).floor()
 }
 
 /// Calculates the amount of T that shares_amount will cost
@@ -1211,10 +1221,11 @@ public fun calculate_deposit_amount<P, L, T>(
     shares_amount: u64,
     lending_market: &LendingMarket<L>,
     agg: &VaultValueAggregate,
+    clock: &Clock,
 ): u64 {
     let nav_per_share = vault.calculate_nav_per_share(agg);
     let deposit_usd_value = shares_to_usd(decimal::from(shares_amount), nav_per_share);
-    get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value).floor()
+    get_token_amount_from_usd<_, T>(lending_market, deposit_usd_value, clock).floor()
 }
 
 public fun calculate_utilization_rate(agg: &VaultValueAggregate): u64 {
@@ -1360,10 +1371,11 @@ fun calculate_obligation_values<L>(
 fun get_token_amount_from_usd<L, T>(
     lending_market: &LendingMarket<L>,
     amount: decimal::Decimal,
+    clock: &Clock,
 ): decimal::Decimal {
     let reserve = lending_market.reserve<_, T>();
-    // TODO
-    //reserve.assert_price_is_fresh(clock);
+    reserve.assert_price_is_fresh(clock);
+    // TODO: use market price
     reserve.usd_to_token_amount_lower_bound(amount)
 }
 
@@ -1371,10 +1383,10 @@ fun get_token_amount_from_usd<L, T>(
 fun get_usd_value_for_token_amount<L, T>(
     lending_market: &LendingMarket<L>,
     amount: u64,
+    clock: &Clock,
 ): decimal::Decimal {
     let reserve = lending_market.reserve<_, T>();
-    // TODO
-    //reserve.assert_price_is_fresh(clock);
+    reserve.assert_price_is_fresh(clock);
     reserve.market_value(decimal::from(amount))
 }
 
@@ -1412,12 +1424,13 @@ public(package) fun get_obligation_cap<P, L, T>(
 public fun create_vault_value_aggregate_for_testing<P, L, T>(
     vault: &Vault<P, T>,
     lending_market: &LendingMarket<L>,
+    clock: &Clock,
 ): VaultValueAggregate {
     let mut acc = vault.create_vault_value_accumulator();
     if (!vault.obligations.is_empty()) {
         acc.process_lending_market(lending_market);
     };
-    let agg = acc.create_vault_value_aggregate(vault, lending_market);
+    let agg = acc.create_vault_value_aggregate(vault, lending_market, clock);
     agg
 }
 
