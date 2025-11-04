@@ -279,7 +279,7 @@ public fun create_vault<P, T>(
 public fun deploy_funds<P, L, T>(
     vault: &mut Vault<P, T>,
     vault_manager_cap: &VaultManagerCap<P>,
-    lending_market: &mut LendingMarket<L>,
+    lending_market: &mut LendingMarket<L>, // Must contain reserve for T (price source)
     obligation_index: u64,
     amount: u64,
     clock: &Clock,
@@ -374,7 +374,7 @@ public fun deploy_funds<P, L, T>(
 public fun withdraw_deployed_funds<P, L, T>(
     vault: &mut Vault<P, T>,
     vault_manager_cap: &VaultManagerCap<P>,
-    lending_market: &mut LendingMarket<L>,
+    lending_market: &mut LendingMarket<L>, // Must contain reserve for T (price source)
     obligation_index: u64,
     ctoken_amount: u64,
     clock: &Clock,
@@ -532,7 +532,7 @@ fun assert_vault_state_fresh<P, T>(vault: &Vault<P, T>, clock: &Clock) {
 public fun deposit<P, L, T>(
     vault: &mut Vault<P, T>,
     deposit: Coin<T>,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
@@ -626,7 +626,7 @@ public fun deposit<P, L, T>(
 public fun withdraw<P, L, T>(
     vault: &mut Vault<P, T>,
     shares: Coin<P>,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
     agg: VaultValueAggregate,
     ctx: &mut TxContext,
@@ -748,7 +748,7 @@ public fun compound_rewards<P, L, T>(
 public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     vault: &Vault<P, T>,
     vault_manager_cap: &VaultManagerCap<P>,
-    lending_market: &mut LendingMarket<L>,
+    lending_market: &mut LendingMarket<L>, // Must contain reserves for R + T (price sources)
     swap_pool: &mut Pool<R, T, CpQuoter, LpType>,
     obligation_index: u64,
     reward_reserve_index: u64,
@@ -905,7 +905,7 @@ public fun process_lending_market_for_crank<L>(
 public fun finalize_vault_crank<P, L, T>(
     vault: &mut Vault<P, T>,
     acc: VaultCrankAccumulator,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
 ) {
     vault.version.assert_version(CURRENT_VERSION);
@@ -1168,7 +1168,7 @@ public fun process_lending_market<L>(
 public fun create_vault_value_aggregate<P, L, T>(
     acc: VaultValueAccumulator,
     vault: &Vault<P, T>,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
 ): VaultValueAggregate {
     assert!(acc.vault_id == object::id(vault), EVaultMismatch);
@@ -1206,7 +1206,7 @@ public fun create_vault_value_aggregate<P, L, T>(
 public fun calculate_shares_to_mint<P, L, T>(
     vault: &Vault<P, T>,
     deposit_amount: u64,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     agg: &VaultValueAggregate,
     clock: &Clock,
 ): u64 {
@@ -1223,7 +1223,7 @@ public fun calculate_shares_to_mint<P, L, T>(
 public fun calculate_shares_to_burn<P, L, T>(
     vault: &Vault<P, T>,
     withdraw_amount: u64,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     agg: &VaultValueAggregate,
     clock: &Clock,
 ): u64 {
@@ -1240,7 +1240,7 @@ public fun calculate_shares_to_burn<P, L, T>(
 public fun calculate_withdraw_amount<P, L, T>(
     vault: &Vault<P, T>,
     shares_amount: u64,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     agg: &VaultValueAggregate,
     clock: &Clock,
 ): u64 {
@@ -1253,7 +1253,7 @@ public fun calculate_withdraw_amount<P, L, T>(
 public fun calculate_deposit_amount<P, L, T>(
     vault: &Vault<P, T>,
     shares_amount: u64,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     agg: &VaultValueAggregate,
     clock: &Clock,
 ): u64 {
