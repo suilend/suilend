@@ -81,6 +81,7 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
+        200, // 2% bps
         &clock,
         ctx,
     );
@@ -390,6 +391,7 @@ fun test_fee_limits() {
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
         1000, // 10% withdrawal fee (at limit)
+        200, // 2% bps
         &clock,
         scenario.ctx(),
     );
@@ -421,6 +423,7 @@ fun test_excessive_fee_failure() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
+        200, // 2% bps
         &clock,
         scenario.ctx(),
     );
@@ -725,6 +728,7 @@ fun test_compound_rewards_with_swap() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
+        200, // 2% bps
         &clock,
         scenario.ctx(),
     );
@@ -830,11 +834,9 @@ fun test_compound_rewards_with_swap() {
         &mut lending_market,
         &mut pool,
         obligation_index,
-        sui_reserve_index,
-        0,
-        true,
-        sui_reserve_index,
-        1,
+        sui_reserve_index, // reward_reserve_index
+        0, // reward_index
+        true, // is_deposit_reward
         &clock,
         scenario.ctx(),
     );

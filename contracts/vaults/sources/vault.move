@@ -71,6 +71,7 @@ public struct Vault<phantom P, phantom T> has key, store {
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
+    slippage_bps: u64,
     nav_high_water_mark: decimal::Decimal, // Highest NAV per share achieved (for performance fees)
     last_cranked_ms: u64, // timestamp_ms when rewards were last compounded and fees were last accrued
 }
@@ -142,6 +143,7 @@ public struct VaultCreated has copy, drop {
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
+    slippage_bps: u64,
 }
 
 public struct VaultDeposit has copy, drop {
@@ -213,6 +215,7 @@ public fun create_vault<P, T>(
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
+    slippage_bps: u64,
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): VaultManagerCap<P> {
@@ -248,6 +251,7 @@ public fun create_vault<P, T>(
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
+        slippage_bps,
         nav_high_water_mark: decimal::from_u128(NAV_PRECISION),
         last_cranked_ms: current_time_ms,
     };
@@ -263,6 +267,7 @@ public fun create_vault<P, T>(
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
+        slippage_bps,
     });
 
     transfer::public_share_object(vault);
@@ -749,8 +754,6 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     reward_reserve_index: u64,
     reward_index: u64,
     is_deposit_reward: bool,
-    deposit_reserve_index: u64,
-    min_amount_out: u64,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
@@ -781,6 +784,29 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
     if (reward_amount == 0) {
         coin::destroy_zero(reward_coin);
         return
+    };
+
+    let reward_reserve = lending_market.reserve<_, R>();
+    let deposit_reserve = lending_market.reserve<_, T>();
+    let deposit_reserve_index = lending_market.reserve_array_index<_, T>();
+
+    // Calculate min_amount_out using slippage_bps and reserve prices for R + T
+    let min_amount_out = {
+        let reward_usd_value = reward_reserve.market_value(decimal::from(reward_amount));
+
+        // TODO: should use market price
+        let expected_base_token_amount = deposit_reserve.usd_to_token_amount_upper_bound(
+            reward_usd_value,
+        );
+
+        // Apply slippage: min_amount_out = expected_amount * (1 - slippage_bps / BASIS_POINTS)
+        expected_base_token_amount
+            .mul(decimal::from(BASIS_POINTS)
+                .sub(
+                    decimal::from(vault.slippage_bps),
+                )
+                .div(decimal::from(BASIS_POINTS)))
+            .floor()
     };
 
     // Swap R -> T
