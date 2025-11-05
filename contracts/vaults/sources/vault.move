@@ -785,6 +785,9 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
 
     // Calculate min_amount_out using slippage_bps and reserve prices for R + T
     let min_amount_out = {
+        deposit_reserve.assert_price_is_fresh(clock);
+        reward_reserve.assert_price_is_fresh(clock);
+
         let reward_usd_value = reward_reserve.market_value(decimal::from(reward_amount));
 
         // TODO: should use market price

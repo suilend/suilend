@@ -556,7 +556,7 @@ fun test_nav_changes() {
     clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
 
     // Refresh price
-    prices.update_decimal_price<TEST_COIN>(1, 8, true, &clock);
+    prices.update_price<TEST_COIN>(1, 0, &clock);
     lending_market.refresh_reserve_price(
         0, // reserve_array_index
         &clock,
@@ -802,6 +802,7 @@ fun test_compound_rewards_with_swap() {
 
     // Add B_TEST_USDC reward pool for B_TEST_SUI deposits
     let sui_reserve_index = 1; // Reserve order: [TEST_COIN, B_TEST_SUI, B_TEST_USDC]
+    let usdc_reserve_index = 2;
     let reward_amount = 100_000_000_000; // 100 USDC (with 9 decimals)
     let reward_coin = coin::mint_for_testing<B_TEST_USDC>(reward_amount, scenario.ctx());
     let start_time_ms = clock.timestamp_ms();
@@ -820,6 +821,23 @@ fun test_compound_rewards_with_swap() {
 
     // Advance time to accrue rewards
     clock.increment_for_testing(31 * 24 * 60 * 60 * 1000);
+
+    // Refresh prices
+    {
+        prices.update_price<B_TEST_SUI>(4, 0, &clock);
+        lending_market.refresh_reserve_price(
+            sui_reserve_index, // reserve_array_index
+            &clock,
+            prices.get_price_obj<B_TEST_SUI>(),
+        );
+
+        prices.update_price<B_TEST_USDC>(1, 0, &clock);
+        lending_market.refresh_reserve_price(
+            usdc_reserve_index, // reserve_array_index
+            &clock,
+            prices.get_price_obj<B_TEST_USDC>(),
+        );
+    };
 
     // Compound rewards: claim B_TEST_USDC, swap to B_TEST_SUI, deposit back to obligation
     scenario.next_tx(USER2);
