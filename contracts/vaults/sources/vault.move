@@ -790,8 +790,7 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
 
         let reward_usd_value = reward_reserve.market_value(decimal::from(reward_amount));
 
-        // TODO: should use market price
-        let expected_base_token_amount = deposit_reserve.usd_to_token_amount_upper_bound(
+        let expected_base_token_amount = deposit_reserve.usd_to_token_amount(
             reward_usd_value,
         );
 
@@ -1405,8 +1404,7 @@ fun get_token_amount_from_usd<L, T>(
 ): decimal::Decimal {
     let reserve = lending_market.reserve<_, T>();
     reserve.assert_price_is_fresh(clock);
-    // TODO: use market price
-    reserve.usd_to_token_amount_lower_bound(amount)
+    reserve.usd_to_token_amount(amount)
 }
 
 /// Get USD amount from T amount
