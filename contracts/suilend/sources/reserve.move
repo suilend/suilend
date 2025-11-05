@@ -528,6 +528,24 @@ module suilend::reserve {
         market_value_upper_bound(reserve, liquidity_amount)
     }
 
+    /// Converts a USD amount to the equivalent token amount using the market price.
+    /// E.g. how much sui can i get for 1000 USDC
+    ///
+    /// # Arguments
+    ///
+    /// * `reserve` - A reference to the `Reserve` to query.
+    /// * `usd_amount` - The USD amount to convert.
+    ///
+    /// # Returns
+    ///
+    /// * `Decimal` - The equivalent token amount.
+    public fun usd_to_token_amount<P>(
+        reserve: &Reserve<P>, 
+        usd_amount: Decimal
+    ): Decimal {
+        decimal::from(10u64.pow(reserve.mint_decimals)).mul(usd_amount).div(reserve.price)
+    }
+
     /// Converts a USD amount to the equivalent token amount using the lower bound price.
     /// E.g. how much sui can i get for 1000 USDC
     ///
