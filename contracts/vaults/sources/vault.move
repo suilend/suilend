@@ -546,8 +546,7 @@ public fun deposit<P, L, T>(
     let user = ctx.sender();
 
     // Calculate deposit fee
-    let deposit_fee = (deposit_amount * vault.deposit_fee_bps) / BASIS_POINTS;
-    let net_deposit_amount = deposit_amount - deposit_fee;
+    let (net_deposit_amount, deposit_fee) = split_amount(deposit_amount, vault.deposit_fee_bps);
 
     // Check minimum deposit in USD terms
     let net_deposit_usd_value = get_usd_value_for_token_amount<_, T>(
@@ -641,8 +640,7 @@ public fun withdraw<P, L, T>(
     let current_time = clock.timestamp_ms();
 
     // Calculate withdrawal fee in shares
-    let withdrawal_fee_shares = (shares_amount * vault.withdrawal_fee_bps) / BASIS_POINTS;
-    let net_shares = shares_amount - withdrawal_fee_shares;
+    let (net_shares, withdrawal_fee_shares) = split_amount(shares_amount, vault.withdrawal_fee_bps);
 
     // Calculate total USD value of net shares being redeemed
     let current_nav_per_share = vault.calculate_nav_per_share(&agg);
@@ -1437,6 +1435,11 @@ fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
         total_shares: vault.total_supply(),
         lending_market_allocations: agg.lending_market_allocations,
     });
+}
+
+fun split_amount(amount: u64, fee_bps: u64): (u64, u64) {
+    let fee_amount = (amount * fee_bps) / BASIS_POINTS;
+    (amount - fee_amount, fee_amount)
 }
 
 /// Get obligation cap at lending_market_type + index (read-only)
