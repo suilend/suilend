@@ -93,6 +93,21 @@ module suilend::liquidity_mining {
         pool_reward.end_time_ms
     }
 
+    /// Retrieves the rewards from a UserRewardManager reference
+    public fun rewards(self: &UserRewardManager): &vector<Option<UserReward>> {
+        &self.rewards
+    }
+
+    /// Retrieves the pool_rewards from a PoolRewardManager reference
+    public fun pool_rewards(self: &PoolRewardManager): &vector<Option<PoolReward>> {
+        &self.pool_rewards
+    }
+
+    /// Retrieves the earned_rewards field from a UserReward reference
+    public fun earned_rewards(self: &UserReward): Decimal {
+        self.earned_rewards
+    }
+
     // === Public-Friend functions
 
     /// Creates a new pool reward manager with an empty rewards vector and zero shares.
