@@ -41,6 +41,10 @@ const ERewardsStale: vector<u8> = b"Rewards must be compounded";
 const EBaseTokenReward: vector<u8> = b"Base token rewards should not be swapped";
 #[error]
 const EUnclaimedRewards: vector<u8> = b"All rewards must be claimed before cranking";
+#[error]
+const EUnwindNotNeeded: vector<u8> = b"Enough liquidity exists to redeem shares";
+#[error]
+const EIncorrectOrder: vector<u8> = b"LendingMarket processed out of order";
 //#[error]
 //const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
@@ -99,7 +103,7 @@ public struct VaultValueAccumulator {
 }
 
 /// Created from a VaultValueAccumulator once it has been fully processed
-public struct VaultValueAggregate has drop {
+public struct VaultValueAggregate {
     vault_id: ID,
     liquid_asset_value_usd: decimal::Decimal,
     total_obligation_value_usd: decimal::Decimal,
@@ -136,6 +140,24 @@ public struct FeeAccrual has drop {
     performance_fee_shares: u64,
     total_fee_shares: u64,
     new_nav_per_share: decimal::Decimal,
+}
+
+/// For tracking obligation unwinds needed to satisfy a withdrawal
+/// Must be consumed by withdraw_with_unwind()
+public struct VaultUnwindAccumulator<phantom P> {
+    vault_id: ID,
+    // base token
+    target_withdraw_amount: u64,
+    shares: balance::Balance<P>,
+    // Keyed by lending market type -> vector of unwind targets in FIFO order
+    pending_unwinds: vec_map::VecMap<TypeName, vector<UnwindTarget>>,
+    agg: VaultValueAggregate,
+}
+
+/// Specifies an obligation position that needs to be unwound
+public struct UnwindTarget has drop {
+    obligation_index: u64,
+    usd_to_recover: decimal::Decimal,
 }
 
 // === Events ===
@@ -206,6 +228,16 @@ public struct VaultStats has copy, drop {
     aum_usd: u64,
     total_shares: u64,
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
+}
+
+public struct ObligationUnwind has copy, drop {
+    vault_id: object::ID,
+    lending_market_id: object::ID,
+    obligation_index: u64,
+    reserve_index: u64,
+    ctoken_amount: u64,
+    token_amount: u64,
+    timestamp_ms: u64,
 }
 
 // === Vault Manager Functions ===
@@ -285,7 +317,7 @@ public fun deploy_funds<P, L, T>(
     obligation_index: u64,
     amount: u64,
     clock: &Clock,
-    agg: VaultValueAggregate,
+    mut agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ): u64 {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
@@ -352,21 +384,18 @@ public fun deploy_funds<P, L, T>(
         let lm_type = type_name::with_defining_ids<L>();
         let mut updated_allocations = agg.lending_market_allocations;
 
-        if (updated_allocations.contains(&lm_type)) {
-            let allocation = updated_allocations.get_mut(&lm_type);
-            // Increase deposited value and net value by the deployed amount
-            allocation.deposited_value_usd =
-                decimal::add(allocation.deposited_value_usd, usd_to_deploy);
-            allocation.net_value_usd = decimal::add(allocation.net_value_usd, usd_to_deploy);
-        };
+        let allocation = updated_allocations.get_mut(&lm_type);
+        // Increase deposited value and net value by the deployed amount
+        allocation.deposited_value_usd =
+            decimal::add(allocation.deposited_value_usd, usd_to_deploy);
+        allocation.net_value_usd = decimal::add(allocation.net_value_usd, usd_to_deploy);
 
-        let updated_agg = VaultValueAggregate {
-            vault_id: agg.vault_id,
-            liquid_asset_value_usd: updated_liquid_asset_value_usd,
-            total_obligation_value_usd: updated_obligation_value_usd,
-            lending_market_allocations: updated_allocations,
-        };
-        vault.emit_stats_event(&updated_agg);
+        agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
+        agg.total_obligation_value_usd = updated_obligation_value_usd;
+        agg.lending_market_allocations = updated_allocations;
+
+        vault.emit_stats_event(&agg);
+        agg.destroy_vault_value_aggregate();
     };
 
     ctokens_amount
@@ -380,7 +409,7 @@ public fun withdraw_deployed_funds<P, L, T>(
     obligation_index: u64,
     ctoken_amount: u64,
     clock: &Clock,
-    agg: VaultValueAggregate,
+    mut agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ) {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
@@ -446,22 +475,18 @@ public fun withdraw_deployed_funds<P, L, T>(
         let lm_type = type_name::with_defining_ids<L>();
         let mut updated_allocations = agg.lending_market_allocations;
 
-        if (updated_allocations.contains(&lm_type)) {
-            let allocation = updated_allocations.get_mut(&lm_type);
-            // Decrease deposited value and net value by the withdrawn amount
-            allocation.deposited_value_usd =
-                decimal::saturating_sub(allocation.deposited_value_usd, usd_withdrawn);
-            allocation.net_value_usd =
-                decimal::saturating_sub(allocation.net_value_usd, usd_withdrawn);
-        };
+        let allocation = updated_allocations.get_mut(&lm_type);
+        // Decrease deposited value and net value by the withdrawn amount
+        allocation.deposited_value_usd =
+            decimal::saturating_sub(allocation.deposited_value_usd, usd_withdrawn);
+        allocation.net_value_usd = decimal::saturating_sub(allocation.net_value_usd, usd_withdrawn);
 
-        let updated_agg = VaultValueAggregate {
-            vault_id: agg.vault_id,
-            liquid_asset_value_usd: updated_liquid_asset_value_usd,
-            total_obligation_value_usd: updated_obligation_value_usd,
-            lending_market_allocations: updated_allocations,
-        };
-        vault.emit_stats_event(&updated_agg);
+        agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
+        agg.total_obligation_value_usd = updated_obligation_value_usd;
+        agg.lending_market_allocations = updated_allocations;
+
+        vault.emit_stats_event(&agg);
+        agg.destroy_vault_value_aggregate();
     };
 }
 
@@ -536,7 +561,7 @@ public fun deposit<P, L, T>(
     deposit: Coin<T>,
     lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
-    agg: VaultValueAggregate,
+    mut agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ): Coin<P> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
@@ -606,13 +631,11 @@ public fun deposit<P, L, T>(
             let liquid_asset_value = vault.deposit_asset.value();
             get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
-        let updated_agg = VaultValueAggregate {
-            vault_id: agg.vault_id,
-            liquid_asset_value_usd: updated_liquid_asset_value_usd,
-            total_obligation_value_usd: agg.total_obligation_value_usd,
-            lending_market_allocations: agg.lending_market_allocations,
-        };
-        vault.emit_stats_event(&updated_agg);
+
+        agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
+
+        vault.emit_stats_event(&agg);
+        agg.destroy_vault_value_aggregate();
     };
 
     user_shares
@@ -624,7 +647,7 @@ public fun withdraw<P, L, T>(
     shares: Coin<P>,
     lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
-    agg: VaultValueAggregate,
+    mut agg: VaultValueAggregate,
     ctx: &mut TxContext,
 ): Coin<T> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
@@ -692,16 +715,201 @@ public fun withdraw<P, L, T>(
             let liquid_asset_value = vault.deposit_asset.value();
             get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
-        let updated_agg = VaultValueAggregate {
-            vault_id: agg.vault_id,
-            liquid_asset_value_usd: updated_liquid_asset_value_usd,
-            total_obligation_value_usd: agg.total_obligation_value_usd,
-            lending_market_allocations: agg.lending_market_allocations,
-        };
-        vault.emit_stats_event(&updated_agg);
+
+        agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
+
+        vault.emit_stats_event(&agg);
+        agg.destroy_vault_value_aggregate();
     };
 
     coins
+}
+
+/// For withdrawals requiring obligation unwinding:
+///   1. Call create_unwind_accumulator() to calculate unwind plan
+///   2. Call process_unwinds_for_lending_market() for each LM
+///   3. Call withdraw_with_unwind()
+/// All pending unwinds must be processed before calling
+public fun withdraw_with_unwind<P, L, T>(
+    vault: &mut Vault<P, T>,
+    acc: VaultUnwindAccumulator<P>,
+    lending_market: &LendingMarket<L>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<T> {
+    vault.version.assert_version(CURRENT_VERSION);
+    assert!(acc.vault_id == object::id(vault), EVaultMismatch);
+    assert!(acc.pending_unwinds.is_empty(), EIncompleteAccumulation);
+
+    let VaultUnwindAccumulator {
+        vault_id: _,
+        target_withdraw_amount,
+        pending_unwinds: _,
+        shares,
+        mut agg,
+    } = acc;
+
+    // Check if vault now has sufficient liquidity after unwinds
+    let available_amount = vault.deposit_asset.value();
+    assert!(available_amount >= target_withdraw_amount, EInsufficientLiquidity);
+
+    let updated_liquid_asset_value_usd = {
+        let liquid_asset_value = vault.deposit_asset.value();
+        get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
+    };
+    agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
+
+    withdraw(vault, coin::from_balance(shares, ctx), lending_market, clock, agg, ctx)
+}
+
+// === Unwind Functions ===
+
+/// Create an unwind accumulator for withdrawals that require unwinding obligations
+/// Calculate which obligations need to be unwound to satisfy withdrawal liquidity needs
+/// Each LendingMarket must be processed by process_unwinds_for_lending_market()
+/// A VaultValueAggregate must first be created
+public fun create_unwind_accumulator<P, L, T>(
+    vault: &Vault<P, T>,
+    shares: Coin<P>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
+    agg: VaultValueAggregate,
+    clock: &Clock,
+): VaultUnwindAccumulator<P> {
+    vault.version.assert_version(CURRENT_VERSION);
+    vault.validate_aggregate(&agg);
+
+    let shares_amount = shares.value();
+    assert!(shares_amount > 0, EInsufficientShares);
+
+    let (net_shares, _withdrawal_fee_shares) = split_amount(
+        shares_amount,
+        vault.withdrawal_fee_bps,
+    );
+
+    // Calculate total USD value of net shares being redeemed
+    let current_nav_per_share = vault.calculate_nav_per_share(&agg);
+    let net_usd_value = shares_to_usd(decimal::from(net_shares), current_nav_per_share);
+
+    // Convert net USD value to base token amount
+    let target_withdraw_amount = get_token_amount_from_usd<_, T>(
+        lending_market,
+        net_usd_value,
+        clock,
+    ).floor();
+
+    assert!(target_withdraw_amount > 0, EInsufficientShares);
+
+    // Check if vault has sufficient liquidity for withdrawal
+    let available_amount = vault.deposit_asset.value();
+
+    assert!(available_amount < target_withdraw_amount, EUnwindNotNeeded);
+
+    // Calculate shortfall in USD terms
+    let shortfall_tokens = target_withdraw_amount - available_amount;
+    let shortfall_usd = get_usd_value_for_token_amount<_, T>(
+        lending_market,
+        shortfall_tokens,
+        clock,
+    );
+
+    let pending_unwinds = agg.calculate_unwind_plan(shortfall_usd);
+
+    VaultUnwindAccumulator {
+        vault_id: object::id(vault),
+        target_withdraw_amount,
+        pending_unwinds,
+        shares: shares.into_balance(),
+        agg,
+    }
+}
+
+/// Process unwinding for a specific lending market
+/// Withdraws and redeems ctokens from obligations, adding funds to vault.deposit_asset
+/// Removes the lending market from pending_unwinds
+public fun process_unwinds_for_lending_market<P, L, T>(
+    vault: &mut Vault<P, T>,
+    acc: &mut VaultUnwindAccumulator<P>,
+    lending_market: &mut LendingMarket<L>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+) {
+    vault.version.assert_version(CURRENT_VERSION);
+    assert!(acc.vault_id == object::id(vault), EVaultMismatch);
+
+    let lending_market_type = type_name::with_defining_ids<L>();
+    let reserve_index = lending_market.reserve_array_index<_, T>();
+
+    let unwind_targets = {
+        // Ensure order is maintained
+        let (lm_type, unwind_targets) = acc.pending_unwinds.remove_entry_by_idx(0);
+        assert!(lm_type == lending_market_type, EIncorrectOrder);
+        unwind_targets
+    };
+
+    // Process each unwind target
+    unwind_targets.do!(|target| {
+        // Calculate ctoken amount needed
+        let ctoken_amount = calculate_ctoken_amount_for_usd_value<L, T>(
+            lending_market,
+            target.usd_to_recover,
+            clock,
+        ).ceil();
+
+        let lm_type = type_name::with_defining_ids<L>();
+        let obligation_cap = vault.get_obligation_cap(&lm_type, target.obligation_index);
+
+        let ctokens = lending_market.withdraw_ctokens<L, T>(
+            reserve_index,
+            obligation_cap,
+            clock,
+            ctoken_amount,
+            ctx,
+        );
+
+        // Redeem cTokens for underlying liquidity
+        let withdrawn_coin = lending_market.redeem_ctokens_and_withdraw_liquidity<L, T>(
+            reserve_index,
+            clock,
+            ctokens,
+            option::none(), // No rate limiter exemption
+            ctx,
+        );
+
+        let withdrawn_amount = withdrawn_coin.value();
+
+        // Add withdrawn funds directly to vault's deposit asset
+        vault.deposit_asset.join(coin::into_balance(withdrawn_coin));
+
+        // Emit unwind event
+        event::emit(ObligationUnwind {
+            vault_id: object::id(vault),
+            lending_market_id: object::id(lending_market),
+            obligation_index: target.obligation_index,
+            reserve_index,
+            ctoken_amount,
+            token_amount: withdrawn_amount,
+            timestamp_ms: clock.timestamp_ms(),
+        });
+    });
+
+    // Recalculate this lending market's allocation
+    let lending_market_type = type_name::with_defining_ids<L>();
+    let obligations = vault.obligations.get(&lending_market_type);
+    let obligation_ids = obligations.map_ref!(|obl| obl.obligation_id);
+    let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
+
+    let updated_lm_allocation = aggregate_allocation_data(obligation_allocations);
+
+    let alloc = acc.agg.lending_market_allocations.get_mut(&lending_market_type);
+    *alloc = updated_lm_allocation;
+
+    // Recalculate total obligation value
+    let ks = acc.agg.lending_market_allocations.keys();
+    let total_obligation_value_usd = ks.fold!(decimal::from(0), |acc_val, k| {
+        let allocation = acc.agg.lending_market_allocations.get(&k);
+        decimal::add(acc_val, allocation.net_value_usd)
+    });
+    acc.agg.total_obligation_value_usd = total_obligation_value_usd;
 }
 
 // === Vault Rewards Functions ===
@@ -927,6 +1135,8 @@ public fun finalize_vault_crank<P, L, T>(
 
     vault.accrue_all_fees(&agg, clock);
 
+    agg.destroy_vault_value_aggregate();
+
     vault.last_cranked_ms = clock.timestamp_ms();
 }
 
@@ -1108,8 +1318,8 @@ fun calculate_management_fee_shares<P, T>(vault: &Vault<P, T>, clock: &Clock): u
 // Required in order to accomodate conflicting LendingMarket type parameters
 
 public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValueAccumulator {
-    let keys = vault.obligations.keys();
-    let obligation_ids = keys.map_ref!(|k| {
+    let lm_keys = vault.obligations.keys();
+    let obligation_ids = lm_keys.map_ref!(|k| {
         let obligations = vault.obligations.get(k);
         obligations.map_ref!(|bg| {
             bg.obligation_id
@@ -1117,7 +1327,7 @@ public fun create_vault_value_accumulator<P, T>(vault: &Vault<P, T>): VaultValue
     });
     VaultValueAccumulator {
         vault_id: object::id(vault),
-        obligation_ids: vec_map::from_keys_values(keys, obligation_ids),
+        obligation_ids: vec_map::from_keys_values(lm_keys, obligation_ids),
         lending_market_allocations: vec_map::empty(),
     }
 }
@@ -1127,7 +1337,14 @@ public fun process_lending_market_for_value_accumulator<L>(
     lending_market: &LendingMarket<L>,
 ) {
     let lending_market_type = type_name::with_defining_ids<L>();
-    let (_, obligation_ids) = acc.obligation_ids.remove(&lending_market_type);
+
+    let obligation_ids = {
+        // Ensure order is maintained
+        let (lm_type, obligation_ids) = acc.obligation_ids.remove_entry_by_idx(0);
+        assert!(lm_type == lending_market_type, EIncorrectOrder);
+        obligation_ids
+    };
+
     let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
 
     let lending_market_allocation = aggregate_allocation_data(
@@ -1411,6 +1628,83 @@ fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
     });
 }
 
+/// Calculate the ctoken amount needed to unwind for a given USD value
+/// Uses reserve exchange rate to convert USD -> token amount -> ctoken amount
+fun calculate_ctoken_amount_for_usd_value<L, T>(
+    lending_market: &LendingMarket<L>,
+    usd_value: decimal::Decimal,
+    clock: &Clock,
+): decimal::Decimal {
+    let reserve = lending_market.reserve<_, T>();
+    reserve.assert_price_is_fresh(clock);
+
+    let token_amount = reserve.usd_to_token_amount(usd_value);
+
+    // Get ctoken exchange rate and calculate ctokens needed
+    // ctoken_amount = token_amount / exchange_rate
+    let ctoken_ratio = reserve.ctoken_ratio();
+    let ctoken_amount = token_amount.div(ctoken_ratio);
+
+    ctoken_amount
+}
+
+/// Calculate which obligations need to be unwound to cover a shortfall
+/// Uses FIFO strategy: processes obligations in order of creation (by LM type, then index)
+/// Returns a map of lending market type -> vector of UnwindTargets
+fun calculate_unwind_plan(
+    agg: &VaultValueAggregate,
+    shortfall_usd: decimal::Decimal,
+): vec_map::VecMap<TypeName, vector<UnwindTarget>> {
+    let mut unwind_map = vec_map::empty<TypeName, vector<UnwindTarget>>();
+    let mut remaining_shortfall = shortfall_usd;
+
+    // Iterate through lending markets in order
+    let lm_keys = agg.lending_market_allocations.keys();
+
+    let mut i = 0;
+    while (i < lm_keys.length() && remaining_shortfall.gt(decimal::from(0))) {
+        let lm_type = lm_keys.borrow(i);
+        let mut unwind_targets = vector::empty<UnwindTarget>();
+
+        let lm_allocation = agg.lending_market_allocations.get(lm_type);
+        let obl_allocations = &lm_allocation.obligations;
+
+        // Process obligations in FIFO order (index 0, 1, 2, ...)
+        let mut obl_idx = 0;
+        while (
+            obl_idx < obl_allocations.length()
+                && remaining_shortfall.gt(decimal::from(0))
+        ) {
+            // Find corresponding obligation allocation
+            let obl_data = obl_allocations.borrow(obl_idx);
+            let obl_net_value = obl_data.net_value_usd;
+
+            if (obl_net_value.gt(decimal::from(0))) {
+                // Calculate how much to unwind from this obligation
+                // Take minimum of remaining shortfall and obligation's net value
+                let unwind_usd = remaining_shortfall.min(obl_net_value);
+
+                unwind_targets.push_back(UnwindTarget {
+                    obligation_index: obl_idx,
+                    usd_to_recover: unwind_usd,
+                });
+
+                remaining_shortfall = remaining_shortfall.saturating_sub(unwind_usd);
+            };
+
+            obl_idx = obl_idx + 1;
+        };
+
+        if (!unwind_targets.is_empty()) {
+            unwind_map.insert(*lm_type, unwind_targets);
+        };
+
+        i = i + 1;
+    };
+
+    unwind_map
+}
+
 fun split_amount(amount: u64, fee_bps: u64): (u64, u64) {
     let fee_amount = (amount * fee_bps) / BASIS_POINTS;
     (amount - fee_amount, fee_amount)
@@ -1503,6 +1797,15 @@ fun get_claimable_reward_indexes(
     });
 
     result
+}
+
+fun destroy_vault_value_aggregate(agg: VaultValueAggregate) {
+    let VaultValueAggregate {
+        vault_id: _,
+        liquid_asset_value_usd: _,
+        total_obligation_value_usd: _,
+        lending_market_allocations: _,
+    } = agg;
 }
 
 /// Get obligation cap at lending_market_type + index (read-only)

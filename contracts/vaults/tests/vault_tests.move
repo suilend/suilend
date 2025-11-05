@@ -347,7 +347,6 @@ fun test_minimum_deposit_failure() {
         scenario.ctx(),
     );
 
-    // Should not reach here
     abort EShouldNotReach
 }
 
@@ -374,7 +373,6 @@ fun test_insufficient_shares_withdrawal() {
         scenario.ctx(),
     );
 
-    // Should not reach here
     abort EShouldNotReach
 }
 
@@ -429,7 +427,6 @@ fun test_excessive_fee_failure() {
         scenario.ctx(),
     );
 
-    // Should not reach here
     abort EShouldNotReach
 }
 
@@ -546,8 +543,8 @@ fun test_nav_changes() {
     );
 
     // Calculate initial NAV per share (should be 1.0 scaled)
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    let initial_nav = vault.calculate_nav_per_share(&agg).floor();
+    let initial_agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let initial_nav = vault.calculate_nav_per_share(&initial_agg).floor();
     assert!(initial_nav == NAV_PRECISION as u64);
 
     // Record initial total shares
@@ -565,8 +562,8 @@ fun test_nav_changes() {
     );
 
     // Apply fees
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    vault.accrue_fees_for_testing(&agg, &clock);
+    let fee_agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    vault.accrue_fees_for_testing(&fee_agg, &clock);
 
     // Total shares should have increased due to fee shares being minted
     let new_total_shares = vault.total_supply();
@@ -581,6 +578,9 @@ fun test_nav_changes() {
 
     {
         test_utils::destroy(prices);
+        test_utils::destroy(agg);
+        test_utils::destroy(fee_agg);
+        test_utils::destroy(initial_agg);
         coin::burn_for_testing(shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
@@ -1000,6 +1000,8 @@ fun test_share_precision() {
 
     {
         test_utils::destroy(prices);
+        test_utils::destroy(agg_final);
+        test_utils::destroy(agg_after_first);
         coin::burn_for_testing(small_shares);
         coin::burn_for_testing(large_shares);
         coin::burn_for_testing(withdrawn);
@@ -1393,6 +1395,151 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         ts::return_shared(lending_market);
         transfer::public_transfer(manager_cap, ADMIN);
         transfer::public_transfer(lm_cap, ADMIN);
+    };
+
+    scenario.end();
+}
+
+#[test]
+#[expected_failure(abort_code = vault::EInsufficientLiquidity)]
+fun test_withdraw_insufficient_liquidity_failure() {
+    let (_prices, mut scenario) = init_vault_scenario();
+
+    scenario.next_tx(ADMIN);
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+
+    scenario.next_tx(USER1);
+    let clock = scenario.take_shared<Clock>();
+
+    // User deposits 1000 tokens
+    let deposit_amount = 1000;
+    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let net_deposit_amount = (deposit_amount as u64 * (10000 - DEPOSIT_FEE_BPS) / 10000);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let mut vault_shares = vault.deposit(
+        deposit_coin,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    // Manager deploys most of the funds, leaving insufficient liquid assets
+    scenario.next_tx(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    let obligation_index = 0;
+    let exp = 10u64.pow(TEST_COIN_DECIMALS);
+    let liquid_assets_left = 100 * exp;
+    let deploy_amount = net_deposit_amount * exp - liquid_assets_left;
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_index,
+        deploy_amount,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    // User tries to withdraw more than is liquid
+    scenario.next_tx(USER1);
+    let shares_to_withdraw = vault_shares.value() / 2;
+    let withdraw_shares = coin::split(&mut vault_shares, shares_to_withdraw, scenario.ctx());
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let _withdrawn_coins = vault.withdraw(
+        withdraw_shares,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    abort EShouldNotReach
+}
+
+#[test]
+fun test_unwind_withdrawal_success() {
+    let (prices, mut scenario) = init_vault_scenario();
+
+    scenario.next_tx(ADMIN);
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+
+    scenario.next_tx(USER1);
+    let clock = scenario.take_shared<Clock>();
+
+    // User deposits 1000 tokens
+    let deposit_amount = 1000;
+    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let net_deposit_amount = (deposit_amount as u64 * (10000 - DEPOSIT_FEE_BPS) / 10000);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let mut vault_shares = vault.deposit(
+        deposit_coin,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    // Manager deploys most of the funds, leaving insufficient liquid assets
+    scenario.next_tx(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    let obligation_index = 0;
+    let exp = 10u64.pow(TEST_COIN_DECIMALS);
+    let liquid_assets_left = 100 * exp;
+    let deploy_amount = net_deposit_amount * exp - liquid_assets_left;
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_index,
+        deploy_amount,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    // User tries to withdraw more than is liquid, using the unwind flow
+    scenario.next_tx(USER1);
+    let shares_to_withdraw_val = vault_shares.value() / 2;
+    let withdraw_shares = coin::split(&mut vault_shares, shares_to_withdraw_val, scenario.ctx());
+
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let mut unwind_acc = vault.create_unwind_accumulator(
+        withdraw_shares,
+        &lending_market,
+        agg,
+        &clock,
+    );
+
+    vault.process_unwinds_for_lending_market(
+        &mut unwind_acc,
+        &mut lending_market,
+        &clock,
+        scenario.ctx(),
+    );
+
+    let withdrawn_coins = vault.withdraw_with_unwind(
+        unwind_acc,
+        &lending_market,
+        &clock,
+        scenario.ctx(),
+    );
+
+    assert!(withdrawn_coins.value() > 0);
+
+    {
+        test_utils::destroy(prices);
+        coin::burn_for_testing(vault_shares);
+        coin::burn_for_testing(withdrawn_coins);
+        ts::return_shared(clock);
+        ts::return_shared(vault);
+        ts::return_shared(lending_market);
+        transfer::public_transfer(manager_cap, ADMIN);
     };
 
     scenario.end();
