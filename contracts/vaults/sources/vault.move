@@ -545,62 +545,57 @@ public fun deposit<P, L, T>(
     let current_time = clock.timestamp_ms();
     let user = ctx.sender();
 
-    // Calculate deposit fee
-    let (net_deposit_amount, deposit_fee) = split_amount(deposit_amount, vault.deposit_fee_bps);
-
     // Check minimum deposit in USD terms
-    let net_deposit_usd_value = get_usd_value_for_token_amount<_, T>(
-        lending_market,
-        net_deposit_amount,
-        clock,
-    );
-    assert!(
-        decimal::from_scaled_val(MIN_DEPOSIT_USD_SCALED).le(net_deposit_usd_value),
-        EInvalidDeposit,
-    );
-
-    // Calculate shares BEFORE adding deposit to vault or minting any shares
-    let fee_shares = if (deposit_fee > 0) {
-        calculate_shares_to_mint(vault, deposit_fee, lending_market, &agg, clock)
-    } else {
-        0
+    {
+        let deposit_usd_value = get_usd_value_for_token_amount<_, T>(
+            lending_market,
+            deposit_amount,
+            clock,
+        );
+        assert!(
+            decimal::from_scaled_val(MIN_DEPOSIT_USD_SCALED).le(deposit_usd_value),
+            EInvalidDeposit,
+        );
     };
 
-    let shares_to_mint = calculate_shares_to_mint(
+    // Calculate shares for the entire deposit amount
+    let total_shares_to_mint = calculate_shares_to_mint(
         vault,
-        net_deposit_amount,
+        deposit_amount,
         lending_market,
         &agg,
         clock,
     );
 
-    assert!(shares_to_mint > 0, EInvalidDeposit);
-
     // Add deposited coins to vault
-    vault.deposit_asset.join(coin::into_balance(deposit));
+    vault.deposit_asset.join(deposit.into_balance());
 
-    // Mint shares for deposit fee
+    // Mint total shares
+    let mut user_shares = vault.treasury_cap.mint(total_shares_to_mint, ctx);
+    let total_shares = user_shares.value();
+
+    let (user_share_allocation, fee_shares) = split_amount(total_shares, vault.deposit_fee_bps);
+    assert!(user_share_allocation > 0, EInvalidDeposit);
+
+    // Extract fees
     if (fee_shares > 0) {
-        let fee_balance = vault.treasury_cap.mint_balance(fee_shares);
-        vault.manager_fees.join(fee_balance);
+        let fee_coin = user_shares.split(fee_shares, ctx);
+        vault.manager_fees.join(fee_coin.into_balance());
 
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
             fee_type: FeeType::DepositFee,
-            fee_shares: fee_shares,
+            fee_shares,
             timestamp_ms: current_time,
         });
     };
-
-    // Mint vault shares
-    let vault_shares = vault.treasury_cap.mint(shares_to_mint, ctx);
 
     // Emit deposit event
     event::emit(VaultDeposit {
         vault_id: object::id(vault),
         user: user,
         deposit_amount: deposit_amount,
-        shares_minted: shares_to_mint,
+        shares_minted: total_shares,
         timestamp_ms: current_time,
     });
 
@@ -618,7 +613,7 @@ public fun deposit<P, L, T>(
         vault.emit_stats_event(&updated_agg);
     };
 
-    vault_shares
+    user_shares
 }
 
 /// User burns shares and withdraws proportional assets with performance fees on realized gains
