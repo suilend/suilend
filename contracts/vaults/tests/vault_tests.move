@@ -28,6 +28,7 @@ const DEPOSIT_FEE_BPS: u64 = 500; // 5%
 const WITHDRAWAL_FEE_BPS: u64 = 300; // 3%
 const MANAGEMENT_FEE_BPS: u64 = 200; // 2%
 const PERFORMANCE_FEE_BPS: u64 = 1000; // 10%
+const SLIPPAGE_BPS: u64 = 200; // 2%
 
 const NAV_PRECISION: u128 = 1_000_000_000;
 
@@ -81,7 +82,7 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
-        200, // 2% bps
+        SLIPPAGE_BPS,
         &clock,
         ctx,
     );
@@ -391,7 +392,7 @@ fun test_fee_limits() {
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
         1000, // 10% withdrawal fee (at limit)
-        200, // 2% bps
+        SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
     );
@@ -423,7 +424,7 @@ fun test_excessive_fee_failure() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
-        200, // 2% bps
+        SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
     );
@@ -728,7 +729,7 @@ fun test_compound_rewards_with_swap() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
-        200, // 2% bps
+        SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
     );
@@ -1045,6 +1046,353 @@ fun test_small_deposit() {
         ts::return_shared(vault);
         ts::return_shared(lending_market);
         transfer::public_transfer(manager_cap, ADMIN);
+    };
+
+    scenario.end();
+}
+
+#[test]
+fun test_vault_crank_with_multiple_obligations_and_rewards() {
+    let (mut prices, mut scenario) = init_vault_scenario();
+
+    // Setup vault with B_TEST_SUI as underlying asset
+    scenario.next_tx(ADMIN);
+    let mut clock = scenario.take_shared<Clock>();
+    let (curr, treasury_cap) = create_test_currency(scenario.ctx());
+    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let lm_cap = scenario.take_from_sender<
+        lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
+    >();
+
+    let b_token_decimals = 9;
+    mock_pyth::register<B_TEST_SUI>(&mut prices, scenario.ctx());
+    mock_pyth::update_price<B_TEST_SUI>(&mut prices, 4, 0, &clock);
+    mock_pyth::register<B_TEST_USDC>(&mut prices, scenario.ctx());
+    mock_pyth::update_price<B_TEST_USDC>(&mut prices, 1, 0, &clock);
+
+    // Add B_TEST_SUI reserve (vault's base asset)
+    lending_market::add_reserve_for_testing<TEST_LENDING_MARKET, B_TEST_SUI>(
+        &lm_cap,
+        &mut lending_market,
+        mock_pyth::get_price_obj<B_TEST_SUI>(&prices),
+        reserve_config::default_reserve_config(scenario.ctx()),
+        b_token_decimals,
+        &clock,
+        scenario.ctx(),
+    );
+
+    let manager_cap = vault::create_vault<_, B_TEST_SUI>(
+        treasury_cap,
+        MANAGEMENT_FEE_BPS,
+        PERFORMANCE_FEE_BPS,
+        DEPOSIT_FEE_BPS,
+        WITHDRAWAL_FEE_BPS,
+        SLIPPAGE_BPS,
+        &clock,
+        scenario.ctx(),
+    );
+
+    scenario.next_tx(ADMIN);
+    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, B_TEST_SUI>>();
+
+    // Add B_TEST_USDC reserve (for non-base rewards)
+    lending_market::add_reserve_for_testing<TEST_LENDING_MARKET, B_TEST_USDC>(
+        &lm_cap,
+        &mut lending_market,
+        mock_pyth::get_price_obj<B_TEST_USDC>(&prices),
+        reserve_config::default_reserve_config(scenario.ctx()),
+        b_token_decimals,
+        &clock,
+        scenario.ctx(),
+    );
+
+    // Create Steamm pool for USDC <-> SUI swaps
+    scenario.next_tx(ADMIN);
+    let mut pool = steamm::cpmm_tests::setup_pool(100, 0, &mut scenario);
+
+    let mut pool_liquidity_usdc = coin::mint_for_testing<B_TEST_USDC>(
+        1_000_000_000_000,
+        scenario.ctx(),
+    );
+    let mut pool_liquidity_sui = coin::mint_for_testing<B_TEST_SUI>(
+        1_000_000_000_000,
+        scenario.ctx(),
+    );
+
+    let (lp_coins, _) = pool.deposit_liquidity(
+        &mut pool_liquidity_usdc,
+        &mut pool_liquidity_sui,
+        1_000_000_000_000,
+        1_000_000_000_000,
+        scenario.ctx(),
+    );
+
+    // User deposits into vault
+    scenario.next_tx(USER1);
+    let deposit_coin = coin::mint_for_testing<B_TEST_SUI>(2_000_000_000_000, scenario.ctx());
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let vault_shares = vault.deposit(
+        deposit_coin,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    // Create two obligations
+    scenario.next_tx(ADMIN);
+    let obligation_0 = 0;
+    let obligation_1 = 1;
+    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+
+    // Deploy funds to both obligations
+    let deploy_amount = 500_000_000_000;
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_0,
+        deploy_amount,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_1,
+        deploy_amount,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    scenario.next_tx(ADMIN);
+
+    // Reserve indices: [TEST_COIN, B_TEST_SUI, B_TEST_USDC]
+    let sui_reserve_index = 1;
+    let usdc_reserve_index = 2;
+    let sui_reward_index = 0;
+    let usdc_reward_index = 1;
+    let is_deposit_reward = true;
+
+    let start_time_ms = clock.timestamp_ms();
+    let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000);
+
+    // Add B_TEST_SUI reward pool (base token - direct compound)
+    let sui_reward_amount = 50_000_000_000;
+    let sui_reward_coin = coin::mint_for_testing<B_TEST_SUI>(sui_reward_amount, scenario.ctx());
+    lm_cap.add_pool_reward<TEST_LENDING_MARKET, B_TEST_SUI>(
+        &mut lending_market,
+        sui_reserve_index,
+        is_deposit_reward,
+        sui_reward_coin,
+        start_time_ms,
+        end_time_ms,
+        &clock,
+        scenario.ctx(),
+    );
+
+    // Add B_TEST_USDC reward pool (non-base token - requires swap)
+    let usdc_reward_amount = 100_000_000_000;
+    let usdc_reward_coin = coin::mint_for_testing<B_TEST_USDC>(usdc_reward_amount, scenario.ctx());
+    lm_cap.add_pool_reward<TEST_LENDING_MARKET, B_TEST_USDC>(
+        &mut lending_market,
+        sui_reserve_index,
+        is_deposit_reward,
+        usdc_reward_coin,
+        start_time_ms,
+        end_time_ms,
+        &clock,
+        scenario.ctx(),
+    );
+
+    // Advance clock past reward period and staleness limit
+    clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days - past rewards
+    clock.increment_for_testing(3_700_000); // Just over 1 hour staleness
+
+    // Refresh prices
+    {
+        prices.update_price<B_TEST_SUI>(4, 0, &clock);
+        lending_market.refresh_reserve_price(
+            sui_reserve_index, // reserve_array_index
+            &clock,
+            prices.get_price_obj<B_TEST_SUI>(),
+        );
+
+        prices.update_price<B_TEST_USDC>(1, 0, &clock);
+        lending_market.refresh_reserve_price(
+            usdc_reserve_index, // reserve_array_index
+            &clock,
+            prices.get_price_obj<B_TEST_USDC>(),
+        );
+    };
+
+    scenario.next_tx(USER2);
+
+    scenario.next_tx(ADMIN);
+    let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
+
+    // Refresh obligations to make rewards discoverable (trigger user_reward_manager updates)
+    {
+        // Refresh obligation 0
+        let tiny_deposit = coin::mint_for_testing<B_TEST_SUI>(1, scenario.ctx());
+        let tiny_ctokens = lending_market.deposit_liquidity_and_mint_ctokens<
+            TEST_LENDING_MARKET,
+            B_TEST_SUI,
+        >(sui_reserve_index, &clock, tiny_deposit, scenario.ctx());
+
+        let obligation_cap = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+            &lm_type,
+            obligation_0,
+        );
+        lending_market.deposit_ctokens_into_obligation<TEST_LENDING_MARKET, B_TEST_SUI>(
+            sui_reserve_index,
+            obligation_cap,
+            &clock,
+            tiny_ctokens,
+            scenario.ctx(),
+        );
+
+        // Refresh obligation 1
+        let tiny_deposit = coin::mint_for_testing<B_TEST_SUI>(1, scenario.ctx());
+        let tiny_ctokens = lending_market.deposit_liquidity_and_mint_ctokens<
+            TEST_LENDING_MARKET,
+            B_TEST_SUI,
+        >(sui_reserve_index, &clock, tiny_deposit, scenario.ctx());
+
+        let obligation_cap = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+            &lm_type,
+            obligation_1,
+        );
+        lending_market.deposit_ctokens_into_obligation<TEST_LENDING_MARKET, B_TEST_SUI>(
+            sui_reserve_index,
+            obligation_cap,
+            &clock,
+            tiny_ctokens,
+            scenario.ctx(),
+        );
+    };
+
+    // Compound all rewards from both obligations (4 total)
+    {
+        // Obligation 0: SUI rewards
+        vault.compound_rewards<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+            &mut lending_market,
+            obligation_0,
+            sui_reserve_index,
+            sui_reward_index,
+            is_deposit_reward,
+            sui_reserve_index,
+            &clock,
+            scenario.ctx(),
+        );
+
+        // Obligation 0: USDC rewards
+        vault.compound_rewards_with_swap<
+            VAULT_TESTS,
+            TEST_LENDING_MARKET,
+            B_TEST_SUI,
+            B_TEST_USDC,
+            steamm::lp_usdc_sui::LP_USDC_SUI,
+        >(
+            &manager_cap,
+            &mut lending_market,
+            &mut pool,
+            obligation_0,
+            sui_reserve_index, // reward_reserve_index
+            usdc_reward_index, // reward_index
+            is_deposit_reward,
+            &clock,
+            scenario.ctx(),
+        );
+
+        // Obligation 1: SUI rewards
+        vault.compound_rewards<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+            &mut lending_market,
+            obligation_1,
+            sui_reserve_index,
+            sui_reward_index,
+            is_deposit_reward,
+            sui_reserve_index,
+            &clock,
+            scenario.ctx(),
+        );
+
+        // Obligation 1: USDC rewards
+        vault.compound_rewards_with_swap<
+            VAULT_TESTS,
+            TEST_LENDING_MARKET,
+            B_TEST_SUI,
+            B_TEST_USDC,
+            steamm::lp_usdc_sui::LP_USDC_SUI,
+        >(
+            &manager_cap,
+            &mut lending_market,
+            &mut pool,
+            obligation_1,
+            sui_reserve_index, // reward_reserve_index
+            usdc_reward_index, // reward_index
+            is_deposit_reward,
+            &clock,
+            scenario.ctx(),
+        );
+    };
+
+    let mut crank_acc = vault.create_vault_crank_accumulator();
+
+    crank_acc.process_lending_market_for_crank(&lending_market);
+
+    vault.finalize_vault_crank(
+        crank_acc,
+        &lending_market,
+        &clock,
+    );
+
+    // Verify rewards were compounded into both obligations
+    let obligation_cap_0 = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+        &lm_type,
+        obligation_0,
+    );
+    let obligation = lending_market.obligation(obligation_cap_0.obligation_id());
+    assert!(obligation.deposited_value_usd().floor() > 0);
+
+    let obligation_cap_1 = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+        &lm_type,
+        obligation_1,
+    );
+    let obligation = lending_market.obligation(obligation_cap_1.obligation_id());
+    assert!(obligation.deposited_value_usd().floor() > 0);
+
+    // Now user operations should work again (state is fresh)
+    scenario.next_tx(USER1);
+    let test_deposit = coin::mint_for_testing<B_TEST_SUI>(1_000_000_000, scenario.ctx());
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let new_shares = vault.deposit(
+        test_deposit,
+        &lending_market,
+        &clock,
+        agg,
+        scenario.ctx(),
+    );
+
+    {
+        coin::burn_for_testing(vault_shares);
+        coin::burn_for_testing(new_shares);
+        coin::burn_for_testing(lp_coins);
+        test_utils::destroy(prices);
+        test_utils::destroy(pool);
+        test_utils::destroy(pool_liquidity_sui);
+        test_utils::destroy(pool_liquidity_usdc);
+        test_utils::destroy(curr);
+        ts::return_shared(clock);
+        ts::return_shared(vault);
+        ts::return_shared(lending_market);
+        transfer::public_transfer(manager_cap, ADMIN);
+        transfer::public_transfer(lm_cap, ADMIN);
     };
 
     scenario.end();

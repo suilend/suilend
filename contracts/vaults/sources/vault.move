@@ -10,7 +10,7 @@ use sui::{
     event,
     vec_map
 };
-use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}};
+use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, liquidity_mining};
 
 // === Errors ===
 #[error]
@@ -39,6 +39,8 @@ const EVaultMismatch: vector<u8> = b"Vault ID mismatch";
 const ERewardsStale: vector<u8> = b"Rewards must be compounded";
 #[error]
 const EBaseTokenReward: vector<u8> = b"Base token rewards should not be swapped";
+#[error]
+const EUnclaimedRewards: vector<u8> = b"All rewards must be claimed before cranking";
 //#[error]
 //const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
@@ -109,9 +111,9 @@ public struct VaultValueAggregate has drop {
 /// Must be consumed in PTB by calling finalize_vault_crank
 public struct VaultCrankAccumulator {
     vault_id: ID,
-    // Keyed by LM TypeName -> obligation IDs (removed as each LM is processed)
+    // Keyed by LM TypeName -> obligation IDs (removed as each LM is scanned for outstanding rewards)
     pending_lending_markets: vec_map::VecMap<TypeName, vector<ID>>,
-    // Accumulated obligation valuations (built up as LMs processed)
+    // Keyed by LM TypeName -> allocation data (added as each LM is processed)
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 }
 
@@ -842,7 +844,7 @@ public fun compound_rewards_with_swap<P, L, T, R, LpType: drop>(
 // === Vault Crank Functions ===
 
 /// Create a vault crank accumulator for processing all lending markets
-/// Tracks all LMs and obligations that need processing
+/// Tracks all LMs and obligations that need to be processed by process_lending_market_for_crank()
 public fun create_vault_crank_accumulator<P, T>(vault: &Vault<P, T>): VaultCrankAccumulator {
     vault.version.assert_version(CURRENT_VERSION);
 
@@ -862,41 +864,32 @@ public fun create_vault_crank_accumulator<P, T>(vault: &Vault<P, T>): VaultCrank
     }
 }
 
-/// Process a lending market into the crank accumulator after rewards have been compounded
-/// This gathers fresh obligation valuations that include compounded rewards
-/// Removes the LM from pending_lending_markets
+/// This verifies none of the obligations for this LendingMarket have outstanding rewards to be compounded
+/// It also calculates the overall value of the positions to be used to calculate manager fees in finalize_vault_crank()
+/// Removes the LendingMarket from acc.pending_lending_markets
 public fun process_lending_market_for_crank<L>(
     acc: &mut VaultCrankAccumulator,
     lending_market: &LendingMarket<L>,
 ) {
     let lending_market_type = type_name::with_defining_ids<L>();
 
+    // Enforce that this lending market is in the pending list and remove it
     let (_, obligation_ids) = acc.pending_lending_markets.remove(&lending_market_type);
+
+    obligation_ids.do!(|obligation_id| {
+        assert_no_claimable_rewards(lending_market, obligation_id);
+    });
 
     let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
 
-    let mut total_deposited = decimal::from(0);
-    let mut total_borrowed = decimal::from(0);
-    let mut total_net = decimal::from(0);
-
-    obligation_allocations.do_ref!(|alloc| {
-        total_deposited = decimal::add(total_deposited, alloc.deposited_value_usd);
-        total_borrowed = decimal::add(total_borrowed, alloc.borrowed_value_usd);
-        total_net = decimal::add(total_net, alloc.net_value_usd);
-    });
-
-    let lending_market_allocation = LendingMarketAllocation {
-        deposited_value_usd: total_deposited,
-        borrowed_value_usd: total_borrowed,
-        net_value_usd: total_net,
-        obligations: obligation_allocations,
-    };
+    let lending_market_allocation = aggregate_allocation_data(
+        obligation_allocations,
+    );
 
     acc.lending_market_allocations.insert(lending_market_type, lending_market_allocation);
 }
 
-/// Finalize vault crank: creates aggregate, accrues fees, updates timestamp
-/// Confirms all lending markets have been processed
+/// Ensures all LendingMarkets were processed, accrues fees, updates last_cranked_ms timestamp
 public fun finalize_vault_crank<P, L, T>(
     vault: &mut Vault<P, T>,
     acc: VaultCrankAccumulator,
@@ -922,10 +915,9 @@ public fun finalize_vault_crank<P, L, T>(
     let ks = lending_market_allocations.keys();
     let total_obligation_value_usd = ks.fold!(decimal::from(0), |acc, k| {
         let allocation = lending_market_allocations.get(&k);
-        decimal::add(acc, allocation.net_value_usd)
+        acc.add(allocation.net_value_usd)
     });
 
-    // Create aggregate with fresh post-compound state
     let agg = VaultValueAggregate {
         vault_id: object::id(vault),
         liquid_asset_value_usd,
@@ -933,7 +925,6 @@ public fun finalize_vault_crank<P, L, T>(
         lending_market_allocations,
     };
 
-    // Accrue fees based on post-compound NAV (includes newly compounded rewards)
     vault.accrue_all_fees(&agg, clock);
 
     vault.last_cranked_ms = clock.timestamp_ms();
@@ -1139,23 +1130,9 @@ public fun process_lending_market_for_value_accumulator<L>(
     let (_, obligation_ids) = acc.obligation_ids.remove(&lending_market_type);
     let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
 
-    // Calculate aggregated values for this lending market
-    let mut total_deposited = decimal::from(0);
-    let mut total_borrowed = decimal::from(0);
-    let mut total_net = decimal::from(0);
-
-    obligation_allocations.do_ref!(|alloc| {
-        total_deposited = decimal::add(total_deposited, alloc.deposited_value_usd);
-        total_borrowed = decimal::add(total_borrowed, alloc.borrowed_value_usd);
-        total_net = decimal::add(total_net, alloc.net_value_usd);
-    });
-
-    let lending_market_allocation = LendingMarketAllocation {
-        deposited_value_usd: total_deposited,
-        borrowed_value_usd: total_borrowed,
-        net_value_usd: total_net,
-        obligations: obligation_allocations,
-    };
+    let lending_market_allocation = aggregate_allocation_data(
+        obligation_allocations,
+    );
 
     acc.lending_market_allocations.insert(lending_market_type, lending_market_allocation);
 }
@@ -1381,7 +1358,8 @@ fun calculate_obligation_values<L>(
         let deposited_value_usd_decimal = obligation.deposited_value_usd();
         let unweighted_borrowed_value_usd_decimal = obligation.unweighted_borrowed_value_usd();
 
-        let net_value_decimal = deposited_value_usd_decimal.sub(
+        // TODO: could be negative?
+        let net_value_decimal = deposited_value_usd_decimal.saturating_sub(
             unweighted_borrowed_value_usd_decimal,
         );
 
@@ -1436,6 +1414,95 @@ fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
 fun split_amount(amount: u64, fee_bps: u64): (u64, u64) {
     let fee_amount = (amount * fee_bps) / BASIS_POINTS;
     (amount - fee_amount, fee_amount)
+}
+
+fun aggregate_allocation_data(
+    obligation_allocations: vector<ObligationAllocation>,
+): LendingMarketAllocation {
+    let mut total_deposited = decimal::from(0);
+    let mut total_borrowed = decimal::from(0);
+    let mut total_net = decimal::from(0);
+
+    obligation_allocations.do_ref!(|alloc| {
+        total_deposited = total_deposited.add(alloc.deposited_value_usd);
+        total_borrowed = total_borrowed.add(alloc.borrowed_value_usd);
+        total_net = total_net.add(alloc.net_value_usd);
+    });
+
+    LendingMarketAllocation {
+        deposited_value_usd: total_deposited,
+        borrowed_value_usd: total_borrowed,
+        net_value_usd: total_net,
+        obligations: obligation_allocations,
+    }
+}
+
+fun assert_no_claimable_rewards<P>(lending_market: &LendingMarket<P>, obligation_id: ID) {
+    let reserves = lending_market.reserves();
+    let obligation = lending_market.obligation(obligation_id);
+
+    // Process deposit rewards
+    obligation.deposits().do_ref!(|deposit| {
+        let reserve_index = deposit.reserve_array_index();
+        let reserve = reserves.borrow(reserve_index);
+        let pool_reward_manager = reserve.deposits_pool_reward_manager();
+        let user_reward_manager_index = deposit.user_reward_manager_index();
+        let user_reward_manager = obligation
+            .user_reward_managers()
+            .borrow(user_reward_manager_index);
+
+        let claimable_rewards = get_claimable_reward_indexes(
+            user_reward_manager,
+            pool_reward_manager,
+        );
+
+        assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
+    });
+
+    // Process borrow rewards
+    obligation.borrows().do_ref!(|borrow| {
+        let reserve_index = borrow.reserve_array_index();
+        let reserve = reserves.borrow(reserve_index);
+        let pool_reward_manager = reserve.borrows_pool_reward_manager();
+        let user_reward_manager_index = borrow.user_reward_manager_index();
+        let user_reward_manager = obligation
+            .user_reward_managers()
+            .borrow(user_reward_manager_index);
+
+        let claimable_rewards = get_claimable_reward_indexes(
+            user_reward_manager,
+            pool_reward_manager,
+        );
+
+        assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
+    });
+}
+
+fun get_claimable_reward_indexes(
+    user_reward_manager: &liquidity_mining::UserRewardManager,
+    pool_reward_manager: &liquidity_mining::PoolRewardManager,
+): vector<u64> {
+    let user_rewards = user_reward_manager.rewards();
+    let pool_rewards = pool_reward_manager.pool_rewards();
+
+    let mut result = vector::empty();
+    user_rewards.length().do!(|reward_index| {
+        let optional_user_reward = user_rewards.borrow(reward_index);
+
+        if (optional_user_reward.is_some()) {
+            let user_reward = optional_user_reward.borrow();
+
+            // Only include rewards with non-zero earnings
+            if (user_reward.earned_rewards().gt(decimal::from(0))) {
+                let optional_pool_reward = pool_rewards.borrow(reward_index);
+                if (optional_pool_reward.is_some()) {
+                    result.push_back(reward_index);
+                };
+            };
+        };
+    });
+
+    result
 }
 
 /// Get obligation cap at lending_market_type + index (read-only)
