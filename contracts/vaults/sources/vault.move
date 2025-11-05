@@ -10,7 +10,11 @@ use sui::{
     event,
     vec_map
 };
-use suilend::{decimal, lending_market::{ObligationOwnerCap, LendingMarket}, liquidity_mining};
+use suilend::{
+    decimal::{Self, Decimal},
+    lending_market::{ObligationOwnerCap, LendingMarket},
+    liquidity_mining
+};
 
 // === Errors ===
 #[error]
@@ -78,7 +82,7 @@ public struct Vault<phantom P, phantom T> has key, store {
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
     slippage_bps: u64,
-    nav_high_water_mark: decimal::Decimal, // Highest NAV per share achieved (for performance fees)
+    nav_high_water_mark: Decimal, // Highest NAV per share achieved (for performance fees)
     last_cranked_ms: u64, // timestamp_ms when rewards were last compounded and fees were last accrued
 }
 
@@ -105,8 +109,8 @@ public struct VaultValueAccumulator {
 /// Created from a VaultValueAccumulator once it has been fully processed
 public struct VaultValueAggregate {
     vault_id: ID,
-    liquid_asset_value_usd: decimal::Decimal,
-    total_obligation_value_usd: decimal::Decimal,
+    liquid_asset_value_usd: Decimal,
+    total_obligation_value_usd: Decimal,
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 }
 
@@ -122,24 +126,24 @@ public struct VaultCrankAccumulator {
 }
 
 public struct LendingMarketAllocation has copy, drop, store {
-    deposited_value_usd: decimal::Decimal,
-    borrowed_value_usd: decimal::Decimal,
-    net_value_usd: decimal::Decimal,
+    deposited_value_usd: Decimal,
+    borrowed_value_usd: Decimal,
+    net_value_usd: Decimal,
     obligations: vector<ObligationAllocation>,
 }
 
 public struct ObligationAllocation has copy, drop, store {
     obligation_id: ID,
-    deposited_value_usd: decimal::Decimal,
-    borrowed_value_usd: decimal::Decimal,
-    net_value_usd: decimal::Decimal,
+    deposited_value_usd: Decimal,
+    borrowed_value_usd: Decimal,
+    net_value_usd: Decimal,
 }
 
 public struct FeeAccrual has drop {
     management_fee_shares: u64,
     performance_fee_shares: u64,
     total_fee_shares: u64,
-    new_nav_per_share: decimal::Decimal,
+    new_nav_per_share: Decimal,
 }
 
 /// For tracking obligation unwinds needed to satisfy a withdrawal
@@ -157,7 +161,7 @@ public struct VaultUnwindAccumulator<phantom P> {
 /// Specifies an obligation position that needs to be unwound
 public struct UnwindTarget has drop {
     obligation_index: u64,
-    usd_to_recover: decimal::Decimal,
+    usd_to_recover: Decimal,
 }
 
 // === Events ===
@@ -1227,7 +1231,7 @@ fun calculate_all_fees<P, T>(
 /// Calculate performance fee shares based on NAV growth
 fun calculate_performance_fee_shares<P, T>(
     vault: &Vault<P, T>,
-    current_nav_per_share: decimal::Decimal,
+    current_nav_per_share: Decimal,
     current_shares: u64,
     mgmt_shares_to_mint: u64,
 ): u64 {
@@ -1469,10 +1473,7 @@ public fun calculate_utilization_rate(agg: &VaultValueAggregate): u64 {
     decimal::floor(utilization_decimal)
 }
 
-public fun calculate_nav_per_share<P, T>(
-    vault: &Vault<P, T>,
-    agg: &VaultValueAggregate,
-): decimal::Decimal {
+public fun calculate_nav_per_share<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate): Decimal {
     let current_shares = vault.treasury_cap.total_supply();
     let vault_value = decimal::add(agg.total_obligation_value_usd, agg.liquid_asset_value_usd);
     if (current_shares == 0 || decimal::eq(vault_value, decimal::from(0))) {
@@ -1520,12 +1521,12 @@ public fun total_supply<P, T>(vault: &Vault<P, T>): u64 {
 // === Private Helpers ===
 
 /// Returns the share decimals factor as a Decimal for decimal calculations
-fun share_decimals_factor_decimal(): decimal::Decimal {
+fun share_decimals_factor_decimal(): Decimal {
     decimal::from(10u64.pow(VAULT_SHARE_DECIMALS))
 }
 
 /// Convert shares (in base units) to USD value using NAV per share
-fun shares_to_usd(shares: decimal::Decimal, nav_per_share: decimal::Decimal): decimal::Decimal {
+fun shares_to_usd(shares: Decimal, nav_per_share: Decimal): Decimal {
     shares
         .mul(nav_per_share)
         .div(decimal::from_u128(NAV_PRECISION).mul(share_decimals_factor_decimal()))
@@ -1533,10 +1534,7 @@ fun shares_to_usd(shares: decimal::Decimal, nav_per_share: decimal::Decimal): de
 
 /// Calculates NAV per share from total shares and total USD value
 /// NAV = (vault_value * NAV_PRECISION * 10^SHARE_DECIMALS) / shares
-fun calculate_nav_from_shares_and_value(
-    total_shares: decimal::Decimal,
-    total_value_usd: decimal::Decimal,
-): decimal::Decimal {
+fun calculate_nav_from_shares_and_value(total_shares: Decimal, total_value_usd: Decimal): Decimal {
     if (total_shares.eq(decimal::from(0))) {
         decimal::from_u128(NAV_PRECISION)
     } else {
@@ -1548,10 +1546,7 @@ fun calculate_nav_from_shares_and_value(
 }
 
 // shares = (usd * NAV_PRECISION * 10^SHARE_DECIMALS) / nav_per_share
-fun calculate_shares_from_usd_and_nav(
-    usd_amount: decimal::Decimal,
-    nav_per_share: decimal::Decimal,
-): decimal::Decimal {
+fun calculate_shares_from_usd_and_nav(usd_amount: Decimal, nav_per_share: Decimal): Decimal {
     usd_amount
         .mul(decimal::from_u128(NAV_PRECISION))
         .mul(
@@ -1593,9 +1588,9 @@ fun calculate_obligation_values<L>(
 /// Get T amount from USD amount
 fun get_token_amount_from_usd<L, T>(
     lending_market: &LendingMarket<L>,
-    amount: decimal::Decimal,
+    amount: Decimal,
     clock: &Clock,
-): decimal::Decimal {
+): Decimal {
     let reserve = lending_market.reserve<_, T>();
     reserve.assert_price_is_fresh(clock);
     reserve.usd_to_token_amount(amount)
@@ -1606,7 +1601,7 @@ fun get_usd_value_for_token_amount<L, T>(
     lending_market: &LendingMarket<L>,
     amount: u64,
     clock: &Clock,
-): decimal::Decimal {
+): Decimal {
     let reserve = lending_market.reserve<_, T>();
     reserve.assert_price_is_fresh(clock);
     reserve.market_value(decimal::from(amount))
@@ -1631,9 +1626,9 @@ fun emit_stats_event<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
 /// Uses reserve exchange rate to convert USD -> token amount -> ctoken amount
 fun calculate_ctoken_amount_for_usd_value<L, T>(
     lending_market: &LendingMarket<L>,
-    usd_value: decimal::Decimal,
+    usd_value: Decimal,
     clock: &Clock,
-): decimal::Decimal {
+): Decimal {
     let reserve = lending_market.reserve<_, T>();
     reserve.assert_price_is_fresh(clock);
 
@@ -1652,7 +1647,7 @@ fun calculate_ctoken_amount_for_usd_value<L, T>(
 /// Returns a map of lending market type -> vector of UnwindTargets
 fun calculate_unwind_plan(
     agg: &VaultValueAggregate,
-    shortfall_usd: decimal::Decimal,
+    shortfall_usd: Decimal,
 ): vec_map::VecMap<TypeName, vector<UnwindTarget>> {
     let mut unwind_map = vec_map::empty<TypeName, vector<UnwindTarget>>();
     let mut remaining_shortfall = shortfall_usd;
