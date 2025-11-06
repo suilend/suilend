@@ -658,7 +658,7 @@ fun test_compound_rewards() {
 
     // Call compound_rewards (permissionless)
     scenario.next_tx(USER2);
-    vault.compound_rewards<VAULT_TESTS, TEST_LENDING_MARKET, TEST_COIN>(
+    vault.compound_rewards<VAULT_TESTS, TEST_COIN, TEST_LENDING_MARKET>(
         &mut lending_market,
         obligation_index,
         reserve_array_index,
@@ -673,8 +673,8 @@ fun test_compound_rewards() {
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
     let obligation_cap = vault.get_obligation_cap_for_testing<
         VAULT_TESTS,
-        TEST_LENDING_MARKET,
         TEST_COIN,
+        TEST_LENDING_MARKET,
     >(
         &lm_type,
         obligation_index,
@@ -848,8 +848,8 @@ fun test_compound_rewards_with_swap() {
     scenario.next_tx(USER2);
     vault.compound_rewards_with_swap<
         VAULT_TESTS,
-        TEST_LENDING_MARKET,
         B_TEST_SUI,
+        TEST_LENDING_MARKET,
         B_TEST_USDC,
         steamm::lp_usdc_sui::LP_USDC_SUI,
     >(
@@ -867,8 +867,8 @@ fun test_compound_rewards_with_swap() {
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
     let obligation_cap = vault.get_obligation_cap_for_testing<
         VAULT_TESTS,
-        TEST_LENDING_MARKET,
         B_TEST_SUI,
+        TEST_LENDING_MARKET,
     >(
         &lm_type,
         obligation_index,
@@ -1256,8 +1256,8 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
 
         let obligation_cap = vault.get_obligation_cap_for_testing<
             VAULT_TESTS,
-            TEST_LENDING_MARKET,
             B_TEST_SUI,
+            TEST_LENDING_MARKET,
         >(
             &lm_type,
             obligation_0,
@@ -1279,8 +1279,8 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
 
         let obligation_cap = vault.get_obligation_cap_for_testing<
             VAULT_TESTS,
-            TEST_LENDING_MARKET,
             B_TEST_SUI,
+            TEST_LENDING_MARKET,
         >(
             &lm_type,
             obligation_1,
@@ -1297,7 +1297,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
     // Compound all rewards from both obligations (4 total)
     {
         // Obligation 0: SUI rewards
-        vault.compound_rewards<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+        vault.compound_rewards<VAULT_TESTS, B_TEST_SUI, TEST_LENDING_MARKET>(
             &mut lending_market,
             obligation_0,
             sui_reserve_index,
@@ -1311,8 +1311,8 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         // Obligation 0: USDC rewards
         vault.compound_rewards_with_swap<
             VAULT_TESTS,
-            TEST_LENDING_MARKET,
             B_TEST_SUI,
+            TEST_LENDING_MARKET,
             B_TEST_USDC,
             steamm::lp_usdc_sui::LP_USDC_SUI,
         >(
@@ -1327,7 +1327,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         );
 
         // Obligation 1: SUI rewards
-        vault.compound_rewards<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+        vault.compound_rewards<VAULT_TESTS, B_TEST_SUI, TEST_LENDING_MARKET>(
             &mut lending_market,
             obligation_1,
             sui_reserve_index,
@@ -1341,8 +1341,8 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         // Obligation 1: USDC rewards
         vault.compound_rewards_with_swap<
             VAULT_TESTS,
-            TEST_LENDING_MARKET,
             B_TEST_SUI,
+            TEST_LENDING_MARKET,
             B_TEST_USDC,
             steamm::lp_usdc_sui::LP_USDC_SUI,
         >(
@@ -1370,8 +1370,8 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
     // Verify rewards were compounded into both obligations
     let obligation_cap_0 = vault.get_obligation_cap_for_testing<
         VAULT_TESTS,
-        TEST_LENDING_MARKET,
         B_TEST_SUI,
+        TEST_LENDING_MARKET,
     >(
         &lm_type,
         obligation_0,
@@ -1381,8 +1381,8 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
 
     let obligation_cap_1 = vault.get_obligation_cap_for_testing<
         VAULT_TESTS,
-        TEST_LENDING_MARKET,
         B_TEST_SUI,
+        TEST_LENDING_MARKET,
     >(
         &lm_type,
         obligation_1,
