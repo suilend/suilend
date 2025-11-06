@@ -72,6 +72,7 @@ const VAULT_SHARE_DECIMALS: u8 = 6;
 public struct Vault<phantom P, phantom T> has key, store {
     id: object::UID,
     version: vaults::version::Version,
+    metadata: vec_map::VecMap<std::string::String, std::string::String>,
     // Keyed by 'L' from LendingMarket<L>
     obligations: vec_map::VecMap<TypeName, vector<ObligationData>>,
     treasury_cap: TreasuryCap<P>,
@@ -281,6 +282,7 @@ public fun create_vault<P, T>(
     let vault = Vault {
         id: vault_id,
         version: vaults::version::new(CURRENT_VERSION),
+        metadata: vec_map::empty(),
         treasury_cap: vault_share_treasury_cap,
         obligations: vec_map::empty(),
         deposit_asset: balance::zero<T>(),
@@ -503,6 +505,37 @@ public fun create_obligation<P, L, T>(
     } else {
         let obls = vector::singleton(obl);
         vault.obligations.insert(lending_market_type, obls);
+    };
+}
+
+public fun set_metadata<P, T>(
+    vault: &mut Vault<P, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
+    key: std::string::String,
+    value: std::string::String,
+    _ctx: &mut TxContext,
+) {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.validate_manager_cap(vault_manager_cap);
+
+    if (vault.metadata.contains(&key)) {
+        vault.metadata.remove(&key);
+    };
+
+    vault.metadata.insert(key, value);
+}
+
+public fun unset_metadata<P, T>(
+    vault: &mut Vault<P, T>,
+    vault_manager_cap: &VaultManagerCap<P>,
+    key: std::string::String,
+    _ctx: &mut TxContext,
+) {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.validate_manager_cap(vault_manager_cap);
+
+    if (vault.metadata.contains(&key)) {
+        vault.metadata.remove(&key);
     };
 }
 
