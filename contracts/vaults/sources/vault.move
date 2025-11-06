@@ -333,8 +333,6 @@ public fun deploy_funds<P, L, T>(
     let available_amount = vault.deposit_asset.value();
     assert!(available_amount >= amount, EInsufficientLiquidity);
 
-    let usd_to_deploy = get_usd_value_for_token_amount<_, T>(lending_market, amount, clock);
-
     // Split funds from vault's deposit asset
     let deploy_balance = vault.deposit_asset.split(amount);
     let deploy_coin = coin::from_balance(deploy_balance, ctx);
@@ -379,24 +377,10 @@ public fun deploy_funds<P, L, T>(
             let liquid_asset_value = vault.deposit_asset.value();
             get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
-        let updated_obligation_value_usd = decimal::add(
-            agg.total_obligation_value_usd,
-            usd_to_deploy,
-        );
-
-        // Update the obligation allocations for this lending market
-        let lm_type = type_name::with_defining_ids<L>();
-        let mut updated_allocations = agg.lending_market_allocations;
-
-        let allocation = updated_allocations.get_mut(&lm_type);
-        // Increase deposited value and net value by the deployed amount
-        allocation.deposited_value_usd =
-            decimal::add(allocation.deposited_value_usd, usd_to_deploy);
-        allocation.net_value_usd = decimal::add(allocation.net_value_usd, usd_to_deploy);
-
         agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
-        agg.total_obligation_value_usd = updated_obligation_value_usd;
-        agg.lending_market_allocations = updated_allocations;
+
+        // Recalculate obligation allocations
+        agg.refresh_aggregate_for_lending_market(vault, lending_market);
 
         vault.emit_stats_event(&agg);
         agg.destroy_vault_value_aggregate();
@@ -465,29 +449,10 @@ public fun withdraw_deployed_funds<P, L, T>(
             let liquid_asset_value = vault.deposit_asset.value();
             get_usd_value_for_token_amount<_, T>(lending_market, liquid_asset_value, clock)
         };
-        let usd_withdrawn = get_usd_value_for_token_amount<_, T>(
-            lending_market,
-            withdrawn_amount,
-            clock,
-        );
-        let updated_obligation_value_usd = decimal::saturating_sub(
-            agg.total_obligation_value_usd,
-            usd_withdrawn,
-        );
-
-        // Update the obligation allocations for this lending market
-        let lm_type = type_name::with_defining_ids<L>();
-        let mut updated_allocations = agg.lending_market_allocations;
-
-        let allocation = updated_allocations.get_mut(&lm_type);
-        // Decrease deposited value and net value by the withdrawn amount
-        allocation.deposited_value_usd =
-            decimal::saturating_sub(allocation.deposited_value_usd, usd_withdrawn);
-        allocation.net_value_usd = decimal::saturating_sub(allocation.net_value_usd, usd_withdrawn);
-
         agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
-        agg.total_obligation_value_usd = updated_obligation_value_usd;
-        agg.lending_market_allocations = updated_allocations;
+
+        // Recalculate obligation allocations
+        agg.refresh_aggregate_for_lending_market(vault, lending_market);
 
         vault.emit_stats_event(&agg);
         agg.destroy_vault_value_aggregate();
@@ -896,24 +861,7 @@ public fun process_unwinds_for_lending_market<P, L, T>(
         });
     });
 
-    // Recalculate this lending market's allocation
-    let lending_market_type = type_name::with_defining_ids<L>();
-    let obligations = vault.obligations.get(&lending_market_type);
-    let obligation_ids = obligations.map_ref!(|obl| obl.obligation_id);
-    let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
-
-    let updated_lm_allocation = aggregate_allocation_data(obligation_allocations);
-
-    let alloc = acc.agg.lending_market_allocations.get_mut(&lending_market_type);
-    *alloc = updated_lm_allocation;
-
-    // Recalculate total obligation value
-    let ks = acc.agg.lending_market_allocations.keys();
-    let total_obligation_value_usd = ks.fold!(decimal::from(0), |acc_val, k| {
-        let allocation = acc.agg.lending_market_allocations.get(&k);
-        decimal::add(acc_val, allocation.net_value_usd)
-    });
-    acc.agg.total_obligation_value_usd = total_obligation_value_usd;
+    acc.agg.refresh_aggregate_for_lending_market(vault, lending_market);
 }
 
 // === Vault Rewards Functions ===
@@ -1723,6 +1671,32 @@ fun aggregate_allocation_data(
         net_value_usd: total_net,
         obligations: obligation_allocations,
     }
+}
+
+/// Recalculates aggregate values for a specific lending
+/// Updates both the lending market allocation and the total obligation value
+fun refresh_aggregate_for_lending_market<P, L, T>(
+    agg: &mut VaultValueAggregate,
+    vault: &Vault<P, T>,
+    lending_market: &LendingMarket<L>,
+) {
+    let lending_market_type = type_name::with_defining_ids<L>();
+    let obligations = vault.obligations.get(&lending_market_type);
+    let obligation_ids = obligations.map_ref!(|obl| obl.obligation_id);
+    let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
+
+    let updated_lm_allocation = aggregate_allocation_data(obligation_allocations);
+
+    let alloc = agg.lending_market_allocations.get_mut(&lending_market_type);
+    *alloc = updated_lm_allocation;
+
+    // Recalculate total obligation value from all lending markets
+    let ks = agg.lending_market_allocations.keys();
+    let total_obligation_value_usd = ks.fold!(decimal::from(0), |acc_val, k| {
+        let allocation = agg.lending_market_allocations.get(&k);
+        acc_val.add(allocation.net_value_usd)
+    });
+    agg.total_obligation_value_usd = total_obligation_value_usd;
 }
 
 fun assert_no_claimable_rewards<P>(lending_market: &LendingMarket<P>, obligation_id: ID) {
