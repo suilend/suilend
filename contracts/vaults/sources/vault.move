@@ -506,23 +506,6 @@ public fun create_obligation<P, L, T>(
     };
 }
 
-/// Validate that a manager cap belongs to a specific vault
-fun validate_manager_cap<P, T>(vault: &Vault<P, T>, manager_cap: &VaultManagerCap<P>) {
-    assert!(manager_cap.vault_id == object::id(vault), EInvalidManager);
-}
-
-/// Validate that a VaultValueAggregate belongs to a specific vault
-fun validate_aggregate<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
-    assert!(agg.vault_id == object::id(vault), EVaultMismatch);
-}
-
-/// Check that vault was cranked within MAX_REWARDS_STALENESS_MS
-fun assert_vault_state_fresh<P, T>(vault: &Vault<P, T>, clock: &Clock) {
-    let current_time = clock.timestamp_ms();
-
-    assert!(current_time - vault.last_cranked_ms <= MAX_REWARDS_STALENESS_MS, ERewardsStale);
-}
-
 // === User Functions ===
 
 public fun deposit<P, L, T>(
@@ -1788,6 +1771,23 @@ fun get_obligation_cap<P, L, T>(
     let obligations = vault.obligations.get(lending_market_type);
     let obl = obligations.borrow(index);
     obl.obligation_cap.borrow(OBLIGATION_CAP_BAG_KEY)
+}
+
+/// Validate that a manager cap belongs to a specific vault
+fun validate_manager_cap<P, T>(vault: &Vault<P, T>, manager_cap: &VaultManagerCap<P>) {
+    assert!(manager_cap.vault_id == object::id(vault), EInvalidManager);
+}
+
+/// Validate that a VaultValueAggregate belongs to a specific vault
+fun validate_aggregate<P, T>(vault: &Vault<P, T>, agg: &VaultValueAggregate) {
+    assert!(agg.vault_id == object::id(vault), EVaultMismatch);
+}
+
+/// Check that vault was cranked within MAX_REWARDS_STALENESS_MS
+fun assert_vault_state_fresh<P, T>(vault: &Vault<P, T>, clock: &Clock) {
+    let current_time = clock.timestamp_ms();
+
+    assert!(current_time - vault.last_cranked_ms <= MAX_REWARDS_STALENESS_MS, ERewardsStale);
 }
 
 // === Test Functions ===
