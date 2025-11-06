@@ -1803,12 +1803,13 @@ fun destroy_vault_value_aggregate(agg: VaultValueAggregate) {
 }
 
 /// Get obligation cap at lending_market_type + index (read-only)
-public(package) fun get_obligation_cap<P, L, T>(
+fun get_obligation_cap<P, L, T>(
     vault: &Vault<P, T>,
-    // TODO: remove
+    // Necessary because borrowing using type_name::with_defining_ids<L> causes lifetime issues
     lending_market_type: &TypeName,
     index: u64,
 ): &ObligationOwnerCap<L> {
+    assert!(&type_name::with_defining_ids<L>() == lending_market_type);
     // TODO: access checks + error codes
     let obligations = vault.obligations.get(lending_market_type);
     let obl = obligations.borrow(index);
@@ -1838,4 +1839,31 @@ public fun accrue_fees_for_testing<P, T>(
     clock: &Clock,
 ) {
     accrue_all_fees(vault, agg, clock)
+}
+
+#[test_only]
+public fun get_usd_value_for_token_amount_for_testing<L, T>(
+    lending_market: &LendingMarket<L>,
+    amount: u64,
+    clock: &Clock,
+): Decimal {
+    get_usd_value_for_token_amount<_, T>(lending_market, amount, clock)
+}
+
+#[test_only]
+public fun get_token_amount_from_usd_for_testing<L, T>(
+    lending_market: &LendingMarket<L>,
+    amount: Decimal,
+    clock: &Clock,
+): Decimal {
+    get_token_amount_from_usd<_, T>(lending_market, amount, clock)
+}
+
+#[test_only]
+public fun get_obligation_cap_for_testing<P, L, T>(
+    vault: &Vault<P, T>,
+    lending_market_type: &TypeName,
+    index: u64,
+): &ObligationOwnerCap<L> {
+    get_obligation_cap(vault, lending_market_type, index)
 }

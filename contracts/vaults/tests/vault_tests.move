@@ -671,7 +671,11 @@ fun test_compound_rewards() {
 
     // Verify rewards were claimed and deposited back into the obligation
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
-    let obligation_cap = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, TEST_COIN>(
+    let obligation_cap = vault.get_obligation_cap_for_testing<
+        VAULT_TESTS,
+        TEST_LENDING_MARKET,
+        TEST_COIN,
+    >(
         &lm_type,
         obligation_index,
     );
@@ -861,7 +865,11 @@ fun test_compound_rewards_with_swap() {
 
     // Verify rewards were compounded into the obligation
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
-    let obligation_cap = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+    let obligation_cap = vault.get_obligation_cap_for_testing<
+        VAULT_TESTS,
+        TEST_LENDING_MARKET,
+        B_TEST_SUI,
+    >(
         &lm_type,
         obligation_index,
     );
@@ -1246,7 +1254,11 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
             B_TEST_SUI,
         >(sui_reserve_index, &clock, tiny_deposit, scenario.ctx());
 
-        let obligation_cap = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+        let obligation_cap = vault.get_obligation_cap_for_testing<
+            VAULT_TESTS,
+            TEST_LENDING_MARKET,
+            B_TEST_SUI,
+        >(
             &lm_type,
             obligation_0,
         );
@@ -1265,7 +1277,11 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
             B_TEST_SUI,
         >(sui_reserve_index, &clock, tiny_deposit, scenario.ctx());
 
-        let obligation_cap = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+        let obligation_cap = vault.get_obligation_cap_for_testing<
+            VAULT_TESTS,
+            TEST_LENDING_MARKET,
+            B_TEST_SUI,
+        >(
             &lm_type,
             obligation_1,
         );
@@ -1352,14 +1368,22 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
     );
 
     // Verify rewards were compounded into both obligations
-    let obligation_cap_0 = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+    let obligation_cap_0 = vault.get_obligation_cap_for_testing<
+        VAULT_TESTS,
+        TEST_LENDING_MARKET,
+        B_TEST_SUI,
+    >(
         &lm_type,
         obligation_0,
     );
     let obligation = lending_market.obligation(obligation_cap_0.obligation_id());
     assert!(obligation.deposited_value_usd().floor() > 0);
 
-    let obligation_cap_1 = vault.get_obligation_cap<VAULT_TESTS, TEST_LENDING_MARKET, B_TEST_SUI>(
+    let obligation_cap_1 = vault.get_obligation_cap_for_testing<
+        VAULT_TESTS,
+        TEST_LENDING_MARKET,
+        B_TEST_SUI,
+    >(
         &lm_type,
         obligation_1,
     );
@@ -1537,6 +1561,107 @@ fun test_unwind_withdrawal_success() {
         ts::return_shared(vault);
         ts::return_shared(lending_market);
         transfer::public_transfer(manager_cap, ADMIN);
+    };
+
+    scenario.end();
+}
+
+#[test]
+fun test_token_usd_conversion_roundtrip() {
+    let (mut prices, mut scenario) = init_vault_scenario();
+
+    scenario.next_tx(ADMIN);
+    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let clock = scenario.take_shared<Clock>();
+    prices.update_decimal_price<TEST_COIN>(457823, 6, true, &clock);
+
+    let exp = 10u64.pow(TEST_COIN_DECIMALS);
+
+    // Test various token amounts with exact round-trip conversion
+    let test_amounts = vector[
+        exp, // 1 token = $1
+        100 * exp, // 100 tokens = $100
+        1_000 * exp, // 1,000 tokens = $1,000
+        50_000 * exp, // 50,000 tokens = $50,000
+        123_456 * exp, // 123,456 tokens = $123,456
+    ];
+
+    test_amounts.do!(|token_amount| {
+        // Convert token -> USD
+        let usd_value = vault::get_usd_value_for_token_amount_for_testing<
+            TEST_LENDING_MARKET,
+            TEST_COIN,
+        >(
+            &lending_market,
+            token_amount,
+            &clock,
+        );
+
+        // Convert USD -> token
+        let recovered_token_amount = vault::get_token_amount_from_usd_for_testing<
+            TEST_LENDING_MARKET,
+            TEST_COIN,
+        >(&lending_market, usd_value, &clock);
+
+        assert!(decimal::from(token_amount).eq(recovered_token_amount));
+
+        let expected_usd = decimal::from(token_amount / exp);
+        assert!(usd_value.eq(expected_usd));
+    });
+
+    // Test with fractional amounts
+    let fractional_amounts = vector[
+        exp / 2, // 0.5 tokens = $0.5
+        exp / 4, // 0.25 tokens = $0.25
+        exp / 10, // 0.1 tokens = $0.1
+        exp / 100, // 0.01 tokens = $0.01
+    ];
+
+    fractional_amounts.do!(|token_amount| {
+        let usd_value = vault::get_usd_value_for_token_amount_for_testing<
+            TEST_LENDING_MARKET,
+            TEST_COIN,
+        >(
+            &lending_market,
+            token_amount,
+            &clock,
+        );
+
+        let recovered_token_amount_decimal = vault::get_token_amount_from_usd_for_testing<
+            TEST_LENDING_MARKET,
+            TEST_COIN,
+        >(&lending_market, usd_value, &clock);
+
+        let original_as_decimal = decimal::from(token_amount);
+        assert!(recovered_token_amount_decimal.eq(original_as_decimal));
+    });
+
+    {
+        let zero_usd = vault::get_usd_value_for_token_amount_for_testing<
+            TEST_LENDING_MARKET,
+            TEST_COIN,
+        >(
+            &lending_market,
+            0,
+            &clock,
+        );
+        assert!(zero_usd.eq(decimal::from(0)));
+
+        let zero_tokens = vault::get_token_amount_from_usd_for_testing<
+            TEST_LENDING_MARKET,
+            TEST_COIN,
+        >(
+            &lending_market,
+            decimal::from(0),
+            &clock,
+        );
+        assert!(zero_tokens.eq(decimal::from(0)));
+    };
+
+    {
+        test_utils::destroy(prices);
+        ts::return_shared(clock);
+        ts::return_shared(lending_market);
     };
 
     scenario.end();
