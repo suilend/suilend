@@ -1,24 +1,100 @@
-# Isolated Vault
+# Suilend Vault
 
-### User Features
-- **Deposit Assets**: Deposit supported tokens (e.g., SUI, USDC) to receive vault shares representing ownership
-- **Withdraw Assets**: Redeem shares for proportional assets plus accrued yield
-- **Yield Earning**: Earn returns from lending activities without managing positions directly
+A multi-market lending vault that allows users to deposit a single asset type and earn yield from automated lending strategies across multiple Suilend markets. The vault manager deploys funds to various obligations and periodically compounds rewards while charging fees.
 
-### Manager Actions
-- **Fund Deployment**: Deploy vault assets to multiple lending markets (Suilend) for yield generation
-- **Position Management**: Create and manage multiple obligations across multiple markets
-- **Risk Controls**: Utilization rate limits are applied to vault assets
-- **Fee Collection**: Vault manager can claim accrued fees
+## Overview
 
-### Fee Structure
-- **Deposit Fee**: Charged on deposits
-- **Withdrawal Fee**: Charged on withdrawals
-- **Management Fee**: Annual fee on assets under management
-- **Performance Fee**: Fee on realized gains
+Users deposit base tokens (e.g., SUI, USDC) and receive fungible vault shares representing proportional ownership. Share value is determined by Net Asset Value (NAV) which includes both liquid vault assets and deployed lending positions across multiple markets. The vault manager actively allocates capital across obligations to generate yield, while users remain passive participants.
 
-### Technical Features
-- **NAV-Based Valuation**: Share value tracks Net Asset Value (NAV) including liquid assets and lending positions
-- **Atomic Operations**: Fee accrual and transactions happen atomically
-- **Event Logging**: Event emission for offchain monitoring
-- **Oracle Integration**: Uses Pyth price feeds for USD valuations
+## User Operations
+
+**Deposits**: Users deposit the base token and receive vault shares based on current NAV per share. A minimum deposit value of 0.1 USD is enforced. Optional deposit fees (0-10%) are deducted from minted shares.
+
+**Withdrawals**: Users redeem shares for proportional base token amounts based on NAV. When vault liquidity is insufficient, the protocol supports unwinding lending positions using a FIFO strategy. Optional withdrawal fees (0-10%) are deducted from shares before redemption.
+
+**Yield**: Returns accrue passively as the vault's lending positions generate interest and as rewards are compounded. Users can track performance via NAV per share appreciation.
+
+## Manager Operations
+
+**Vault Management**: The manager holds a VaultManagerCap proving authority over the vault. They can deploy liquid funds to lending obligations, withdraw deployed funds back to vault liquidity, and create new obligations across multiple lending markets.
+
+**Rewards Compounding**: Rewards can be compounded permissionlessly through two mechanisms:
+- Rewards matching base token are claimed and deposited directly
+- Other rewards are swapped through Steamm CPMM pools with slippage protection before depositing
+
+**Vault Crank**: A periodic operation that verifies all rewards have been compounded across all lending markets and accrues management and performance fees. A freshness requirement (1 hour maximum staleness) is enforced on user/manager operations. This prevents operations on stale vault state.
+
+**Fee Redemption**: The manager can redeem their accumulated fee shares (deposit, withdrawal, management, and performance fees) at any time.
+
+## Fee Structure
+
+**Deposit Fee** (0-10% max): Charged as a percentage of minted shares. Fee shares are credited to manager before user receives remaining shares.
+
+**Withdrawal Fee** (0-10% max): Charged as a percentage of shares being redeemed. Fee shares are credited to manager before calculating withdrawal amount.
+
+**Management Fee** (0-10% max annual): Time-based fee on assets under management, accrued during vault crank operations. Calculated as an annualized rate based on time elapsed since last crank. Implemented by minting new shares that dilute existing holders proportionally.
+
+**Performance Fee** (0-50% max): Fee on NAV gains above the high water mark. Only charged when NAV per share exceeds its previous peak. Calculated after accounting for management fee dilution.
+
+## Technical Architecture
+
+### Type System
+
+- `P` is the share token type (unique per vault)
+- `T` is the base asset type (e.g., SUI, USDC)
+- `L` represents unique lending market types (varies per operation)
+
+### Core Components
+
+**Vault Object**: Shared object containing the treasury cap for share tokens, liquid balance of base token, accumulated manager fees in shares, and a map of lending market obligations. Tracks fee parameters, NAV high water mark, and crank timestamp.
+
+**Obligations**: The vault can hold multiple obligations per lending market type. Each obligation is wrapped in a struct containing the ownership capability and ID.
+
+**Manager Capability**: A transferable `VaultManagerCap` proves authority over the vault and gates privileged operations like fund deployment and fee collection.
+
+### Accumulator Pattern
+
+The vault manages positions across multiple lending markets, each with a different type parameter `L`. Move's type system prevents a single function from accepting arbitrary amounts of `LendingMarket<L>` instances with different `L` values.
+
+To circumvent this a [Hot Potato](https://move-book.com/programmability/hot-potato-pattern/) pattern is utilised, to ensure all lending markets (and obligations) are processed in the PTB. There are 3 instances where this is utilised:
+
+- `VaultValueAccumulator` - for gathering USD values of all obligations for NAV calculation
+- `VaultCrankAccumulator` - for verifying all rewards have been compounded + gathering obligation values for management and performance fee accrual
+- `VaultUnwindAccumulator` - for building and executing an unwind plan when insufficient liquidity exists to redeem a users shares
+
+### NAV and Share Pricing
+
+NAV per share is calculated as:
+```
+NAV = (total_value_usd * NAV_PRECISION * 10^SHARE_DECIMALS) / total_shares
+```
+
+Where `total_value_usd` is the sum of liquid assets and all obligation net values (deposits minus borrows) across all markets. All values are normalized to USD using Suilend reserve prices.
+
+Share conversions use this NAV to convert between shares and USD value, then between USD and base token amounts.
+
+### Price Oracle Integration
+
+All valuations use prices from Suilend `lending_market.reserve`, which are Pyth-based. Price freshness is validated on every operation.
+
+## Constraints
+
+**Freshness Requirement**: All operations require that the vault was cranked within the last hour. This ensures NAV calculations include recent yield accrual.
+
+**Accumulator Atomicity**: All accumulator patterns must be fully processed within a single PTB. Partial processing will fail.
+
+**Order Enforcement**: Lending markets and obligations must be processed in FIFO order during accumulator operations. This ensures deterministic behavior and prevents manipulation via processing order.
+
+**Minimum Deposits**: There is a 0.1 USD value minimum.
+
+**Unwind Strategy**: Obligation unwinds are prioritised on a FIFO basis.
+
+**Reward Compounding**: Rewards can be compounded permissionlessly. For base token rewards, direct compounding is used. For other rewards, a Steamm pool must exist for swapping.
+
+**Slippage**: The vault stores a `slippage_bps` parameter used for reward swaps, which is applied to oracle prices.
+
+## Planned Features
+
+**Cross-Asset Borrowing**: Allow the vault to borrow against deposited collateral across lending markets.
+
+**More Integrations**: Support protocols other than core Suilend as deployment targets, such as [Suilend Strategies](https://suilend.fi/strategies).
