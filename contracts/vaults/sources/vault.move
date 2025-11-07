@@ -7,6 +7,7 @@ use sui::{
     balance::{Self, Balance},
     clock::Clock,
     coin::{Self, TreasuryCap, Coin},
+    coin_registry,
     event,
     vec_map
 };
@@ -52,8 +53,8 @@ const EIncorrectOrder: vector<u8> = b"LendingMarket processed out of order";
 #[error]
 const EInsufficientLiquidityForUnwind: vector<u8> =
     b"Enough liquidity to redeem shares was not found";
-//#[error]
-//const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
+#[error]
+const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
 // === Constants ===
 const CURRENT_VERSION: u16 = 1;
@@ -68,8 +69,8 @@ const MAX_REWARDS_STALENESS_MS: u64 = 3_600_000; // 1 hour in ms
 const SECONDS_PER_YEAR: u64 = 31_536_000; // 365 * 24 * 60 * 60
 const OBLIGATION_CAP_BAG_KEY: u8 = 0;
 const VAULT_SHARE_DECIMALS: u8 = 6;
-//const VAULT_SHARE_NAME: vector<u8> = b"Vault Shares";
-//const VAULT_SHARE_SYMBOL: vector<u8> = b"VSHARES";
+const VAULT_SHARE_SYMBOL: vector<u8> = b"VSHARES";
+const VAULT_SHARE_NAME: vector<u8> = b"Vault Shares";
 
 // === Structs ===
 
@@ -247,7 +248,7 @@ public struct ObligationUnwind has copy, drop {
 
 public fun create_vault<V, T>(
     vault_share_treasury_cap: TreasuryCap<V>,
-    //vault_share_currency: &coin_registry::Currency<V>,
+    vault_share_currency: &coin_registry::Currency<V>,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
@@ -256,15 +257,14 @@ public fun create_vault<V, T>(
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): VaultManagerCap<V> {
-    // TODO: temporarily disabled
-    //assert!(vault_share_currency.is_metadata_cap_deleted() || true, EMetadataCapExists);
-    //assert!(vault_share_currency.decimals() == VAULT_SHARE_DECIMALS, EInvalidShareCurrency);
-    //assert!(vault_share_currency.name() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
-    //assert!(
-    //vault_share_currency.description() == VAULT_SHARE_NAME.to_string(),
-    //EInvalidShareCurrency,
-    //);
-    //assert!(vault_share_currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), EInvalidShareCurrency);
+    assert!(vault_share_currency.is_metadata_cap_deleted(), EMetadataCapExists);
+    assert!(vault_share_currency.decimals() == VAULT_SHARE_DECIMALS, EInvalidShareCurrency);
+    assert!(vault_share_currency.name() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
+    assert!(
+        vault_share_currency.description() == VAULT_SHARE_NAME.to_string(),
+        EInvalidShareCurrency,
+    );
+    assert!(vault_share_currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), EInvalidShareCurrency);
     assert!(vault_share_treasury_cap.total_supply() == 0, EInvalidShareCurrency);
 
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);

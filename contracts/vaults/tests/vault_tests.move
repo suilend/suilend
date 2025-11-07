@@ -45,7 +45,7 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
     // Create clock
     let clock = clock::create_for_testing(ctx);
 
-    let (curr, treasury_cap) = create_test_currency(ctx);
+    let (curr, treasury_cap) = create_vault_shares(ctx);
 
     let mut prices = mock_pyth::init_state(ctx);
     mock_pyth::register<TEST_COIN>(&mut prices, ctx);
@@ -78,6 +78,7 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
     // Create vault and manager cap
     let manager_cap = vault::create_vault<_, TEST_COIN>(
         treasury_cap,
+        &curr,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -96,7 +97,7 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
     (prices, scenario)
 }
 
-fun create_test_currency(
+fun create_vault_shares(
     ctx: &mut TxContext,
 ): (Currency<VAULT_TESTS>, coin::TreasuryCap<VAULT_TESTS>) {
     let (builder, treasury_cap) = coin_registry::new_currency_with_otw(
@@ -633,11 +634,12 @@ fun test_fee_limits() {
     let (prices, mut scenario) = init_vault_scenario();
     scenario.next_tx(ADMIN);
     let clock = scenario.take_shared<Clock>();
-    let (curr, t_cap) = create_test_currency(scenario.ctx());
+    let (curr, t_cap) = create_vault_shares(scenario.ctx());
 
     // Test that fee limits are enforced during vault creation
     let manager_cap = vault::create_vault<_, TEST_COIN>(
         t_cap,
+        &curr,
         1000, // 10% management fee (at limit)
         5000, // 50% performance fee (at limit)
         1000, // 10% deposit fee (at limit)
@@ -664,12 +666,13 @@ fun test_excessive_fee_failure() {
 
     scenario.next_tx(ADMIN);
 
-    let (_curr, t_cap) = create_test_currency(scenario.ctx());
+    let (curr, t_cap) = create_vault_shares(scenario.ctx());
     let clock = scenario.take_shared<Clock>();
 
     // Try to create vault with excessive fees (should fail)
     let _manager_cap = vault::create_vault<_, TEST_COIN>(
         t_cap,
+        &curr,
         2000, // 20% management fee (above 10% limit)
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -956,7 +959,7 @@ fun test_compound_rewards_with_swap() {
     // Create a new vault with B_TEST_SUI as underlying asset (different from default TEST_COIN vault)
     scenario.next_tx(ADMIN);
     let mut clock = scenario.take_shared<Clock>();
-    let (curr, treasury_cap) = create_test_currency(scenario.ctx());
+    let (curr, treasury_cap) = create_vault_shares(scenario.ctx());
     let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
     let lm_cap = scenario.take_from_sender<
         lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
@@ -981,6 +984,7 @@ fun test_compound_rewards_with_swap() {
 
     let manager_cap = vault::create_vault<_, B_TEST_SUI>(
         treasury_cap,
+        &curr,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
@@ -1319,7 +1323,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
     // Setup vault with B_TEST_SUI as underlying asset
     scenario.next_tx(ADMIN);
     let mut clock = scenario.take_shared<Clock>();
-    let (curr, treasury_cap) = create_test_currency(scenario.ctx());
+    let (curr, treasury_cap) = create_vault_shares(scenario.ctx());
     let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
     let lm_cap = scenario.take_from_sender<
         lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
@@ -1344,6 +1348,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
 
     let manager_cap = vault::create_vault<_, B_TEST_SUI>(
         treasury_cap,
+        &curr,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
