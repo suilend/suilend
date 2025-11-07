@@ -88,7 +88,7 @@ public struct Vault<phantom V, phantom T> has key, store {
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
     slippage_bps: u64,
-    nav_high_water_mark: Decimal, // Highest NAV per share achieved (for performance fees)
+    redemption_ratio_high_water_mark: Decimal, // Highest redemption ratio achieved (vault_value_in_base_asset / shares) for performance fees
     last_cranked_ms: u64, // timestamp_ms when rewards were last compounded and fees were last accrued
 }
 
@@ -143,13 +143,6 @@ public struct ObligationAllocation has copy, drop, store {
     deposited_value_usd: Decimal,
     borrowed_value_usd: Decimal,
     net_value_usd: Decimal,
-}
-
-public struct FeeAccrual has drop {
-    management_fee_shares: u64,
-    performance_fee_shares: u64,
-    total_fee_shares: u64,
-    new_nav_per_share: Decimal,
 }
 
 /// For tracking obligation unwinds needed to satisfy a withdrawal
@@ -297,7 +290,7 @@ public fun create_vault<V, T>(
         deposit_fee_bps,
         withdrawal_fee_bps,
         slippage_bps,
-        nav_high_water_mark: decimal::from_u128(NAV_PRECISION),
+        redemption_ratio_high_water_mark: decimal::from(1), // Initial ratio is 1.0 (1 share = 1 base asset)
         last_cranked_ms: current_time_ms,
     };
 
@@ -1105,7 +1098,7 @@ public fun finalize_vault_crank<V, T, L>(
         lending_market_allocations,
     };
 
-    vault.accrue_all_fees(&agg, clock);
+    vault.accrue_all_fees(&agg, lending_market, clock);
 
     agg.destroy_vault_value_aggregate();
 
@@ -1114,128 +1107,124 @@ public fun finalize_vault_crank<V, T, L>(
 
 // === Fee Management Functions ===
 
-/// Apply calculated fees to the vault, minting shares and updating state
-fun apply_fee_accrual<V, T>(vault: &mut Vault<V, T>, accrual: FeeAccrual, clock: &Clock) {
+/// Unified fee accrual function - calculates and applies performance and management fees
+fun accrue_all_fees<V, T, L>(
+    vault: &mut Vault<V, T>,
+    agg: &VaultValueAggregate,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
+    clock: &Clock,
+) {
+    let current_shares = vault.treasury_cap.total_supply();
+    let total_value_usd = decimal::add(agg.total_obligation_value_usd, agg.liquid_asset_value_usd);
+
+    // Calculate management fee shares
+    let management_fee_shares = calculate_management_fee_shares(vault, clock);
+
+    // Calculate performance fee accounting for management fee dilution
+    let performance_fee_shares = calculate_performance_fee_shares(
+        vault,
+        total_value_usd,
+        current_shares,
+        management_fee_shares,
+        lending_market,
+        clock,
+    );
+
+    // Calculate redemption ratio after management fees but before performance fees
+    // This is the new high water mark if it exceeds the previous one
+    let redemption_ratio_after_mgmt_fees = calculate_redemption_ratio<L, T>(
+        total_value_usd,
+        current_shares + management_fee_shares,
+        lending_market,
+        clock,
+    );
+
     let current_time = clock.timestamp_ms();
 
     // Mint management fee shares if any
-    if (accrual.management_fee_shares > 0) {
-        let fee_balance = vault.treasury_cap.mint_balance(accrual.management_fee_shares);
+    if (management_fee_shares > 0) {
+        let fee_balance = vault.treasury_cap.mint_balance(management_fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
             fee_type: FeeType::ManagementFee,
-            fee_shares: accrual.management_fee_shares,
+            fee_shares: management_fee_shares,
             timestamp_ms: current_time,
         });
     };
 
     // Mint performance fee shares if any
-    if (accrual.performance_fee_shares > 0) {
-        let fee_balance = vault.treasury_cap.mint_balance(accrual.performance_fee_shares);
+    if (performance_fee_shares > 0) {
+        let fee_balance = vault.treasury_cap.mint_balance(performance_fee_shares);
         vault.manager_fees.join(fee_balance);
 
         event::emit(FeesAccrued {
             vault_id: object::id(vault),
             fee_type: FeeType::PerformanceFee,
-            fee_shares: accrual.performance_fee_shares,
+            fee_shares: performance_fee_shares,
             timestamp_ms: current_time,
         });
     };
 
-    if (accrual.new_nav_per_share.gt(vault.nav_high_water_mark)) {
-        vault.nav_high_water_mark = accrual.new_nav_per_share;
+    // Update high water mark to ratio after management fees (before performance fees)
+    if (redemption_ratio_after_mgmt_fees.gt(vault.redemption_ratio_high_water_mark)) {
+        vault.redemption_ratio_high_water_mark = redemption_ratio_after_mgmt_fees;
     };
 }
 
-/// Unified fee accrual function - calculates and applies all fees atomically
-/// This replaces the deprecated apply_management_fee_to_nav function
-fun accrue_all_fees<V, T>(vault: &mut Vault<V, T>, agg: &VaultValueAggregate, clock: &Clock) {
-    let accrual = calculate_all_fees(vault, agg, clock);
-    apply_fee_accrual(vault, accrual, clock);
-}
-
-/// Calculate all fees to be accrued (management + performance) atomically
-fun calculate_all_fees<V, T>(
+/// Calculate performance fee shares based on redemption ratio growth
+/// ratio = vault_value_in_base_asset / shares
+fun calculate_performance_fee_shares<V, T, L>(
     vault: &Vault<V, T>,
-    agg: &VaultValueAggregate,
-    clock: &Clock,
-): FeeAccrual {
-    // 1. Get base NAV before any fees
-    let base_nav = vault.calculate_nav_per_share(agg);
-    let current_shares = vault.treasury_cap.total_supply();
-
-    // 2. Calculate management fee shares
-    let management_fee_shares = calculate_management_fee_shares(vault, clock);
-
-    // 3. Calculate performance fee accounting for management fee dilution
-    let performance_fee_shares = calculate_performance_fee_shares(
-        vault,
-        base_nav,
-        current_shares,
-        management_fee_shares,
-    );
-
-    // 4. Calculate final NAV after both fees
-    let total_fee_shares = management_fee_shares + performance_fee_shares;
-    let new_nav = if (total_fee_shares == 0) {
-        base_nav
-    } else {
-        let total_value = shares_to_usd(decimal::from(current_shares), base_nav);
-        calculate_nav_from_shares_and_value(
-            decimal::from(current_shares + total_fee_shares),
-            total_value,
-        )
-    };
-
-    FeeAccrual {
-        management_fee_shares,
-        performance_fee_shares,
-        total_fee_shares,
-        new_nav_per_share: new_nav,
-    }
-}
-
-/// Calculate performance fee shares based on NAV growth
-fun calculate_performance_fee_shares<V, T>(
-    vault: &Vault<V, T>,
-    current_nav_per_share: Decimal,
+    total_value_usd: Decimal,
     current_shares: u64,
     mgmt_shares_to_mint: u64,
+    lending_market: &LendingMarket<L>,
+    clock: &Clock,
 ): u64 {
     if (vault.performance_fee_bps == 0 || current_shares == 0) {
         return 0
     };
 
-    // Apply performance fee only when NAV exceeds high water mark
-    if (current_nav_per_share.le(vault.nav_high_water_mark)) {
+    // Calculate current redemption ratio
+    let current_ratio = calculate_redemption_ratio<L, T>(
+        total_value_usd,
+        current_shares,
+        lending_market,
+        clock,
+    );
+
+    // Apply performance fee only when ratio exceeds high water mark
+    if (current_ratio.le(vault.redemption_ratio_high_water_mark)) {
         return 0
     };
 
-    // Total value at current NAV
-    let total_value =
-        shares_to_usd(decimal::from(current_shares), current_nav_per_share).floor() as u128;
+    // Calculate gain in base asset terms per share
+    let gain_ratio = current_ratio.sub(vault.redemption_ratio_high_water_mark);
 
-    // Total value at high water mark (baseline for performance)
-    let baseline_value =
-        shares_to_usd(decimal::from(current_shares), vault.nav_high_water_mark).floor() as u128;
+    // Calculate total gain using shares after management fees
+    let shares_after_mgmt_decimal = decimal::from_u128(
+        (current_shares as u128) + (mgmt_shares_to_mint as u128),
+    );
+    let total_gain_in_base_asset = gain_ratio.mul(shares_after_mgmt_decimal);
 
-    // Gain = total_value - baseline_value
-    let gain = total_value - baseline_value;
+    // Convert gain to USD for fee calculation
+    let gain_usd = get_usd_value_for_token_amount<L, T>(
+        lending_market,
+        total_gain_in_base_asset.floor(),
+        clock,
+    );
 
     // Performance fee on the gain
-    let perf_fee_value = decimal::mul(
-        decimal::from_u128(gain),
-        decimal::from_bps(vault.performance_fee_bps),
-    );
+    let perf_fee_value = gain_usd.mul(decimal::from_bps(vault.performance_fee_bps));
 
     // Calculate shares accounting for management fee dilution
     // NAV after mgmt fees = total_value / (current_shares + mgmt_shares)
     let shares_after_mgmt = (current_shares as u128) + (mgmt_shares_to_mint as u128);
     let nav_after_mgmt = calculate_nav_from_shares_and_value(
         decimal::from_u128(shares_after_mgmt),
-        decimal::from_u128(total_value),
+        total_value_usd,
     );
 
     // Convert performance fee value to shares at post-mgmt NAV
@@ -1492,6 +1481,28 @@ public fun total_supply<V, T>(vault: &Vault<V, T>): u64 {
 /// Returns the share decimals factor as a Decimal for decimal calculations
 fun share_decimals_factor_decimal(): Decimal {
     decimal::from(10u64.pow(VAULT_SHARE_DECIMALS))
+}
+
+/// Calculate redemption ratio: vault value in base asset terms per share
+/// This is the key metric for performance fees
+/// ratio = total_vault_value_usd / base_asset_price / total_shares
+fun calculate_redemption_ratio<L, T>(
+    total_value_usd: Decimal,
+    total_shares: u64,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
+    clock: &Clock,
+): Decimal {
+    if (total_shares == 0) {
+        decimal::from(1) // Initial ratio when vault is empty
+    } else {
+        let vault_value_in_base_asset = get_token_amount_from_usd<L, T>(
+            lending_market,
+            total_value_usd,
+            clock,
+        );
+
+        vault_value_in_base_asset.div(decimal::from(total_shares))
+    }
 }
 
 /// Convert shares (in base units) to USD value using NAV per share
@@ -1847,12 +1858,13 @@ public fun create_vault_value_aggregate_for_testing<V, T, L>(
 }
 
 #[test_only]
-public fun accrue_fees_for_testing<V, T>(
+public fun accrue_fees_for_testing<V, T, L>(
     vault: &mut Vault<V, T>,
     agg: &VaultValueAggregate,
+    lending_market: &LendingMarket<L>,
     clock: &Clock,
 ) {
-    accrue_all_fees(vault, agg, clock)
+    accrue_all_fees(vault, agg, lending_market, clock)
 }
 
 #[test_only]
@@ -1880,4 +1892,19 @@ public fun get_obligation_cap_for_testing<V, T, L>(
     index: u64,
 ): &ObligationOwnerCap<L> {
     get_obligation_cap(vault, lending_market_type, index)
+}
+
+#[test_only]
+public fun get_manager_fees_for_testing<V, T>(vault: &Vault<V, T>): u64 {
+    vault.manager_fees.value()
+}
+
+#[test_only]
+public fun get_aggregate_liquid_value_for_testing(agg: &VaultValueAggregate): Decimal {
+    agg.liquid_asset_value_usd
+}
+
+#[test_only]
+public fun get_aggregate_obligation_value_for_testing(agg: &VaultValueAggregate): Decimal {
+    agg.total_obligation_value_usd
 }

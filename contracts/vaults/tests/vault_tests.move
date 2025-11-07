@@ -182,18 +182,17 @@ fun test_deposit_and_withdraw() {
 
 #[test]
 fun test_fees_collected() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (mut prices, mut scenario) = init_vault_scenario();
 
     scenario.next_tx(ADMIN);
     let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
     let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let mut clock = scenario.take_shared<Clock>();
 
+    // User deposits 1,000,000 tokens
     scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
-
-    // User deposits 1000 tokens
-    let deposit_amount = 1000000;
+    let deposit_amount = 1_000_000;
     let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
@@ -204,23 +203,276 @@ fun test_fees_collected() {
         scenario.ctx(),
     );
 
-    // Withdraw and check withdrawal fee
+    let exp = 10u64.pow(TEST_COIN_DECIMALS);
+    let initial_user_shares = vault_shares.value();
+    let initial_total_supply = vault.total_supply();
+    let initial_manager_fees = vault.get_manager_fees_for_testing();
+
+    // Exact deposit fee calculation: 5% of deposit goes to fees
+    // Total minted = deposit_amount * exp (after decimals)
+    // Fee shares = 5% of total = deposit_amount * exp * 500 / 10000
+    let expected_deposit_fee_shares = deposit_amount * exp * DEPOSIT_FEE_BPS / 10000;
+    assert!(initial_manager_fees == expected_deposit_fee_shares);
+
+    // User should get 95% of shares (after 5% deposit fee)
+    let expected_user_shares = deposit_amount * exp * (10000 - DEPOSIT_FEE_BPS) / 10000;
+    assert!(initial_user_shares == expected_user_shares);
+
+    // Total supply = user shares + fee shares
+    assert!(initial_total_supply == deposit_amount * exp);
+
+    // Manager creates obligation and deploys funds
+    scenario.next_tx(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    let obligation_index = 0;
+
+    let deploy_amount = 500_000 * exp;
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    let withdrawn_coins = vault.withdraw(
-        vault_shares,
-        &lending_market,
+    vault.deploy_funds(
+        &manager_cap,
+        &mut lending_market,
+        obligation_index,
+        deploy_amount,
         &clock,
         agg,
         scenario.ctx(),
     );
 
+    // === TEST 1: Management fees after 1 year ===
+
+    // Advance time by exactly 1 year
+    clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
+
+    // Must refresh price after clock increment to avoid staleness
+    prices.update_price<TEST_COIN>(1, 0, &clock);
+    lending_market.refresh_reserve_price(
+        0,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    let total_supply_before_crank = vault.total_supply();
+
+    // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
+    scenario.next_tx(ADMIN);
+    let mut crank_acc = vault.create_vault_crank_accumulator();
+    crank_acc.process_lending_market_for_crank(&lending_market);
+    vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
+
+    let total_supply_after_mgmt = vault.total_supply();
+    let manager_fees_after_mgmt = vault.get_manager_fees_for_testing();
+
+    let mgmt_fee_shares_round1 = total_supply_after_mgmt - total_supply_before_crank;
+
+    // Management fee formula: shares_to_mint = current_shares * fee_factor / (1 - fee_factor)
+    // where fee_factor = (time_elapsed_s * annual_rate) / SECONDS_PER_YEAR
+    // For 1 year at 2% (200 bps): fee_factor ≈ 0.02
+    let expected_mgmt_fee_approx =
+        total_supply_before_crank * MANAGEMENT_FEE_BPS / (10000 - MANAGEMENT_FEE_BPS);
+
+    assert!(mgmt_fee_shares_round1 >= expected_mgmt_fee_approx * 999 / 1000);
+    assert!(mgmt_fee_shares_round1 <= expected_mgmt_fee_approx * 1001 / 1000);
+
+    // should be approximately 20.4 billion shares
+    assert!(mgmt_fee_shares_round1 > 20_000_000_000);
+    assert!(mgmt_fee_shares_round1 < 21_000_000_000);
+
+    // Manager fees should equal: initial deposit fees + round 1 management fees
+    assert!(manager_fees_after_mgmt == expected_deposit_fee_shares + mgmt_fee_shares_round1);
+
+    // === TEST 2: Price doubles but vault holds same amount (NO performance fee) ===
+    scenario.next_tx(ADMIN);
+
+    // Advance time by another year
+    clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
+
+    // Refresh price at $2 (doubled from $1)
+    prices.update_price<TEST_COIN>(2, 0, &clock);
+    lending_market.refresh_reserve_price(
+        0,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    let supply_before_price_double_crank = vault.total_supply();
+    let manager_fees_before_round2 = vault.get_manager_fees_for_testing();
+
+    // Crank again - should only get management fees, NOT performance fees
+    let mut crank_acc = vault.create_vault_crank_accumulator();
+    crank_acc.process_lending_market_for_crank(&lending_market);
+    vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
+
+    let supply_after_price_double_crank = vault.total_supply();
+    let manager_fees_after_round2 = vault.get_manager_fees_for_testing();
+    let mgmt_fee_shares_round2 = supply_after_price_double_crank - supply_before_price_double_crank;
+
+    // Calculate expected management fee (another year at 2%)
+    let expected_mgmt_fee_round2 =
+        supply_before_price_double_crank * MANAGEMENT_FEE_BPS / (10000 - MANAGEMENT_FEE_BPS);
+
+    // Should be close to expected management fees (within 0.1%)
+    assert!(mgmt_fee_shares_round2 >= expected_mgmt_fee_round2 * 999 / 1000);
+    assert!(mgmt_fee_shares_round2 <= expected_mgmt_fee_round2 * 1001 / 1000);
+
+    // should be approximately 20.8 billion shares
+    assert!(mgmt_fee_shares_round2 > 20_000_000_000);
+    assert!(mgmt_fee_shares_round2 < 22_000_000_000);
+
+    // Even though USD value doubled ($1→$2), there should be ZERO performance fees
+    // The total fees should be ONLY management fees (not significantly higher)
+    // This proves redemption ratio stayed constant despite price change
+    let perf_fee_round2 = if (mgmt_fee_shares_round2 > expected_mgmt_fee_round2) {
+        mgmt_fee_shares_round2 - expected_mgmt_fee_round2
+    } else {
+        0
+    };
+    // Any "performance fee" should be negligible
+    assert!(perf_fee_round2 < expected_mgmt_fee_round2 / 1000);
+
+    // Manager fees delta should equal the management fee minted
+    let manager_fees_delta_round2 = manager_fees_after_round2 - manager_fees_before_round2;
+    assert!(manager_fees_delta_round2 == mgmt_fee_shares_round2);
+
+    // === TEST 3: Manager generates actual alpha through reward compounding ===
+    scenario.next_tx(ADMIN);
+
+    // Set up rewards pool to simulate real yield generation
+    let reserve_array_index = 0;
+    let reward_amount = 150_000; // 150k tokens in rewards
+    let reward_coin = mint_test_coin(reward_amount, scenario.ctx());
+    let start_time_ms = clock.timestamp_ms();
+    let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000); // 30 days
+
+    let lm_cap = scenario.take_from_sender<
+        lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
+    >();
+
+    lm_cap.add_pool_reward<TEST_LENDING_MARKET, TEST_COIN>(
+        &mut lending_market,
+        reserve_array_index,
+        true, // is_deposit_reward
+        reward_coin,
+        start_time_ms,
+        end_time_ms,
+        &clock,
+        scenario.ctx(),
+    );
+
+    // Get vault value before rewards
+    let agg_before_rewards = vault.create_vault_value_aggregate_for_testing(
+        &lending_market,
+        &clock,
+    );
+    let liquid_before = vault::get_aggregate_liquid_value_for_testing(&agg_before_rewards);
+    let obligation_before = vault::get_aggregate_obligation_value_for_testing(&agg_before_rewards);
+    let total_value_before_rewards = liquid_before.add(obligation_before);
+    test_utils::destroy(agg_before_rewards);
+
+    // Advance time to accrue rewards
+    clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days
+
+    // Refresh prices after time advancement
+    prices.update_price<TEST_COIN>(2, 0, &clock);
+    lending_market.refresh_reserve_price(
+        0,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    // Compound the rewards
+    scenario.next_tx(USER2);
+    vault.compound_rewards<VAULT_TESTS, TEST_COIN, TEST_LENDING_MARKET>(
+        &mut lending_market,
+        obligation_index,
+        reserve_array_index,
+        0, // reward_index
+        true, // is_deposit_reward
+        0, // deposit_reserve_index
+        &clock,
+        scenario.ctx(),
+    );
+
+    // Get vault value after rewards to verify alpha was generated
+    let agg_after_rewards = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let liquid_after = vault::get_aggregate_liquid_value_for_testing(&agg_after_rewards);
+    let obligation_after = vault::get_aggregate_obligation_value_for_testing(&agg_after_rewards);
+    let total_value_after_rewards = liquid_after.add(obligation_after);
+    test_utils::destroy(agg_after_rewards);
+
+    // Vault value should have increased by rewards amount (in USD at $2 per token)
+    // 150k tokens * $2 = $300k increase
+    let expected_value_increase = decimal::from(reward_amount * 2); // $2 per token
+    let actual_value_increase = total_value_after_rewards.sub(total_value_before_rewards);
+
+    // Should be approximately equal
+    assert!(actual_value_increase.ge(expected_value_increase.mul(decimal::from_bps(9900)))); // 99%
+    assert!(actual_value_increase.le(expected_value_increase.mul(decimal::from_bps(10100)))); // 101%
+
+    // Advance another year for management + performance fees
+    clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
+
+    // Refresh price after clock increment (keep at $2)
+    prices.update_price<TEST_COIN>(2, 0, &clock);
+    lending_market.refresh_reserve_price(
+        0,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    let supply_before_perf_fee = vault.total_supply();
+    let manager_fees_before_perf = vault.get_manager_fees_for_testing();
+
+    // Crank - now should get BOTH management and performance fees
+    scenario.next_tx(ADMIN);
+    let mut crank_acc = vault.create_vault_crank_accumulator();
+    crank_acc.process_lending_market_for_crank(&lending_market);
+    vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
+
+    let supply_after_perf_fee = vault.total_supply();
+    let manager_fees_after_perf = vault.get_manager_fees_for_testing();
+
+    let total_fee_shares_round3 = supply_after_perf_fee - supply_before_perf_fee;
+
+    // Calculate expected management fee
+    let expected_mgmt_fee_round3 =
+        supply_before_perf_fee * MANAGEMENT_FEE_BPS / (10000 - MANAGEMENT_FEE_BPS);
+
+    // Total fees should include BOTH management and performance fees
+    // Observed values:
+    // - Total fees: 23,094,443,604 shares
+    // - Management (approx): 21,249,649,379 shares
+    // - Performance fee: ~1,844,794,225 shares (about 8.68% extra)
+
+    // Assert total fees are significantly greater than management alone
+    assert!(total_fee_shares_round3 > expected_mgmt_fee_round3);
+
+    // Calculate actual performance fee component
+    let perf_fee_shares = total_fee_shares_round3 - expected_mgmt_fee_round3;
+
+    // Performance fee should be positive (we generated alpha through rewards)
+    assert!(perf_fee_shares > 0);
+
+    // Performance fee should be substantial
+    // This ensures we're actually charging for the alpha generated
+    assert!(perf_fee_shares > 1_500_000_000);
+
+    // Performance fee should be approximately 8-9% of expected management fee
+    let perf_fee_ratio = (perf_fee_shares * 100) / expected_mgmt_fee_round3;
+    assert!(perf_fee_ratio >= 8); // At least 8%
+    assert!(perf_fee_ratio <= 10); // At most 10%
+
+    // Manager fees should have increased by the sum of management + performance fees
+    let manager_fees_delta_round3 = manager_fees_after_perf - manager_fees_before_perf;
+    assert!(manager_fees_delta_round3 == total_fee_shares_round3);
+
     {
         test_utils::destroy(prices);
-        coin::burn_for_testing(withdrawn_coins);
+        coin::burn_for_testing(vault_shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
         transfer::public_transfer(manager_cap, ADMIN);
+        transfer::public_transfer(lm_cap, ADMIN);
     };
 
     scenario.end();
@@ -563,7 +815,7 @@ fun test_nav_changes() {
 
     // Apply fees
     let fee_agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    vault.accrue_fees_for_testing(&fee_agg, &clock);
+    vault.accrue_fees_for_testing(&fee_agg, &lending_market, &clock);
 
     // Total shares should have increased due to fee shares being minted
     let new_total_shares = vault.total_supply();
