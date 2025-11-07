@@ -49,6 +49,9 @@ const EUnclaimedRewards: vector<u8> = b"All rewards must be claimed before crank
 const EUnwindNotNeeded: vector<u8> = b"Enough liquidity exists to redeem shares";
 #[error]
 const EIncorrectOrder: vector<u8> = b"LendingMarket processed out of order";
+#[error]
+const EInsufficientLiquidityForUnwind: vector<u8> =
+    b"Enough liquidity to redeem shares was not found";
 //#[error]
 //const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 
@@ -1661,6 +1664,8 @@ fun calculate_unwind_plan(
 
         i = i + 1;
     };
+
+    assert!(remaining_shortfall.eq(decimal::from(0)), EInsufficientLiquidityForUnwind);
 
     unwind_map
 }
