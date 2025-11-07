@@ -1443,33 +1443,6 @@ public fun calculate_nav_per_share<V, T>(vault: &Vault<V, T>, agg: &VaultValueAg
     }
 }
 
-/// Get all obligation IDs for a specific lending market
-public fun get_obligation_ids_for_market<V, T, L>(vault: &Vault<V, T>): vector<ID> {
-    let lending_market_type = type_name::with_defining_ids<L>();
-    if (vault.obligations.contains(&lending_market_type)) {
-        let obligations = vault.obligations.get(&lending_market_type);
-        obligations.map_ref!(|obl| obl.obligation_id)
-    } else {
-        vector::empty()
-    }
-}
-
-/// Get obligation count for a specific lending market
-public fun get_obligation_count_for_market<V, T, L>(vault: &Vault<V, T>): u64 {
-    let lending_market_type = type_name::with_defining_ids<L>();
-    if (vault.obligations.contains(&lending_market_type)) {
-        let obligations = vault.obligations.get(&lending_market_type);
-        obligations.length()
-    } else {
-        0
-    }
-}
-
-/// Get all lending market types that have obligations
-public fun get_lending_market_types<V, T>(vault: &Vault<V, T>): vector<TypeName> {
-    vault.obligations.keys()
-}
-
 /// Total supply of shares
 public fun total_supply<V, T>(vault: &Vault<V, T>): u64 {
     vault.treasury_cap.total_supply()
