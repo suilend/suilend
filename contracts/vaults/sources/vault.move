@@ -820,6 +820,11 @@ public fun process_unwinds_for_lending_market<V, T, L>(
     assert!(acc.vault_id == object::id(vault), EVaultMismatch);
 
     let lending_market_type = type_name::with_defining_ids<L>();
+
+    if (!acc.pending_unwinds.contains(&lending_market_type)) {
+        return
+    };
+
     let reserve_index = lending_market.reserve_array_index<_, T>();
 
     let unwind_targets = {
