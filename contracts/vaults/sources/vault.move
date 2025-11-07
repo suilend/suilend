@@ -1418,8 +1418,7 @@ public fun calculate_utilization_rate(agg: &VaultValueAggregate): u64 {
         agg.total_obligation_value_usd,
     );
 
-    if (decimal::eq(total_vault_value, decimal::from(0))) {
-        // TODO: should panic?
+    if (total_vault_value.eq(decimal::from(0))) {
         return 0
     };
 
@@ -1818,7 +1817,6 @@ fun get_obligation_cap<V, T, L>(
     index: u64,
 ): &ObligationOwnerCap<L> {
     assert!(&type_name::with_defining_ids<L>() == lending_market_type);
-    // TODO: access checks + error codes
     let obligations = vault.obligations.get(lending_market_type);
     let obl = obligations.borrow(index);
     obl.obligation_cap.borrow(OBLIGATION_CAP_BAG_KEY)
