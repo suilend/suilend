@@ -1105,6 +1105,8 @@ public fun finalize_vault_crank<V, T, L>(
 
     vault.accrue_all_fees(&agg, lending_market, clock);
 
+    vault.emit_stats_event(&agg);
+
     agg.destroy_vault_value_aggregate();
 
     vault.last_cranked_ms = clock.timestamp_ms();
