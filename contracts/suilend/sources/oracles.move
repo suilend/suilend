@@ -135,9 +135,9 @@ module suilend::oracles {
             &price_info_object,
             &clock,
         );
-        assert!(spot_price == option::some(decimal::from(800_000)), 0);
-        assert!(ema_price == decimal::from_bps(8), 0);
-        assert!(price_identifier == example_price_identifier(), 0);
+        assert!(spot_price == option::some(decimal::from(800_000)));
+        assert!(ema_price == decimal::from_bps(8));
+        assert!(price_identifier == example_price_identifier());
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);
@@ -180,9 +180,9 @@ module suilend::oracles {
         );
 
         // condience interval higher than 10% of the price
-        assert!(spot_price == option::none(), 0);
-        assert!(ema_price == decimal::from_bps(8), 0);
-        assert!(price_identifier == example_price_identifier(), 0);
+        assert!(spot_price == option::none());
+        assert!(ema_price == decimal::from_bps(8));
+        assert!(price_identifier == example_price_identifier());
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);
@@ -225,9 +225,9 @@ module suilend::oracles {
             &clock,
         );
 
-        assert!(spot_price == option::none(), 0);
-        assert!(ema_price == decimal::from_bps(8), 0);
-        assert!(price_identifier == example_price_identifier(), 0);
+        assert!(spot_price == option::none());
+        assert!(ema_price == decimal::from_bps(8));
+        assert!(price_identifier == example_price_identifier());
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);

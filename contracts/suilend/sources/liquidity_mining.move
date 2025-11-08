@@ -155,7 +155,7 @@ module suilend::liquidity_mining {
         let pool_reward = PoolReward {
             id: object::new(ctx),
             pool_reward_manager_id: object::id(pool_reward_manager),
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             start_time_ms,
             end_time_ms,
             total_rewards: balance::value(&rewards),
@@ -516,7 +516,7 @@ module suilend::liquidity_mining {
         let pool_reward = option::borrow_mut(
             vector::borrow_mut(&mut pool_reward_manager.pool_rewards, reward_index),
         );
-        assert!(pool_reward.coin_type == type_name::get<T>(), EInvalidType);
+        assert!(pool_reward.coin_type == type_name::with_defining_ids<T>(), EInvalidType);
 
         let optional_reward = vector::borrow_mut(&mut user_reward_manager.rewards, reward_index);
         let reward = option::borrow_mut(optional_reward);
@@ -675,7 +675,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 25 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
 
@@ -695,7 +695,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 5 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 5 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
         {
@@ -705,7 +705,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 20 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 20 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
 
@@ -730,7 +730,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 25 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
         {
@@ -740,7 +740,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 25 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
 
@@ -801,7 +801,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 87_500_000, 0);
+            assert!(balance::value(&usdc) == 87_500_000);
             sui::test_utils::destroy(usdc);
         };
         {
@@ -811,7 +811,7 @@ module suilend::liquidity_mining {
                 &clock,
                 1,
             );
-            assert!(balance::value(&sui) == 75 * 1_000_000, 0);
+            assert!(balance::value(&sui) == 75 * 1_000_000);
             sui::test_utils::destroy(sui);
         };
 
@@ -822,7 +822,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 12_500_000, 0);
+            assert!(balance::value(&usdc) == 12_500_000);
             sui::test_utils::destroy(usdc);
         };
         {
@@ -832,7 +832,7 @@ module suilend::liquidity_mining {
                 &clock,
                 1,
             );
-            assert!(balance::value(&sui) == 25 * 1_000_000, 0);
+            assert!(balance::value(&sui) == 25 * 1_000_000);
             sui::test_utils::destroy(sui);
         };
 
@@ -869,7 +869,7 @@ module suilend::liquidity_mining {
         clock::set_for_testing(&mut clock, 10 * MILLISECONDS_IN_DAY);
 
         let unallocated_rewards = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
-        assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000, 0);
+        assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000);
 
         clock::set_for_testing(&mut clock, 15 * MILLISECONDS_IN_DAY);
         let user_reward_manager_rewards = claim_rewards<USDC>(
@@ -878,10 +878,10 @@ module suilend::liquidity_mining {
             &clock,
             0,
         );
-        assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000, 0);
+        assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000);
 
         let dust_rewards = close_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
-        assert!(balance::value(&dust_rewards) == 0, 0);
+        assert!(balance::value(&dust_rewards) == 0);
 
         sui::test_utils::destroy(unallocated_rewards);
         sui::test_utils::destroy(user_reward_manager_rewards);
@@ -925,7 +925,7 @@ module suilend::liquidity_mining {
                 0,
             );
             // 50 usdc is unallocated since there was zero share from 0-10 seconds
-            assert!(balance::value(&usdc) == 50 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 50 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
 
@@ -976,7 +976,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 75 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 75 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
         change_user_reward_manager_share(
@@ -992,7 +992,7 @@ module suilend::liquidity_mining {
                 &clock,
                 0,
             );
-            assert!(balance::value(&usdc) == 25 * 1_000_000, 0);
+            assert!(balance::value(&usdc) == 25 * 1_000_000);
             sui::test_utils::destroy(usdc);
         };
 
@@ -1073,7 +1073,7 @@ module suilend::liquidity_mining {
         clock::set_for_testing(&mut clock, 10 * MILLISECONDS_IN_DAY);
 
         let unallocated_rewards = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
-        assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000, 0);
+        assert!(balance::value(&unallocated_rewards) == 50 * 1_000_000);
 
         clock::set_for_testing(&mut clock, 15 * MILLISECONDS_IN_DAY);
         let user_reward_manager_rewards = claim_rewards<USDC>(
@@ -1082,10 +1082,10 @@ module suilend::liquidity_mining {
             &clock,
             0,
         );
-        assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000, 0);
+        assert!(balance::value(&user_reward_manager_rewards) == 50 * 1_000_000);
 
         let dust_rewards = close_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
-        assert!(balance::value(&dust_rewards) == 0, 0);
+        assert!(balance::value(&dust_rewards) == 0);
 
         clock::set_for_testing(&mut clock, 20 * MILLISECONDS_IN_DAY);
 
@@ -1106,7 +1106,7 @@ module suilend::liquidity_mining {
         );
         // std::debug::print(&balance::value(&user_reward_manager_rewards_2));
 
-        assert!(balance::value(&user_reward_manager_rewards_2) == 50 * 1_000_000, 0);
+        assert!(balance::value(&user_reward_manager_rewards_2) == 50 * 1_000_000);
 
         sui::test_utils::destroy(unallocated_rewards);
         sui::test_utils::destroy(user_reward_manager_rewards);
