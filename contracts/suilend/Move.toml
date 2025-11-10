@@ -1,7 +1,7 @@
 [package]
 name = "suilend"
 version = "0.0.1"
-published-at = "0xdf6df8a1e16c58b66d5c432cc6a5a8981c9982f111723ec0894d152be57b3e7e"
+published-at = "0x34171e8092d831c1cb71d70b04389f9a0fec8af56f69e760b58d613d764c6945"
 edition = "2024.beta"
  
 [dependencies.Pyth]
