@@ -640,10 +640,10 @@ fun test_fee_limits() {
     let manager_cap = vault::create_vault<_, TEST_COIN>(
         t_cap,
         &curr,
-        1000, // 10% management fee (at limit)
+        500, // 5% management fee (at limit)
         5000, // 50% performance fee (at limit)
-        1000, // 10% deposit fee (at limit)
-        1000, // 10% withdrawal fee (at limit)
+        500, // 5% deposit fee (at limit)
+        500, // 5% withdrawal fee (at limit)
         SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
