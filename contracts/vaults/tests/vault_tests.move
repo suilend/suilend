@@ -817,10 +817,15 @@ fun test_nav_changes() {
         prices.get_price_obj<TEST_COIN>(),
     );
 
-    // Apply fees
-    let fee_agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    vault.accrue_fees_for_testing(&fee_agg, &lending_market, &clock);
-    vault::destroy_vault_value_aggregate_for_testing(fee_agg, &mut vault);
+    // Crank to apply fees
+    {
+        let crank_acc = vault.create_vault_crank_accumulator(&clock);
+        vault.finalize_vault_crank(
+            crank_acc,
+            &lending_market,
+            &clock,
+        );
+    };
 
     // Total shares should have increased due to fee shares being minted
     let new_total_shares = vault.total_supply();

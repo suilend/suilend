@@ -1457,16 +1457,6 @@ public fun destroy_vault_value_aggregate_for_testing<V, T>(
 }
 
 #[test_only]
-public fun accrue_fees_for_testing<V, T, L>(
-    vault: &mut Vault<V, T>,
-    agg: &VaultValueAggregate<V>,
-    lending_market: &LendingMarket<L>,
-    clock: &Clock,
-) {
-    accrue_all_fees(vault, agg, lending_market, clock)
-}
-
-#[test_only]
 public fun get_obligation_cap_for_testing<V, T, L>(
     vault: &Vault<V, T>,
     lending_market_type: &TypeName,
