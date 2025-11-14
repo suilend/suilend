@@ -11,7 +11,7 @@ use sui::{
     test_utils
 };
 use suilend::{decimal, lending_market::{Self, LendingMarket}, mock_pyth, reserve_config};
-use vaults::vault::{Self, Vault, VaultManagerCap};
+use vaults::{utils, vault::{Self, Vault, VaultManagerCap}};
 
 public struct TEST_COIN has drop {}
 public struct TEST_LENDING_MARKET has drop {}
@@ -364,10 +364,10 @@ fun test_fees_collected() {
         &lending_market,
         &clock,
     );
-    let liquid_before = vault::get_aggregate_liquid_value_for_testing(&agg_before_rewards);
-    let obligation_before = vault::get_aggregate_obligation_value_for_testing(&agg_before_rewards);
+    let liquid_before = agg_before_rewards.liquid_asset_value_usd();
+    let obligation_before = agg_before_rewards.total_obligation_value_usd();
     let total_value_before_rewards = liquid_before.add(obligation_before);
-    test_utils::destroy(agg_before_rewards);
+    vault::destroy_vault_value_aggregate_for_testing(agg_before_rewards, &mut vault);
 
     // Advance time to accrue rewards
     clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days
@@ -395,10 +395,10 @@ fun test_fees_collected() {
 
     // Get vault value after rewards to verify alpha was generated
     let agg_after_rewards = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    let liquid_after = vault::get_aggregate_liquid_value_for_testing(&agg_after_rewards);
-    let obligation_after = vault::get_aggregate_obligation_value_for_testing(&agg_after_rewards);
+    let liquid_after = agg_after_rewards.liquid_asset_value_usd();
+    let obligation_after = agg_after_rewards.total_obligation_value_usd();
     let total_value_after_rewards = liquid_after.add(obligation_after);
-    test_utils::destroy(agg_after_rewards);
+    vault::destroy_vault_value_aggregate_for_testing(agg_after_rewards, &mut vault);
 
     // Vault value should have increased by rewards amount (in USD at $2 per token)
     // 150k tokens * $2 = $300k increase
@@ -801,6 +801,7 @@ fun test_nav_changes() {
     let initial_agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let initial_nav = vault.calculate_nav_per_share(&initial_agg).floor();
     assert!(initial_nav == NAV_PRECISION as u64);
+    vault::destroy_vault_value_aggregate_for_testing(initial_agg, &mut vault);
 
     // Record initial total shares
     let initial_total_shares = vault.total_supply();
@@ -819,6 +820,7 @@ fun test_nav_changes() {
     // Apply fees
     let fee_agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     vault.accrue_fees_for_testing(&fee_agg, &lending_market, &clock);
+    vault::destroy_vault_value_aggregate_for_testing(fee_agg, &mut vault);
 
     // Total shares should have increased due to fee shares being minted
     let new_total_shares = vault.total_supply();
@@ -834,8 +836,6 @@ fun test_nav_changes() {
     {
         test_utils::destroy(prices);
         test_utils::destroy(agg);
-        test_utils::destroy(fee_agg);
-        test_utils::destroy(initial_agg);
         coin::burn_for_testing(shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
@@ -1196,6 +1196,7 @@ fun test_share_precision() {
     let agg_after_first = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let nav_after_first = vault.calculate_nav_per_share(&agg_after_first).floor();
     assert!(nav_after_first == NAV_PRECISION as u64);
+    vault::destroy_vault_value_aggregate_for_testing(agg_after_first, &mut vault);
 
     // === Second deposit (95.5 tokens) ===
     scenario.next_tx(USER2);
@@ -1234,6 +1235,7 @@ fun test_share_precision() {
 
     let agg_final = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let nav_final = vault.calculate_nav_per_share(&agg_final).floor();
+    vault::destroy_vault_value_aggregate_for_testing(agg_final, &mut vault);
 
     // NAV should remain at 1.0
     assert!(nav_final == NAV_PRECISION as u64);
@@ -1263,8 +1265,6 @@ fun test_share_precision() {
 
     {
         test_utils::destroy(prices);
-        test_utils::destroy(agg_final);
-        test_utils::destroy(agg_after_first);
         coin::burn_for_testing(small_shares);
         coin::burn_for_testing(large_shares);
         coin::burn_for_testing(withdrawn);
@@ -1845,20 +1845,18 @@ fun test_token_usd_conversion_roundtrip() {
 
     test_amounts.do!(|token_amount| {
         // Convert token -> USD
-        let usd_value = vault::get_usd_value_for_token_amount_for_testing<
-            TEST_LENDING_MARKET,
-            TEST_COIN,
-        >(
-            &lending_market,
+        let usd_value = utils::token_amount_to_usd<TEST_LENDING_MARKET, TEST_COIN>(
             token_amount,
+            &lending_market,
             &clock,
         );
 
         // Convert USD -> token
-        let recovered_token_amount = vault::get_token_amount_from_usd_for_testing<
-            TEST_LENDING_MARKET,
-            TEST_COIN,
-        >(&lending_market, usd_value, &clock);
+        let recovered_token_amount = utils::usd_to_token_amount<TEST_LENDING_MARKET, TEST_COIN>(
+            usd_value,
+            &lending_market,
+            &clock,
+        );
 
         assert!(decimal::from(token_amount).eq(recovered_token_amount));
 
@@ -1875,41 +1873,32 @@ fun test_token_usd_conversion_roundtrip() {
     ];
 
     fractional_amounts.do!(|token_amount| {
-        let usd_value = vault::get_usd_value_for_token_amount_for_testing<
-            TEST_LENDING_MARKET,
-            TEST_COIN,
-        >(
-            &lending_market,
+        let usd_value = utils::token_amount_to_usd<TEST_LENDING_MARKET, TEST_COIN>(
             token_amount,
+            &lending_market,
             &clock,
         );
 
-        let recovered_token_amount_decimal = vault::get_token_amount_from_usd_for_testing<
+        let recovered_token_amount_decimal = utils::usd_to_token_amount<
             TEST_LENDING_MARKET,
             TEST_COIN,
-        >(&lending_market, usd_value, &clock);
+        >(usd_value, &lending_market, &clock);
 
         let original_as_decimal = decimal::from(token_amount);
         assert!(recovered_token_amount_decimal.eq(original_as_decimal));
     });
 
     {
-        let zero_usd = vault::get_usd_value_for_token_amount_for_testing<
-            TEST_LENDING_MARKET,
-            TEST_COIN,
-        >(
-            &lending_market,
+        let zero_usd = utils::token_amount_to_usd<TEST_LENDING_MARKET, TEST_COIN>(
             0,
+            &lending_market,
             &clock,
         );
         assert!(zero_usd.eq(decimal::from(0)));
 
-        let zero_tokens = vault::get_token_amount_from_usd_for_testing<
-            TEST_LENDING_MARKET,
-            TEST_COIN,
-        >(
-            &lending_market,
+        let zero_tokens = utils::usd_to_token_amount<TEST_LENDING_MARKET, TEST_COIN>(
             decimal::from(0),
+            &lending_market,
             &clock,
         );
         assert!(zero_tokens.eq(decimal::from(0)));
