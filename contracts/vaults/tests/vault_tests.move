@@ -103,10 +103,10 @@ fun create_vault_shares(
     let (builder, treasury_cap) = coin_registry::new_currency_with_otw(
         VAULT_TESTS {},
         6,
-        b"VSHARES".to_string(),
-        b"Vault Shares".to_string(),
-        b"Vault Shares".to_string(),
-        b"https://example.com/template.png".to_string(),
+        b"vSHARES".to_string(),
+        b"Suilend Vault Shares".to_string(),
+        b"Suilend Vault Shares".to_string(),
+        b"".to_string(),
         ctx,
     );
     let (mut curr, metadata_cap) = builder.finalize_unwrap_for_testing(ctx);

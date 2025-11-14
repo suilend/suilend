@@ -72,8 +72,8 @@ const MIN_REWARDS_STALENESS_MS: u64 = 60_000; // 1 min in ms
 const SECONDS_PER_YEAR: u64 = 31_536_000;
 
 const VAULT_SHARE_DECIMALS: u8 = 6;
-const VAULT_SHARE_SYMBOL: vector<u8> = b"VSHARES";
-const VAULT_SHARE_NAME: vector<u8> = b"Vault Shares";
+const VAULT_SHARE_SYMBOL: vector<u8> = b"vSHARES";
+const VAULT_SHARE_NAME: vector<u8> = b"Suilend Vault Shares";
 
 // === Structs ===
 
