@@ -733,7 +733,7 @@ fun test_allocate_and_divest() {
     scenario.next_tx(ADMIN);
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    vault.withdraw_deployed_funds(
+    vault.divest_funds(
         &manager_cap,
         &mut lending_market,
         obligation_index,

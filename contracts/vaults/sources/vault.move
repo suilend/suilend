@@ -256,23 +256,25 @@ public fun create_vault<V, T>(
 public fun deploy_funds<V, T, L>(
     vault: &mut Vault<V, T>,
     _: &VaultManagerCap<V>,
-    lending_market: &mut LendingMarket<L>, // Must contain reserve for T (price source)
+    // LendingMarket to deploy funds to
+    // Must contain reserve for T (deploy target + price source)
+    lending_market: &mut LendingMarket<L>,
     obligation_index: u64,
-    amount: u64,
+    deploy_amount: u64,
     clock: &Clock,
     mut agg: VaultValueAggregate<V>,
     ctx: &mut TxContext,
 ): u64 {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
     vault.assert_vault_state_fresh<V, T>(clock);
-    assert!(amount > 0, EInvalidDeposit);
+    assert!(deploy_amount > 0, EInvalidDeposit);
 
     // Check if vault has sufficient liquid assets
     let available_amount = vault.deposit_asset.value();
-    assert!(available_amount >= amount, EInsufficientLiquidity);
+    assert!(available_amount >= deploy_amount, EInsufficientLiquidity);
 
     // Split funds from vault's deposit asset
-    let deploy_balance = vault.deposit_asset.split(amount);
+    let deploy_balance = vault.deposit_asset.split(deploy_amount);
     let deploy_coin = coin::from_balance(deploy_balance, ctx);
 
     // Get reserve index for the asset type T
@@ -306,7 +308,7 @@ public fun deploy_funds<V, T, L>(
         reserve_index: reserve_array_index,
         obligation_index,
         user: ctx.sender(),
-        deposit_amount: amount,
+        deposit_amount: deploy_amount,
         timestamp_ms: clock.timestamp_ms(),
     });
 
@@ -324,10 +326,12 @@ public fun deploy_funds<V, T, L>(
 }
 
 /// Withdraw funds from lending market obligation back to vault
-public fun withdraw_deployed_funds<V, T, L>(
+public fun divest_funds<V, T, L>(
     vault: &mut Vault<V, T>,
     _: &VaultManagerCap<V>,
-    lending_market: &mut LendingMarket<L>, // Must contain reserve for T (price source)
+    // LendingMarket to withdraw funds from
+    // Must contain reserve for T (withdraw target + price source)
+    lending_market: &mut LendingMarket<L>,
     obligation_index: u64,
     ctoken_amount: u64,
     clock: &Clock,
@@ -410,6 +414,7 @@ public fun claim_manager_fees<V, T>(
 public fun create_obligation<V, T, L>(
     vault: &mut Vault<V, T>,
     _: &VaultManagerCap<V>,
+    // LendingMarket to create new obligation for
     lending_market: &mut LendingMarket<L>,
     ctx: &mut TxContext,
 ) {
@@ -640,7 +645,7 @@ public fun withdraw<V, T, L>(
 public fun withdraw_with_unwind<V, T, L>(
     vault: &mut Vault<V, T>,
     acc: VaultUnwindAccumulator<V>,
-    lending_market: &LendingMarket<L>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
     ctx: &mut TxContext,
 ): Coin<T> {
@@ -661,6 +666,7 @@ public fun withdraw_with_unwind<V, T, L>(
 /// Permissionless
 public fun compound_rewards<V, T, L>(
     vault: &Vault<V, T>,
+    // LendingMarket to claim rewards from
     lending_market: &mut LendingMarket<L>,
     obligation_index: u64,
     reward_reserve_index: u64,
@@ -777,7 +783,8 @@ public fun compound_rewards_with_swap<V, T, L, RewardType, LpType: drop>(
 public fun withdraw_rewards_for_swap<V, T, L, RewardType>(
     vault: &Vault<V, T>,
     _: &VaultManagerCap<V>,
-    lending_market: &mut LendingMarket<L>, // market to claim rewards from
+    // LendingMarket to claim rewards from
+    lending_market: &mut LendingMarket<L>,
     obligation_index: u64,
     reward_reserve_index: u64,
     reward_index: u64,
