@@ -202,6 +202,7 @@ public fun create_vault<V, T>(
         EInvalidShareCurrency,
     );
     assert!(vault_share_currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), EInvalidShareCurrency);
+    assert!(vault_share_currency.icon_url().is_empty(), EInvalidShareCurrency);
     assert!(vault_share_treasury_cap.total_supply() == 0, EInvalidShareCurrency);
 
     assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EFeeLimitExceeded);
