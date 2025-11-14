@@ -660,7 +660,7 @@ fun test_fee_limits() {
 }
 
 #[test]
-#[expected_failure(abort_code = vault::EInvalidManagementFeeBps)]
+#[expected_failure(abort_code = vault::EFeeLimitExceeded)]
 fun test_excessive_fee_failure() {
     let (_prices, mut scenario) = init_vault_scenario();
 

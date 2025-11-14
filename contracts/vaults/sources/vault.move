@@ -28,13 +28,7 @@ use vaults::{
 // === Errors ===
 
 #[error]
-const EInvalidDepositFeeBps: vector<u8> = b"MAX_DEPOSIT_FEE_BPS exceeded";
-#[error]
-const EInvalidWithdrawalFeeBps: vector<u8> = b"MAX_WITHDRAWAL_FEE_BPS exceeded";
-#[error]
-const EInvalidPerformanceFeeBps: vector<u8> = b"MAX_PERFORMANCE_FEE_BPS exceeded";
-#[error]
-const EInvalidManagementFeeBps: vector<u8> = b"MAX_MANAGEMENT_FEE_BPS exceeded";
+const EFeeLimitExceeded: vector<u8> = b"Fee setting provided exceeeds limit";
 #[error]
 const EInvalidDeposit: vector<u8> = b"Invalid deposit amount";
 #[error]
@@ -210,10 +204,10 @@ public fun create_vault<V, T>(
     assert!(vault_share_currency.symbol() == VAULT_SHARE_SYMBOL.to_string(), EInvalidShareCurrency);
     assert!(vault_share_treasury_cap.total_supply() == 0, EInvalidShareCurrency);
 
-    assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EInvalidManagementFeeBps);
-    assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EInvalidPerformanceFeeBps);
-    assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EInvalidDepositFeeBps);
-    assert!(withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS, EInvalidWithdrawalFeeBps);
+    assert!(management_fee_bps <= MAX_MANAGEMENT_FEE_BPS, EFeeLimitExceeded);
+    assert!(performance_fee_bps <= MAX_PERFORMANCE_FEE_BPS, EFeeLimitExceeded);
+    assert!(deposit_fee_bps <= MAX_DEPOSIT_FEE_BPS, EFeeLimitExceeded);
+    assert!(withdrawal_fee_bps <= MAX_WITHDRAWAL_FEE_BPS, EFeeLimitExceeded);
 
     let vault_id = object::new(ctx);
 
