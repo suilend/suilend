@@ -53,6 +53,8 @@ const EUnwindNotNeeded: vector<u8> = b"Enough liquidity exists to redeem shares"
 const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been burned";
 #[error]
 const EAccumulationInProgress: vector<u8> = b"AccumulatorCap must be returned";
+#[error]
+const ERecentCrank: vector<u8> = b"Vault was cranked recently";
 
 // === Constants ===
 
@@ -66,6 +68,7 @@ const MIN_DEPOSIT_USD_SCALED: u256 = 100_000_000_000_000_000; // Minimum deposit
 const BASIS_POINTS: u64 = 10000; // 100%
 const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
 const MAX_REWARDS_STALENESS_MS: u64 = 3_600_000; // 1 hour in ms
+const MIN_REWARDS_STALENESS_MS: u64 = 60_000; // 1 min in ms
 const SECONDS_PER_YEAR: u64 = 31_536_000;
 
 const VAULT_SHARE_DECIMALS: u8 = 6;
@@ -838,8 +841,16 @@ public fun create_vault_value_accumulator<V, T>(vault: &mut Vault<V, T>): VaultV
 
 /// Create a vault crank accumulator for processing all lending markets
 /// Tracks all LMs and obligations that need to be processed by process_lending_market_for_crank()
-public fun create_vault_crank_accumulator<V, T>(vault: &mut Vault<V, T>): VaultCrankAccumulator<V> {
+public fun create_vault_crank_accumulator<V, T>(
+    vault: &mut Vault<V, T>,
+    clock: &Clock,
+): VaultCrankAccumulator<V> {
     vault.version.assert_version(CURRENT_VERSION);
+
+    assert!(
+        clock.timestamp_ms() >= (vault.last_cranked_ms + MIN_REWARDS_STALENESS_MS),
+        ERecentCrank,
+    );
 
     let obligation_ids = vault.extract_obligation_ids();
 

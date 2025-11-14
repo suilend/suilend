@@ -256,7 +256,7 @@ fun test_fees_collected() {
 
     // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
     scenario.next_tx(ADMIN);
-    let mut crank_acc = vault.create_vault_crank_accumulator();
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -299,7 +299,7 @@ fun test_fees_collected() {
     let manager_fees_before_round2 = vault.get_manager_fees_for_testing();
 
     // Crank again - should only get management fees, NOT performance fees
-    let mut crank_acc = vault.create_vault_crank_accumulator();
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -425,7 +425,7 @@ fun test_fees_collected() {
 
     // Crank - now should get BOTH management and performance fees
     scenario.next_tx(ADMIN);
-    let mut crank_acc = vault.create_vault_crank_accumulator();
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -1614,7 +1614,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         );
     };
 
-    let mut crank_acc = vault.create_vault_crank_accumulator();
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
 
     crank_acc.process_lending_market_for_crank(&lending_market);
 
