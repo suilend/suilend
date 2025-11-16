@@ -11,7 +11,11 @@ use sui::{
     event,
     vec_map
 };
-use suilend::{decimal::{Self, Decimal}, lending_market::{ObligationOwnerCap, LendingMarket}};
+use suilend::{
+    decimal::{Self, Decimal},
+    lending_market::{ObligationOwnerCap, LendingMarket},
+    suilend::MAIN_POOL
+};
 use vaults::{
     accumulator::{
         Self,
@@ -49,6 +53,14 @@ const EMetadataCapExists: vector<u8> = b"Vault currency MetadataCap hasn't been 
 const EAccumulationInProgress: vector<u8> = b"AccumulatorCap must be returned";
 #[error]
 const ERecentCrank: vector<u8> = b"Vault was cranked recently";
+#[error]
+const EMissingReserve: vector<u8> =
+    b"A Reserve for specified TypeName is not present in the LendingMarket";
+#[error]
+const EInsufficientRewardSwap: vector<u8> =
+    b"An insufficent amount of base token was returned for swapped reward";
+#[error]
+const EReserveExists: vector<u8> = b"A reserve exists for this type, so oracle swap must be used";
 
 // === Constants ===
 
@@ -99,7 +111,11 @@ public struct VaultManagerCap<phantom V> has key, store {
 
 public struct ObligationCapKey has copy, drop, store {}
 
-public struct SwapTicket<phantom T> {}
+// Accompanies a withdrawn reward and optionally validates swapped amount
+public struct SwapTicket<phantom V, phantom T> { min_amount_out: option::Option<u64> }
+
+// Can be converted to a SwapTicket after oracle presence is checked
+public struct RewardWithdrawTicket<phantom V, phantom T, phantom R> { reward: Balance<R> }
 
 public struct ObligationData has store {
     // bag.ObligationCapKey = lending_market::ObligationOwnerCap<L>
@@ -278,7 +294,7 @@ public fun deploy_funds<V, T, L>(
     let deploy_coin = coin::from_balance(deploy_balance, ctx);
 
     // Get reserve index for the asset type T
-    let reserve_array_index = lending_market.reserve_array_index<_, T>();
+    let reserve_array_index = extract_reserve_array_index<T, _>(lending_market);
 
     // Deposit liquidity and mint cTokens
     let ctokens = lending_market.deposit_liquidity_and_mint_ctokens<L, T>(
@@ -346,7 +362,7 @@ public fun divest_funds<V, T, L>(
     let obligation_cap = vault.get_obligation_cap(&lm_type, obligation_index);
 
     // Get reserve index for the asset type T
-    let reserve_array_index = lending_market.reserve_array_index<_, T>();
+    let reserve_array_index = extract_reserve_array_index<T, _>(lending_market);
 
     // Withdraw cTokens from obligation
     let ctokens = lending_market.withdraw_ctokens<L, T>(
@@ -700,7 +716,7 @@ public fun compound_rewards<V, T, L>(
 /// Permissionless
 public fun compound_rewards_with_swap<V, T, L, RewardType, LpType: drop>(
     vault: &mut Vault<V, T>,
-    lending_market: &mut LendingMarket<L>, // Must contain reserves for R + T (price sources)
+    lending_market: &mut LendingMarket<L>, // Must contain reserves for RewardType + T (price sources)
     swap_pool: &mut Pool<RewardType, T, CpQuoter, LpType>,
     obligation_index: u64,
     reward_reserve_index: u64,
@@ -736,11 +752,11 @@ public fun compound_rewards_with_swap<V, T, L, RewardType, LpType: drop>(
         return
     };
 
-    let reward_reserve = lending_market.reserve<_, RewardType>();
-    let deposit_reserve = lending_market.reserve<_, T>();
-
-    // Calculate min_amount_out using slippage_bps and reserve prices for R + T
+    // Calculate min_amount_out using slippage_bps and reserve prices for RewardType + T
     let min_amount_out = {
+        let reward_reserve = lending_market.reserve<_, RewardType>();
+        let deposit_reserve = lending_market.reserve<_, T>();
+
         deposit_reserve.assert_price_is_fresh(clock);
         reward_reserve.assert_price_is_fresh(clock);
 
@@ -780,10 +796,9 @@ public fun compound_rewards_with_swap<V, T, L, RewardType, LpType: drop>(
     vault.deposit_asset.join(t_coin.into_balance());
 }
 
-public fun withdraw_rewards_for_swap<V, T, L, RewardType>(
+public fun withdraw_reward<V, T, L, RewardType>(
     vault: &Vault<V, T>,
-    _: &VaultManagerCap<V>,
-    // LendingMarket to claim rewards from
+    // LendingMarket to claim reward from
     lending_market: &mut LendingMarket<L>,
     obligation_index: u64,
     reward_reserve_index: u64,
@@ -791,7 +806,7 @@ public fun withdraw_rewards_for_swap<V, T, L, RewardType>(
     is_deposit_reward: bool,
     clock: &Clock,
     ctx: &mut TxContext,
-): (SwapTicket<T>, coin::Coin<RewardType>) {
+): RewardWithdrawTicket<V, T, RewardType> {
     vault.version.assert_version(CURRENT_VERSION);
 
     // Ensure reward is not base token
@@ -812,19 +827,78 @@ public fun withdraw_rewards_for_swap<V, T, L, RewardType>(
         ctx,
     );
 
-    (SwapTicket {}, reward_coin)
+    RewardWithdrawTicket { reward: reward_coin.into_balance() }
+}
+
+public fun swap_reward_for_base_token_w_oracle<V, T, RewardType>(
+    vault: &Vault<V, T>,
+    ticket: RewardWithdrawTicket<V, T, RewardType>,
+    main_lending_market: &LendingMarket<MAIN_POOL>, // Must contain reserves for RewardType + T (price sources)
+    clock: &Clock,
+    ctx: &mut TxContext,
+): (SwapTicket<V, T>, coin::Coin<RewardType>) {
+    vault.version.assert_version(CURRENT_VERSION);
+
+    let RewardWithdrawTicket { reward } = ticket;
+
+    // Calculate min_amount_out using slippage_bps and reserve prices for RewardType + T
+    let reward_reserve = main_lending_market.reserve<_, RewardType>();
+    let deposit_reserve = main_lending_market.reserve<_, T>();
+
+    deposit_reserve.assert_price_is_fresh(clock);
+    reward_reserve.assert_price_is_fresh(clock);
+
+    let reward_usd_value = reward_reserve.market_value(decimal::from(reward.value()));
+
+    let expected_base_token_amount = deposit_reserve.usd_to_token_amount(
+        reward_usd_value,
+    );
+
+    // Apply slippage: min_amount_out = expected_amount * (1 - slippage_bps / BASIS_POINTS)
+    let min_amount_out = expected_base_token_amount
+        .mul(decimal::from(BASIS_POINTS)
+            .sub(
+                decimal::from(vault.slippage_bps),
+            )
+            .div(decimal::from(BASIS_POINTS)))
+        .floor();
+
+    (
+        SwapTicket<V, T> { min_amount_out: option::some(min_amount_out) },
+        coin::from_balance(reward, ctx),
+    )
+}
+
+public fun swap_reward_for_base_token_unchecked<V, T, RewardType>(
+    _: &VaultManagerCap<V>,
+    ticket: RewardWithdrawTicket<V, T, RewardType>,
+    main_lending_market: &LendingMarket<MAIN_POOL>,
+    ctx: &mut TxContext,
+): (SwapTicket<V, T>, coin::Coin<RewardType>) {
+    let RewardWithdrawTicket { reward } = ticket;
+
+    // Ensure no main pool reserve/oracle exists for the reward token
+    {
+        let main_pool_reserve = get_reserve_array_index<RewardType, _>(main_lending_market);
+        assert!(main_pool_reserve.is_none(), EReserveExists);
+    };
+
+    (SwapTicket<V, T> { min_amount_out: option::none() }, coin::from_balance(reward, ctx))
 }
 
 public fun deposit_swapped_rewards<V, T>(
     vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
-    swap_cap: SwapTicket<T>,
+    swap_cap: SwapTicket<V, T>,
     deposit: coin::Coin<T>,
     _ctx: &mut TxContext,
 ) {
     vault.version.assert_version(CURRENT_VERSION);
 
-    let SwapTicket {} = swap_cap;
+    let SwapTicket { mut min_amount_out } = swap_cap;
+
+    if (min_amount_out.is_some()) {
+        assert!(deposit.value() >= min_amount_out.extract(), EInsufficientRewardSwap);
+    };
 
     vault.deposit_asset.join(deposit.into_balance());
 }
@@ -845,6 +919,7 @@ public fun create_vault_value_accumulator<V, T>(vault: &mut Vault<V, T>): VaultV
 /// Tracks all LMs and obligations that need to be processed by process_lending_market_for_crank()
 public fun create_vault_crank_accumulator<V, T>(
     vault: &mut Vault<V, T>,
+    main_lending_market: &LendingMarket<MAIN_POOL>,
     clock: &Clock,
 ): VaultCrankAccumulator<V> {
     vault.version.assert_version(CURRENT_VERSION);
@@ -859,7 +934,7 @@ public fun create_vault_crank_accumulator<V, T>(
     assert!(option::is_some(&vault.accumulator_cap), EAccumulationInProgress);
     let cap = option::extract(&mut vault.accumulator_cap);
 
-    cap.create_vault_crank_accumulator(obligation_ids)
+    cap.create_vault_crank_accumulator(obligation_ids, main_lending_market)
 }
 
 /// Ensures all LendingMarkets were processed, accrues fees, updates last_cranked_ms timestamp
@@ -949,7 +1024,7 @@ public fun process_unwinds_for_lending_market<V, T, L>(
         return
     };
 
-    let reserve_index = lending_market.reserve_array_index<_, T>();
+    let reserve_index = extract_reserve_array_index<T, _>(lending_market);
 
     // Process each unwind target
     unwind_targets.borrow().do_ref!(|target| {
@@ -1430,6 +1505,22 @@ fun assert_vault_state_fresh<V, T>(vault: &Vault<V, T>, clock: &Clock) {
     let current_time = clock.timestamp_ms();
 
     assert!(current_time - vault.last_cranked_ms <= MAX_REWARDS_STALENESS_MS, ERewardsStale);
+}
+
+fun get_reserve_array_index<T, L>(lending_market: &LendingMarket<L>): option::Option<u64> {
+    let reserve_count = lending_market.reserves().length();
+    let index = lending_market.reserve_array_index<_, T>();
+    if (index < reserve_count) {
+        option::some(index)
+    } else {
+        option::none()
+    }
+}
+
+fun extract_reserve_array_index<T, L>(lending_market: &LendingMarket<L>): u64 {
+    let mut index = get_reserve_array_index<T, L>(lending_market);
+    assert!(index.is_some(), EMissingReserve);
+    index.extract()
 }
 
 // === Test Functions ===

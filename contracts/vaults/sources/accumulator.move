@@ -2,7 +2,12 @@ module vaults::accumulator;
 
 use std::type_name::{Self, TypeName};
 use sui::{balance::Balance, clock::Clock, vec_map};
-use suilend::{decimal::{Self, Decimal}, lending_market::LendingMarket, liquidity_mining};
+use suilend::{
+    decimal::{Self, Decimal},
+    lending_market::LendingMarket,
+    liquidity_mining,
+    suilend::MAIN_POOL
+};
 use vaults::utils::token_amount_to_usd;
 
 // === Errors ===
@@ -45,6 +50,7 @@ public struct VaultValueAggregate<phantom V> {
 /// Must be consumed in PTB
 public struct VaultCrankAccumulator<phantom V> {
     acc: VaultValueAccumulator<V>,
+    main_pool_reserves: vector<TypeName>,
 }
 
 /// For tracking obligation unwinds needed to satisfy a withdrawal
@@ -190,9 +196,14 @@ public(package) fun destroy_vault_value_aggregate<V>(
 public(package) fun create_vault_crank_accumulator<V>(
     cap: AccumulatorCap<V>,
     lm_obligations_map: vec_map::VecMap<TypeName, vector<ID>>,
+    main_lending_market: &LendingMarket<MAIN_POOL>,
 ): VaultCrankAccumulator<V> {
+    let main_pool_reserves = main_lending_market.reserves().map_ref!(|r| {
+        r.coin_type()
+    });
     VaultCrankAccumulator {
         acc: create_vault_value_accumulator(cap, lm_obligations_map),
+        main_pool_reserves,
     }
 }
 
@@ -209,7 +220,7 @@ public(package) fun process_lending_market_for_crank<V, L>(
     let (_, obligation_ids) = crank.acc.pending_lending_markets.remove(&lending_market_type);
 
     obligation_ids.do!(|obligation_id| {
-        assert_no_claimable_rewards(lending_market, obligation_id);
+        assert_no_claimable_rewards(lending_market, &crank.main_pool_reserves, obligation_id);
     });
 
     let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
@@ -229,6 +240,7 @@ public(package) fun finalize_crank_accumulator<V, T, L>(
 ): VaultValueAggregate<V> {
     let VaultCrankAccumulator {
         acc,
+        main_pool_reserves: _,
     } = crank;
 
     let agg = acc.finalize_vault_value_accumulator(deposit_asset, lending_market, clock);
@@ -337,7 +349,11 @@ public(package) fun get_next_unwind_targets<V, L>(
 
 // === Private functions ===
 
-fun assert_no_claimable_rewards<V>(lending_market: &LendingMarket<V>, obligation_id: ID) {
+fun assert_no_claimable_rewards<V>(
+    lending_market: &LendingMarket<V>,
+    main_pool_reserves: &vector<TypeName>,
+    obligation_id: ID,
+) {
     let reserves = lending_market.reserves();
     let obligation = lending_market.obligation(obligation_id);
 
@@ -345,36 +361,40 @@ fun assert_no_claimable_rewards<V>(lending_market: &LendingMarket<V>, obligation
     obligation.deposits().do_ref!(|deposit| {
         let reserve_index = deposit.reserve_array_index();
         let reserve = reserves.borrow(reserve_index);
-        let pool_reward_manager = reserve.deposits_pool_reward_manager();
-        let user_reward_manager_index = deposit.user_reward_manager_index();
-        let user_reward_manager = obligation
-            .user_reward_managers()
-            .borrow(user_reward_manager_index);
+        if (main_pool_reserves.contains(&reserve.coin_type())) {
+            let pool_reward_manager = reserve.deposits_pool_reward_manager();
+            let user_reward_manager_index = deposit.user_reward_manager_index();
+            let user_reward_manager = obligation
+                .user_reward_managers()
+                .borrow(user_reward_manager_index);
 
-        let claimable_rewards = get_claimable_reward_indexes(
-            user_reward_manager,
-            pool_reward_manager,
-        );
+            let claimable_rewards = get_claimable_reward_indexes(
+                user_reward_manager,
+                pool_reward_manager,
+            );
 
-        assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
+            assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
+        }
     });
 
     // Process borrow rewards
     obligation.borrows().do_ref!(|borrow| {
         let reserve_index = borrow.reserve_array_index();
         let reserve = reserves.borrow(reserve_index);
-        let pool_reward_manager = reserve.borrows_pool_reward_manager();
-        let user_reward_manager_index = borrow.user_reward_manager_index();
-        let user_reward_manager = obligation
-            .user_reward_managers()
-            .borrow(user_reward_manager_index);
+        if (main_pool_reserves.contains(&reserve.coin_type())) {
+            let pool_reward_manager = reserve.borrows_pool_reward_manager();
+            let user_reward_manager_index = borrow.user_reward_manager_index();
+            let user_reward_manager = obligation
+                .user_reward_managers()
+                .borrow(user_reward_manager_index);
 
-        let claimable_rewards = get_claimable_reward_indexes(
-            user_reward_manager,
-            pool_reward_manager,
-        );
+            let claimable_rewards = get_claimable_reward_indexes(
+                user_reward_manager,
+                pool_reward_manager,
+            );
 
-        assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
+            assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
+        }
     });
 }
 

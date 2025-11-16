@@ -10,11 +10,16 @@ use sui::{
     test_scenario::{Self as ts, Scenario},
     test_utils
 };
-use suilend::{decimal, lending_market::{Self, LendingMarket}, mock_pyth, reserve_config};
+use suilend::{
+    decimal,
+    lending_market::{Self, LendingMarket},
+    mock_pyth,
+    reserve_config,
+    suilend::MAIN_POOL as TEST_LENDING_MARKET
+};
 use vaults::{utils, vault::{Self, Vault, VaultManagerCap}};
 
 public struct TEST_COIN has drop {}
-public struct TEST_LENDING_MARKET has drop {}
 public struct TEST_VAULT has drop {}
 // OTW: Needs to match module name
 public struct VAULT_TESTS has drop {}
@@ -256,7 +261,7 @@ fun test_fees_collected() {
 
     // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
     scenario.next_tx(ADMIN);
-    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -299,7 +304,7 @@ fun test_fees_collected() {
     let manager_fees_before_round2 = vault.get_manager_fees_for_testing();
 
     // Crank again - should only get management fees, NOT performance fees
-    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -425,7 +430,7 @@ fun test_fees_collected() {
 
     // Crank - now should get BOTH management and performance fees
     scenario.next_tx(ADMIN);
-    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -819,7 +824,7 @@ fun test_nav_changes() {
 
     // Crank to apply fees
     {
-        let crank_acc = vault.create_vault_crank_accumulator(&clock);
+        let crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
         vault.finalize_vault_crank(
             crank_acc,
             &lending_market,
@@ -1105,17 +1110,10 @@ fun test_compound_rewards_with_swap() {
         );
     };
 
-    // Compound rewards: claim B_TEST_USDC, swap to B_TEST_SUI, deposit back to obligation
+    // Compound rewards: claim B_TEST_USDC, swap to B_TEST_SUI, deposit in vault
     scenario.next_tx(USER2);
-    vault.compound_rewards_with_swap<
-        VAULT_TESTS,
-        B_TEST_SUI,
-        TEST_LENDING_MARKET,
-        B_TEST_USDC,
-        steamm::lp_usdc_sui::LP_USDC_SUI,
-    >(
+    let ticket = vault.withdraw_reward<VAULT_TESTS, B_TEST_SUI, TEST_LENDING_MARKET, B_TEST_USDC>(
         &mut lending_market,
-        &mut pool,
         obligation_index,
         sui_reserve_index, // reward_reserve_index
         0, // reward_index
@@ -1123,6 +1121,30 @@ fun test_compound_rewards_with_swap() {
         &clock,
         scenario.ctx(),
     );
+
+    let (swap_ticket, mut reward) = vault.swap_reward_for_base_token_w_oracle(
+        ticket,
+        &lending_market,
+        &clock,
+        scenario.ctx(),
+    );
+
+    let reward_amount = reward.value();
+
+    let mut output_coin = coin::zero<B_TEST_SUI>(scenario.ctx());
+
+    let _swap_result = steamm::cpmm::swap(
+        &mut pool,
+        &mut reward,
+        &mut output_coin,
+        true, // swap direction
+        reward_amount,
+        0, // min_amount_out
+        scenario.ctx(),
+    );
+    coin::destroy_zero(reward);
+
+    vault.deposit_swapped_rewards(swap_ticket, output_coin, scenario.ctx());
 
     // Verify rewards were compounded into the obligation
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
@@ -1619,7 +1641,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         );
     };
 
-    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
 
     crank_acc.process_lending_market_for_crank(&lending_market);
 
