@@ -1247,9 +1247,8 @@ fun calculate_management_fee_shares<V, T>(vault: &Vault<V, T>, clock: &Clock): u
 
     let mut fee_factor = decimal::mul(decimal::from(time_elapsed_s), per_second_rate);
 
-    // TODO - potentially change
-    // Cap the fee factor at 30%
-    let max_fee_factor = decimal::from_bps(3000);
+    // Cap to 1 year max management fee, unlikely to occur
+    let max_fee_factor = decimal::from_bps(MAX_MANAGEMENT_FEE_BPS);
     if (decimal::gt(fee_factor, max_fee_factor)) {
         fee_factor = max_fee_factor;
     };
