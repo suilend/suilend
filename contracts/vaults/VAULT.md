@@ -8,9 +8,9 @@ Users deposit base tokens (e.g., SUI, USDC) and receive fungible vault shares re
 
 ## User Operations
 
-**Deposits**: Users deposit the base token and receive vault shares based on current NAV per share. A minimum deposit value of 0.1 USD is enforced. Optional deposit fees (0-10%) are deducted from minted shares.
+**Deposits**: Users deposit the base token and receive vault shares based on current NAV per share. A minimum deposit value of 0.1 USD is enforced. Optional deposit fees (0-5%) are deducted from minted shares.
 
-**Withdrawals**: Users redeem shares for proportional base token amounts based on NAV. When vault liquidity is insufficient, the protocol supports unwinding lending positions using a FIFO strategy. Optional withdrawal fees (0-10%) are deducted from shares before redemption.
+**Withdrawals**: Users redeem shares for proportional base token amounts based on NAV. When vault liquidity is insufficient, the protocol supports unwinding lending positions using a FIFO strategy. Optional withdrawal fees (0-5%) are deducted from shares before redemption.
 
 **Yield**: Returns accrue passively as the vault's lending positions generate interest and as rewards are compounded. Users can track performance via NAV per share appreciation.
 
@@ -18,21 +18,21 @@ Users deposit base tokens (e.g., SUI, USDC) and receive fungible vault shares re
 
 **Vault Management**: The manager holds a VaultManagerCap proving authority over the vault. They can deploy liquid funds to lending obligations, withdraw deployed funds back to vault liquidity, and create new obligations across multiple lending markets.
 
-**Rewards Compounding**: Rewards can be compounded permissionlessly through two mechanisms:
-- Rewards matching base token are claimed and deposited directly
-- Other rewards are swapped through Steamm CPMM pools with slippage protection before depositing
+**Rewards Compounding**: Rewards can be compounded through two mechanisms:
+- **Base token rewards**: Claimed and deposited directly back into the lending obligation (permissionless)
+- **Non-base token rewards**: Withdrawn, swapped externally for base token, then deposited to vault. Oracle-based slippage protection is enforced when both tokens have reserves in MAIN_POOL. Manager permission required for tokens without oracle coverage
 
-**Vault Crank**: A periodic operation that verifies all rewards have been compounded across all lending markets and accrues management and performance fees. A freshness requirement (1 hour maximum staleness) is enforced on user/manager operations. This prevents operations on stale vault state.
+**Vault Crank**: A periodic operation that verifies all rewards with MAIN_POOL reserves/oracles have been compounded across all vault obligations, and accrues management and performance fees. The crank can only be called once per minute (minimum interval) and must be called at least once per hour. This freshness requirement is enforced on user/manager operations.
 
 **Fee Redemption**: The manager can redeem their accumulated fee shares (deposit, withdrawal, management, and performance fees) at any time.
 
 ## Fee Structure
 
-**Deposit Fee** (0-10% max): Charged as a percentage of minted shares. Fee shares are credited to manager before user receives remaining shares.
+**Deposit Fee** (0-5% max): Charged as a percentage of minted shares. Fee shares are credited to manager before user receives remaining shares.
 
-**Withdrawal Fee** (0-10% max): Charged as a percentage of shares being redeemed. Fee shares are credited to manager before calculating withdrawal amount.
+**Withdrawal Fee** (0-5% max): Charged as a percentage of shares being redeemed. Fee shares are credited to manager before calculating withdrawal amount.
 
-**Management Fee** (0-10% max annual): Time-based fee on assets under management, accrued during vault crank operations. Calculated as an annualized rate based on time elapsed since last crank. Implemented by minting new shares that dilute existing holders proportionally.
+**Management Fee** (0-5% max annual): Time-based fee on assets under management, accrued during vault crank operations. Calculated as an annualized rate based on time elapsed since last crank. Implemented by minting new shares that dilute existing holders proportionally.
 
 **Performance Fee** (0-50% max): Fee on NAV gains above the high water mark. Only charged when NAV per share exceeds its previous peak. Calculated after accounting for management fee dilution.
 
@@ -59,7 +59,7 @@ The vault manages positions across multiple lending markets, each with a differe
 To circumvent this a [Hot Potato](https://move-book.com/programmability/hot-potato-pattern/) pattern is utilised, to ensure all lending markets (and obligations) are processed in the PTB. There are 3 instances where this is utilised:
 
 - `VaultValueAccumulator` - for gathering USD values of all obligations for NAV calculation
-- `VaultCrankAccumulator` - for verifying all rewards have been compounded + gathering obligation values for management and performance fee accrual
+- `VaultCrankAccumulator` - for verifying all rewards with MAIN_POOL reserves/oracles have been compounded + gathering obligation values for management and performance fee accrual
 - `VaultUnwindAccumulator` - for building and executing an unwind plan when insufficient liquidity exists to redeem a users shares
 
 ### NAV and Share Pricing
@@ -89,9 +89,9 @@ All valuations use prices from Suilend `lending_market.reserve`, which are Pyth-
 
 **Unwind Strategy**: Obligation unwinds are prioritised on a FIFO basis.
 
-**Reward Compounding**: Rewards can be compounded permissionlessly. For base token rewards, direct compounding is used. For other rewards, a Steamm pool must exist for swapping.
+**Reward Compounding**: Base token rewards are compounded permissionlessly via direct deposit. Non-base token rewards are withdrawn, swapped externally, then deposited with slippage validation when oracles are available.
 
-**Slippage**: The vault stores a `slippage_bps` parameter used for reward swaps, which is applied to oracle prices.
+**Slippage**: The vault stores a `slippage_bps` parameter for reward swaps. When both reward and base tokens have MAIN_POOL reserves, slippage protection is enforced using oracle prices.
 
 ## Planned Features
 

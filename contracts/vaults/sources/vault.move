@@ -709,6 +709,9 @@ public fun compound_rewards<V, T, L>(
     );
 }
 
+/// Withdraw a non-base token reward for swapping to base token and depositing to vault
+/// Can be swapped permssionlessly if a reserve + oracle exists in MAIN_POOL for T + RewardType (swap_reward_for_base_token_w_oracle)
+/// Or manager permissioned if no oracle exists (swap_reward_for_base_token_unchecked)
 public fun withdraw_reward<V, T, L, RewardType>(
     vault: &Vault<V, T>,
     // LendingMarket to claim reward from
