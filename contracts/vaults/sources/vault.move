@@ -1,7 +1,6 @@
 module vaults::vault;
 
 use std::type_name::{Self, TypeName};
-use steamm::{cpmm::{Self, CpQuoter}, pool::Pool};
 use sui::{
     bag,
     balance::{Self, Balance},
@@ -708,92 +707,6 @@ public fun compound_rewards<V, T, L>(
         deposit_reserve_index,
         ctx,
     );
-}
-
-/// Compound rewards of a different token type by swapping through a Steamm pool
-/// This allows compounding rewards that don't match the vault's base asset type
-/// min_amount_out is determined by vault.slippage_bps
-/// Permissionless
-public fun compound_rewards_with_swap<V, T, L, RewardType, LpType: drop>(
-    vault: &mut Vault<V, T>,
-    lending_market: &mut LendingMarket<L>, // Must contain reserves for RewardType + T (price sources)
-    swap_pool: &mut Pool<RewardType, T, CpQuoter, LpType>,
-    obligation_index: u64,
-    reward_reserve_index: u64,
-    reward_index: u64,
-    is_deposit_reward: bool,
-    clock: &Clock,
-    ctx: &mut TxContext,
-) {
-    vault.version.assert_version(CURRENT_VERSION);
-
-    // Ensure reward is not base token
-    assert!(
-        type_name::with_defining_ids<T>() != type_name::with_defining_ids<RewardType>(),
-        EBaseTokenReward,
-    );
-
-    let lm_type = type_name::with_defining_ids<L>();
-    let obligation_cap = vault.get_obligation_cap<_, _, L>(&lm_type, obligation_index);
-
-    let mut reward_coin = lending_market.claim_rewards<L, RewardType>(
-        obligation_cap,
-        clock,
-        reward_reserve_index,
-        reward_index,
-        is_deposit_reward,
-        ctx,
-    );
-
-    let reward_amount = reward_coin.value();
-
-    if (reward_amount == 0) {
-        coin::destroy_zero(reward_coin);
-        return
-    };
-
-    // Calculate min_amount_out using slippage_bps and reserve prices for RewardType + T
-    let min_amount_out = {
-        let reward_reserve = lending_market.reserve<_, RewardType>();
-        let deposit_reserve = lending_market.reserve<_, T>();
-
-        deposit_reserve.assert_price_is_fresh(clock);
-        reward_reserve.assert_price_is_fresh(clock);
-
-        let reward_usd_value = reward_reserve.market_value(decimal::from(reward_amount));
-
-        let expected_base_token_amount = deposit_reserve.usd_to_token_amount(
-            reward_usd_value,
-        );
-
-        // Apply slippage: min_amount_out = expected_amount * (1 - slippage_bps / BASIS_POINTS)
-        expected_base_token_amount
-            .mul(decimal::from(BASIS_POINTS)
-                .sub(
-                    decimal::from(vault.slippage_bps),
-                )
-                .div(decimal::from(BASIS_POINTS)))
-            .floor()
-    };
-
-    // Swap R -> T
-    // Create an empty coin of type T to receive the swapped amount
-    let mut t_coin = coin::zero<T>(ctx);
-
-    let _swap_result = cpmm::swap(
-        swap_pool,
-        &mut reward_coin,
-        &mut t_coin,
-        true, // swap R -> T
-        reward_amount,
-        min_amount_out,
-        ctx,
-    );
-
-    // Reward coin should now be empty, destroy it
-    coin::destroy_zero(reward_coin);
-
-    vault.deposit_asset.join(t_coin.into_balance());
 }
 
 public fun withdraw_reward<V, T, L, RewardType>(

@@ -93,7 +93,31 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
         ctx,
     );
 
+    // Create Steamm CPMM pool for B_TEST_USDC <-> B_TEST_SUI swaps
+    let mut pool = steamm::cpmm_tests::setup_pool(100, 0, &mut scenario);
+
+    let mut pool_liquidity_usdc = coin::mint_for_testing<B_TEST_USDC>(
+        1_000_000_000_000,
+        scenario.ctx(),
+    );
+    let mut pool_liquidity_sui = coin::mint_for_testing<B_TEST_SUI>(
+        1_000_000_000_000,
+        scenario.ctx(),
+    );
+
+    let (lp_coins, _) = pool.deposit_liquidity(
+        &mut pool_liquidity_usdc,
+        &mut pool_liquidity_sui,
+        1_000_000_000_000,
+        1_000_000_000_000,
+        scenario.ctx(),
+    );
+
+    coin::burn_for_testing(lp_coins);
+    test_utils::destroy(pool_liquidity_sui);
+    test_utils::destroy(pool_liquidity_usdc);
     clock.share_for_testing();
+    transfer::public_share_object(pool);
     transfer::public_share_object(lending_market);
     test_utils::destroy(curr);
     transfer::public_transfer(lm_cap, ADMIN);
@@ -117,6 +141,35 @@ fun create_vault_shares(
     let (mut curr, metadata_cap) = builder.finalize_unwrap_for_testing(ctx);
     curr.delete_metadata_cap(metadata_cap);
     (curr, treasury_cap)
+}
+
+fun steamm_swap_usdc_to_sui(
+    mut input_coin: Coin<B_TEST_USDC>,
+    scenario: &mut Scenario,
+): Coin<B_TEST_SUI> {
+    let mut pool = scenario.take_shared<
+        steamm::pool::Pool<
+            B_TEST_USDC,
+            B_TEST_SUI,
+            steamm::cpmm::CpQuoter,
+            steamm::lp_usdc_sui::LP_USDC_SUI,
+        >,
+    >();
+    let mut output_coin = coin::zero<_>(scenario.ctx());
+    let input_amount = input_coin.value();
+
+    let _swap_result = steamm::cpmm::swap(
+        &mut pool,
+        &mut input_coin,
+        &mut output_coin,
+        true, // USDC -> SUI direction
+        input_amount,
+        0, // min_amount_out
+        scenario.ctx(),
+    );
+    coin::destroy_zero(input_coin);
+    ts::return_shared(pool);
+    output_coin
 }
 
 fun mint_test_coin(amount: u64, ctx: &mut TxContext): Coin<TEST_COIN> {
@@ -1019,26 +1072,7 @@ fun test_compound_rewards_with_swap() {
         scenario.ctx(),
     );
 
-    // Create Steamm CPMM pool for B_TEST_USDC <-> B_TEST_SUI swaps
     scenario.next_tx(ADMIN);
-    let mut pool = steamm::cpmm_tests::setup_pool(100, 0, &mut scenario);
-
-    let mut pool_liquidity_usdc = coin::mint_for_testing<B_TEST_USDC>(
-        1_000_000_000_000,
-        scenario.ctx(),
-    );
-    let mut pool_liquidity_sui = coin::mint_for_testing<B_TEST_SUI>(
-        1_000_000_000_000,
-        scenario.ctx(),
-    );
-
-    let (lp_coins, _) = pool.deposit_liquidity(
-        &mut pool_liquidity_usdc,
-        &mut pool_liquidity_sui,
-        1_000_000_000_000,
-        1_000_000_000_000,
-        scenario.ctx(),
-    );
 
     // User deposits B_TEST_SUI into vault
     scenario.next_tx(USER1);
@@ -1122,27 +1156,14 @@ fun test_compound_rewards_with_swap() {
         scenario.ctx(),
     );
 
-    let (swap_ticket, mut reward) = vault.swap_reward_for_base_token_w_oracle(
+    let (swap_ticket, reward) = vault.swap_reward_for_base_token_w_oracle(
         ticket,
         &lending_market,
         &clock,
         scenario.ctx(),
     );
 
-    let reward_amount = reward.value();
-
-    let mut output_coin = coin::zero<B_TEST_SUI>(scenario.ctx());
-
-    let _swap_result = steamm::cpmm::swap(
-        &mut pool,
-        &mut reward,
-        &mut output_coin,
-        true, // swap direction
-        reward_amount,
-        0, // min_amount_out
-        scenario.ctx(),
-    );
-    coin::destroy_zero(reward);
+    let output_coin = steamm_swap_usdc_to_sui(reward, &mut scenario);
 
     vault.deposit_swapped_rewards(swap_ticket, output_coin, scenario.ctx());
 
@@ -1163,11 +1184,7 @@ fun test_compound_rewards_with_swap() {
 
     {
         coin::burn_for_testing(vault_shares);
-        coin::burn_for_testing(lp_coins);
         test_utils::destroy(prices);
-        test_utils::destroy(pool);
-        test_utils::destroy(pool_liquidity_sui);
-        test_utils::destroy(pool_liquidity_usdc);
         test_utils::destroy(curr);
         ts::return_shared(clock);
         ts::return_shared(vault);
@@ -1399,26 +1416,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         scenario.ctx(),
     );
 
-    // Create Steamm pool for USDC <-> SUI swaps
     scenario.next_tx(ADMIN);
-    let mut pool = steamm::cpmm_tests::setup_pool(100, 0, &mut scenario);
-
-    let mut pool_liquidity_usdc = coin::mint_for_testing<B_TEST_USDC>(
-        1_000_000_000_000,
-        scenario.ctx(),
-    );
-    let mut pool_liquidity_sui = coin::mint_for_testing<B_TEST_SUI>(
-        1_000_000_000_000,
-        scenario.ctx(),
-    );
-
-    let (lp_coins, _) = pool.deposit_liquidity(
-        &mut pool_liquidity_usdc,
-        &mut pool_liquidity_sui,
-        1_000_000_000_000,
-        1_000_000_000_000,
-        scenario.ctx(),
-    );
 
     // User deposits into vault
     scenario.next_tx(USER1);
@@ -1526,57 +1524,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
 
     scenario.next_tx(USER2);
 
-    scenario.next_tx(ADMIN);
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
-
-    // Refresh obligations to make rewards discoverable (trigger user_reward_manager updates)
-    {
-        // Refresh obligation 0
-        let tiny_deposit = coin::mint_for_testing<B_TEST_SUI>(1, scenario.ctx());
-        let tiny_ctokens = lending_market.deposit_liquidity_and_mint_ctokens<
-            TEST_LENDING_MARKET,
-            B_TEST_SUI,
-        >(sui_reserve_index, &clock, tiny_deposit, scenario.ctx());
-
-        let obligation_cap = vault.get_obligation_cap_for_testing<
-            VAULT_TESTS,
-            B_TEST_SUI,
-            TEST_LENDING_MARKET,
-        >(
-            &lm_type,
-            obligation_0,
-        );
-        lending_market.deposit_ctokens_into_obligation<TEST_LENDING_MARKET, B_TEST_SUI>(
-            sui_reserve_index,
-            obligation_cap,
-            &clock,
-            tiny_ctokens,
-            scenario.ctx(),
-        );
-
-        // Refresh obligation 1
-        let tiny_deposit = coin::mint_for_testing<B_TEST_SUI>(1, scenario.ctx());
-        let tiny_ctokens = lending_market.deposit_liquidity_and_mint_ctokens<
-            TEST_LENDING_MARKET,
-            B_TEST_SUI,
-        >(sui_reserve_index, &clock, tiny_deposit, scenario.ctx());
-
-        let obligation_cap = vault.get_obligation_cap_for_testing<
-            VAULT_TESTS,
-            B_TEST_SUI,
-            TEST_LENDING_MARKET,
-        >(
-            &lm_type,
-            obligation_1,
-        );
-        lending_market.deposit_ctokens_into_obligation<TEST_LENDING_MARKET, B_TEST_SUI>(
-            sui_reserve_index,
-            obligation_cap,
-            &clock,
-            tiny_ctokens,
-            scenario.ctx(),
-        );
-    };
 
     // Compound all rewards from both obligations (4 total)
     {
@@ -1593,22 +1541,35 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         );
 
         // Obligation 0: USDC rewards
-        vault.compound_rewards_with_swap<
-            VAULT_TESTS,
-            B_TEST_SUI,
-            TEST_LENDING_MARKET,
-            B_TEST_USDC,
-            steamm::lp_usdc_sui::LP_USDC_SUI,
-        >(
-            &mut lending_market,
-            &mut pool,
-            obligation_0,
-            sui_reserve_index, // reward_reserve_index
-            usdc_reward_index, // reward_index
-            is_deposit_reward,
-            &clock,
-            scenario.ctx(),
-        );
+        {
+            let ticket = vault.withdraw_reward<
+                VAULT_TESTS,
+                B_TEST_SUI,
+                TEST_LENDING_MARKET,
+                B_TEST_USDC,
+            >(
+                &mut lending_market,
+                obligation_0,
+                sui_reserve_index, // reward_reserve_index
+                usdc_reward_index, // reward_index
+                is_deposit_reward,
+                &clock,
+                scenario.ctx(),
+            );
+
+            let (swap_ticket, reward) = vault.swap_reward_for_base_token_w_oracle(
+                ticket,
+                &lending_market,
+                &clock,
+                scenario.ctx(),
+            );
+
+            let output_coin = steamm_swap_usdc_to_sui(reward, &mut scenario);
+
+            vault.deposit_swapped_rewards(swap_ticket, output_coin, scenario.ctx());
+        };
+
+        scenario.next_tx(USER2);
 
         // Obligation 1: SUI rewards
         vault.compound_rewards<VAULT_TESTS, B_TEST_SUI, TEST_LENDING_MARKET>(
@@ -1623,22 +1584,33 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         );
 
         // Obligation 1: USDC rewards
-        vault.compound_rewards_with_swap<
-            VAULT_TESTS,
-            B_TEST_SUI,
-            TEST_LENDING_MARKET,
-            B_TEST_USDC,
-            steamm::lp_usdc_sui::LP_USDC_SUI,
-        >(
-            &mut lending_market,
-            &mut pool,
-            obligation_1,
-            sui_reserve_index, // reward_reserve_index
-            usdc_reward_index, // reward_index
-            is_deposit_reward,
-            &clock,
-            scenario.ctx(),
-        );
+        {
+            let ticket = vault.withdraw_reward<
+                VAULT_TESTS,
+                B_TEST_SUI,
+                TEST_LENDING_MARKET,
+                B_TEST_USDC,
+            >(
+                &mut lending_market,
+                obligation_1,
+                sui_reserve_index, // reward_reserve_index
+                usdc_reward_index, // reward_index
+                is_deposit_reward,
+                &clock,
+                scenario.ctx(),
+            );
+
+            let (swap_ticket, reward) = vault.swap_reward_for_base_token_w_oracle(
+                ticket,
+                &lending_market,
+                &clock,
+                scenario.ctx(),
+            );
+
+            let output_coin = steamm_swap_usdc_to_sui(reward, &mut scenario);
+
+            vault.deposit_swapped_rewards(swap_ticket, output_coin, scenario.ctx());
+        };
     };
 
     let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
@@ -1689,11 +1661,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
     {
         coin::burn_for_testing(vault_shares);
         coin::burn_for_testing(new_shares);
-        coin::burn_for_testing(lp_coins);
         test_utils::destroy(prices);
-        test_utils::destroy(pool);
-        test_utils::destroy(pool_liquidity_sui);
-        test_utils::destroy(pool_liquidity_usdc);
         test_utils::destroy(curr);
         ts::return_shared(clock);
         ts::return_shared(vault);
