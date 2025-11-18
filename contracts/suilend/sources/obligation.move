@@ -1627,6 +1627,16 @@ module suilend::obligation {
     }
 
     #[test_only]
+    public fun deposits_mut<P>(obligation: &mut Obligation<P>): &mut vector<Deposit> {
+        &mut obligation.deposits
+    }
+
+    #[test_only]
+    public fun coinTypeFromDeposit(deposit: &mut Deposit): &mut TypeName {
+        &mut deposit.coin_type
+    }
+
+    #[test_only]
     public(package) fun borrows_mut<P>(obligation: &mut Obligation<P>): &mut vector<Borrow> {
         &mut obligation.borrows
     }
