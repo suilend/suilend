@@ -1,10 +1,97 @@
-
 Properties:
 
-Low level: correct accounting
+Health of the Obligations
+    The only way for an obligation to become insolvent is by accrual of interest (over time) and change of price.
 
+Solvency of the LendingMarket
+    The sum of all obligation collateral amounts of some asset must be covered by the protocol reserves of the same asset
+
+Integrity of liquidations
+    Liquidation of an elegible obligation must succeed
+    Liquidation is profitable for the liquidator
+
+-------------------------------------------
+
+Health of the Obligations
+    The only way for an obligation to become insolvent is by accrual of interest (over time) and change of price.
+        - If there's not activity, elapsing of time must not decrease the LTV of an obligation
+        - Changes of market price should be able to affect solvency status
+
+	- no user operation can cause any healthy obligation (one below the present max LTV) to become unhealthy (ignoring price/interest change)
+	- Healthy obligations cannot lose collateral to became liquidable
+	- A user without collateral cannot have debt
+    - The interest rate model must increase the debt over time (modulus rounding errors and capping). 
+    - The accrued interest of a debt must be monotonically increasing with debt value (for any fixed time period).
+    - The accrual of interest must not change the evaluation of the obligation (debt and collateral) value.
+    - Interest model should be user-agnostic (it cannot depend on the user bare address).
+    - Interest model (if mutable) is controlled only by a trusted party (admin / owner / governance).
+    - Given the option, transition between different interest models for a user must not decrease the debt value.
+    - Solvency and liquidation thresholds are controlled only by a trusted party (admin / owner / governance).
+    - For a stale obligation, If the price of the debt and collateral asset didn’t change during a block, the LTV of a obligation mustn’t change.
+    - Increase/decrease of the debt asset (with constant collateral asset price) must increase/decrease the LTV of a obligation.
+    - Increase/decrease of the collateral asset (with constant debt asset price) must decrease/increase the LTV of a obligation.
+    - The price oracle of two different assets cannot be fully dependent.
+    - Price oracle is timestamp consistent - can never return two different values for the same block.
+    - Price oracles / pricing mechanisms entities could only be handled by a trusted party (admin / owner / governance).
+    - Evaluation of an asset by a price oracle must be monotonically increasing with respect to the token amount (and zero for zero amount). The evaluation must not be capped.
+    - Borrowing x additional tokens must **instantaneously** increase the debt amount of an obligation by x.
+    - The evaluation of an asset at time T must take into account the latest price possible at that time.
+
+    Integrity of is_healthy check
+    - The calculation of the assets (debt and collateral) value must probe the price oracle in the latest available time stamp.
+    - LTV must be monotonically increasing with debt assets and monotonically decreasing with collateral assets.
+    - Debt and collateral values of the obligation must be proportional to the number of tokens from each asset.
+    - The solvency check should never revert.
+    - The LTV calculation needs to round up the debt value and round down the collateral value.
+    - For zero collateral and non-zero debt, the solvency status must be false.
+    - For zero debt the solvency status must be true.
+
+Solvency of the contract
+    The sum of all obligation collateral amounts of some asset must be covered by the protocol reserves of the same asset
+    - Any increase to an obligation collateral must involve an increase of the protocol reserves of that same asset by the same amount.
+    - Only the borrower can increase its obligation collateral (by depositing it in the contract).
+    - Only the borrower or liquidator can decrease the obligation collateral, by repaying debt.
+    - The protocol cannot send away more collateral tokens than the difference between its balance and sum of obligations collateral.
+
+    - sum of total liquidity (deposits + borrows - fees) >= sum of minted collaterals
+	- sum of deposited liquidity (simply liquidity) >= sum of minted collaterals
+
+    Solvency Ratio
+	Ratio between underlying assets (liquidity reserve) and share tokens (collateral reserve) should only increase
+	only liquidation can decrease ratio of underlying assets and shares
+
+liquidation
+    Liquidation of an obligation must succeed if the following conditions hold:
+    - The borrower’s obligation is unhealthy (LTV has surpassed the liquidation threshold)
+    - The liquidator has enough assets to pay the (partial) debt
+    - The liquidation amount is less or equal to the accrued debt
+    - The obligation collateral is non-empty
+
+    - Liquidation must revert for a healthy obligation.
+    - Liquidation must reduce both the collateral amount and debt amount of the obligation.
+    - Any liquidator must pay a non-zero amount of debt to the protocol (the protocol debt asset balance must increase).
+    - The collateral amount subtracted from the obligation must be equal to the number of collateral tokens the protocol sends to the liquidator (or its beneficiary), excluding fees.
+    - The collateral amount received for any paid debt token must be monotonically increasing with respect to the liquidated amount.
+    - No liquidation can take more collateral amount of that of the obligation. The protocol cannot transfer more than the obligation underlying collateral.
+    - No liquidation can succeed and pay the protocol more than the total debt of the liquidated obligation.
+    - Liquidation of a obligation should never involve tokens other than the debt and collateral tokens of the obligation (no transfer of unrelated tokens).
+    - The only way to DoS a liquidation is either a front-running **liquidation of the same obligation,** or if some debt was paid.
+    - Liquidation of x > 0 tokens must succeed if any liquidation of y > x tokens succeeds.
+    - Single tick of accrue interest should never cause a solvent address to become bad debt. TODO refresh method ??
+    - A liquidator should never pay more than his specified bound.
+    - It should never be more profitable to liquidate itself rather than just repay.
+    - Liquidations are profitable for the liquidator
+	- Liquidation lowers the LTV
+
+Low level: basic integrity
+    - deposit, withdraw, borrow, redeem
+
+    ## Repayment success conditions
+
+    Any active borrower should be allowed to repay his debt at any time if the liquidation threshold hasn’t been reached. In general, the debt could be repaid by someone other than the borrower.
+
+Low level: correct accounting (ERC4626 - like)
     no methods for convertToShares and convertToAssets. They just reuse this snippet
-        
         let liquidity_amount = floor(mul(
             decimal::from(balance::value(&ctokens)),
             ctoken_ratio))
@@ -13,9 +100,7 @@ Low level: correct accounting
         
     totalAssets() == reserve.total_liquidity (type Balance<T>)
     totalShares() = totalSupply() == reserve.total_ctokens (type Balance<CTOKEN<P, T>>)
-
     -----------------------------------------------------
-
     conversionOfZero
         convert(0) == 0
 
@@ -74,87 +159,3 @@ Low level: correct accounting
 
     reclaimingProducesAssets(method f)
         cToken.balanceOF(user) decreased => asset.balanceOf(user) must increase (unless they just transfer, etc.)
-
-Low level: basic integrity
- - deposit, withdraw, borrow, redeem
-
- - integrity of is_healthy check
-    1. The calculation of the assets (debt and collateral) value must probe the price oracle in the latest available time stamp.
-    2. LTV must be monotonically increasing with debt assets and monotonically decreasing with collateral assets.
-    3. Debt and collateral values of the position must be proportional to the number of tokens from each asset.
-    4. The solvency check should never revert.
-    5. The LTV calculation needs to round up the debt value and round down the collateral value.
-    6. For zero collateral and non-zero debt, the solvency status must be false.
-    7. For zero debt the solvency status must be true.
-
-## Repayment success conditions
-
-Any active borrower should be allowed to repay his debt at any time if the liquidation threshold hasn’t been reached. In general, the debt could be repaid by someone other than the borrower.
-
-
-High level: account health
-
-    - The only way for an obligation to become insolvent is by accrual of interest (over time) and change of price.
-    - If there's not activity, elapsing of time must not decrease the LTV of an obligation
-    - Changes of market price should be able to affect solvency status
-
-	- no user operation can cause any healthy account (one below the present max LTV) to become unhealthy (ignoring price/interest change)
-	- Healthy accounts cannot lose collateral to became liquidable
-	- A user without collateral cannot have debt
-    1. The interest rate model must increase the debt over time (modulus rounding errors and capping). 
-    2. The accrued interest of a debt must be monotonically increasing with debt value (for any fixed time period).
-    3. The accrual of interest must not change the evaluation of the obligation (debt and collateral) value. In other words, the protocol API must already take into account the interest accretion.
-    4. Interest model should be user-agnostic (it cannot depend on the user bare address).
-    5. Interest model (if mutable) is controlled only by a trusted party (admin / owner / governance).
-    6. Given the option, transition between different interest models for a user must not decrease the debt value.
-    7. Solvency and liquidation thresholds are controlled only by a trusted party (admin / owner / governance).
-    8. For a stale obligation, If the price of the debt and collateral asset didn’t change during a block, the LTV of a obligation mustn’t change.
-    9. Increase/decrease of the debt asset (with constant collateral asset price) must increase/decrease the LTV of a obligation.
-    10. Increase/decrease of the collateral asset (with constant debt asset price) must decrease/increase the LTV of a obligation.
-    11. The price oracle of two different assets cannot be fully dependent.
-    12. Price oracle is timestamp consistent - can never return two different values for the same block.
-    13. Price oracles / pricing mechanisms entities could only be handled by a trusted party (admin / owner / governance).
-    14. Evaluation of an asset by a price oracle must be monotonically increasing with respect to the token amount (and zero for zero amount). The evaluation must not be capped.
-    15. Borrowing x additional tokens must **instantaneously** increase the debt amount of a position by x.
-    16. The evaluation of an asset at time T must take into account the latest price possible at that time.
-
-liquidation
-    Liquidation of an obligation must succeed if the following conditions hold:
-        - The borrower’s obligation is unhealthy (LTV has surpassed the liquidation threshold)
-        - The liquidator has enough assets to pay the (partial) debt
-        - The liquidation amount is less or equal to the accrued debt
-        - The obligation collateral is non-empty
-
-    1. Liquidation must revert for a healthy obligation.
-    2. Liquidation must reduce both the collateral amount and debt amount of the obligation.
-    3. Any liquidator must pay a non-zero amount of debt to the protocol (the protocol debt asset balance must increase).
-    4. The collateral amount subtracted from the obligation must be equal to the number of collateral tokens the protocol sends to the liquidator (or its beneficiary), excluding fees.
-    5. The collateral amount received for any paid debt token must be monotonically increasing with respect to the liquidated amount.
-    6. No liquidation can take more collateral amount of that of the obligation. The protocol cannot transfer more than the obligation underlying collateral.
-    7. No liquidation can succeed and pay the protocol more than the total debt of the liquidated obligation.
-    8. Liquidation of a obligation should never involve tokens other than the debt and collateral tokens of the obligation (no transfer of unrelated tokens).
-    9. The only way to DoS a liquidation is either a front-running **liquidation of the same obligation,** or if some debt was paid.
-    10. A liquidation of x > 0 tokens must succeed if any liquidation of y > x tokens succeeds.
-    11. A single tick of accrue Interest should never cause a solvent address to become bad debt.
-    12. A liquidator should never pay more than his specified bound.
-    13. It should never be more profitable to liquidate itself rather than just repay.
-    14. Liquidations are profitable for the liquidator
-	- Liquidation lowers the LTV
-
-High level: solvency of the contract
-    invariant vaultSolvency()
-        totalAssets() >= totalSupply() && userAssets(currentContract) >= totalAssets() 
-
-    The sum of all obligation collateral amounts of some asset must be covered by the protocol reserves of the same asset
-
-    1. Any increase to an obligation collateral must involve an increase of the protocol reserves of that same asset by the same amount.
-    2. Only the borrower can increase its position collateral (by depositing it in the contract).
-    3. Only the borrower or liquidator can decrease the position collateral, by repaying debt.
-    4. The protocol cannot send away more collateral tokens than the difference between its balance and sum of positions collateral.
-
-    - sum of total liquidity (deposits + borrows - fees) >= sum of minted collaterals
-	- sum of deposited liquidity (simply liquidity) >= sum of minted collaterals
-
-    Solvency Ratio
-	Ratio between underlying assets (liquidity reserve) and share tokens (collateral reserve) should only increase
-	only liquidation can decrease ratio of underlying assets and shares
