@@ -82,13 +82,11 @@ reclaimingProducesAssets(method f)
 
 The main property of any lending protocol that dictates under which terms a position could become insolvent (where it was solvent before): The only way for a debt position to become insolvent is by accrual of interest (over time) and change of price.
 
-Let’s consider these two factors separately:
-
-- Accrual of interest - even when the protocol has no activity and the position owner (borrower) performs no action, by nature the debt accrues interest overtime, while the collateral value accrues no interest by itself (in most protocols). The loan value increases while the collateral value stays constant, thus the LTV can increase and cross the solvency / liquidation threshold.
+- Accrual of interest: even when the protocol has no activity and the position owner (borrower) performs no action, by nature the debt accrues interest overtime, while the collateral value accrues no interest by itself (in most protocols). The loan value increases while the collateral value stays constant, thus the LTV can increase and cross the solvency / liquidation threshold.
 
 In fact, one would expect this behavior to always hold: in the absence of any protocol activity, elapsing of time must not decrease the LTV of a non-empty position. One might expect that the debt value will always increase no matter how much time elapsed, but in essence, due to rounding errors the debt value could stay the same over small durations, or when the interest is capped, in some models.
 
-- Price changes - the DeFi market is dynamic. Prices change all the time. The more volatile the asset is, the more frequently and substantially its price will alter. A good pricing mechanism must take these changes into account but must also be stable to sudden changes in a single market source (for example large swaps in liquidity pools). Again, even if the debt position is idle, changes in pricing over-time (or sudden) can change the assets values that are evaluated the protocol, and thus the LTV of that position.
+- Price changes: the DeFi market is dynamic. Prices change all the time. The more volatile the asset is, the more frequently and substantially its price will alter. A good pricing mechanism must take these changes into account but must also be stable to sudden changes in a single market source (for example large swaps in liquidity pools). Again, even if the debt position is idle, changes in pricing over-time (or sudden) can change the assets values that are evaluated the protocol, and thus the LTV of that position.
 On the other hand, if any change of market price doesn’t affect the solvency status of a debt position, then the protocol is flawed and is prone to manipulation attacks on the expense of liquidity providers.
 
 The property states that only these two “passive” mechanisms could make a position insolvent. In particular, neither the borrower himself, nor any external player can perform an action that will make the LTV of any position to cross the threshold. Even if a user can borrow more debt at any time for the same provided collateral, the protocol must limit the borrowing amount in order to prevent the liquidation. Note that the LTV in general can increase, but the protocol must provide a concrete threshold for solvency. 
@@ -109,11 +107,9 @@ The property states that only these two “passive” mechanisms could make a po
     14. Evaluation of an asset by a price oracle must be monotonically increasing with respect to the token amount (and zero for zero amount). The evaluation must not be capped.
     15. Borrowing x additional tokens must **instantaneously** increase the debt amount of a position by x.
     16. The evaluation of an asset at time T must take into account the latest price possible at that time.
-
-1: Account Health
-	no user operation can cause any healthy account (one below the present max LTV) to become unhealthy (ignoring price/interest change)
-	Healthy accounts cannot lose collateral to became liquidable
-	A user without collateral cannot have debt
+	- no user operation can cause any healthy account (one below the present max LTV) to become unhealthy (ignoring price/interest change)
+	- Healthy accounts cannot lose collateral to became liquidable
+	- A user without collateral cannot have debt
 
 ## Liquidation
 
