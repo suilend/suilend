@@ -1,13 +1,28 @@
-Properties:
+Threats
+
+- Enter isolated mode with multiple borrows
+- First depositor attacks
+- Roundings
+- Push the utilization rate over 1e18 → 100% (allowed bounds are 0 to 1e18) → this can potentially be triggered by inflating the value of `borrowed_amount` in `reserve.move`
+- Break `ctoken_ratio` in `reserve.move` by making `1 ctoken for 0.99 underlying token`
+- Make sure isolation "rules" are respected (only 1 borrow possible when user has an isolated borrow)
+- Deposit & borrow same asset cannot be possible
+- Wrong use of functions that round up or down e.g. `usd_to_token_amount_lower_bound` & `usd_to_token_amount_upper_bound`
+- Manipulating other users’ obligations should not be possible (unless it is expected e.g. liquidation)
+- Incorrect obligation’s prices updates. For instance in `obligation.move::borrow()`, the `borrow.market_value` is increased by `borrow_market_value` however, the actual market value of the borrow might have fluctuated, resulting in the `market_value` field of the `Borrow` being wrong
+
+
+
+Properties
 
 Health of the Obligations
-    The only way for an obligation to become insolvent is by accrual of interest (over time) and change of price.
+    The only way for an obligation to become insolvent is by accrual of interest (over time) or change of price.
 
 Solvency of the LendingMarket
     The sum of all obligation collateral amounts of some asset must be covered by the protocol reserves of the same asset
 
 Integrity of liquidations
-    Liquidation of an elegible obligation must succeed
+    Liquidation of an unhealthy obligation must succeed
     Liquidation is profitable for the liquidator
 
 -------------------------------------------
@@ -34,7 +49,7 @@ Health of the Obligations
     - Price oracle is timestamp consistent - can never return two different values for the same block.
     - Price oracles / pricing mechanisms entities could only be handled by a trusted party (admin / owner / governance).
     - Evaluation of an asset by a price oracle must be monotonically increasing with respect to the token amount (and zero for zero amount). The evaluation must not be capped.
-    - Borrowing x additional tokens must **instantaneously** increase the debt amount of an obligation by x.
+    - Borrowing x additional tokens must instantaneously increase the debt amount of an obligation by x.
     - The evaluation of an asset at time T must take into account the latest price possible at that time.
 
     Integrity of is_healthy check
@@ -57,8 +72,8 @@ Solvency of the contract
 	- sum of deposited liquidity (simply liquidity) >= sum of minted collaterals
 
     Solvency Ratio
-	Ratio between underlying assets (liquidity reserve) and share tokens (collateral reserve) should only increase
-	only liquidation can decrease ratio of underlying assets and shares
+	- Ratio between underlying assets (liquidity reserve) and share tokens (collateral reserve) should only increase
+	- only liquidation can decrease ratio of underlying assets and shares
 
 liquidation
     Liquidation of an obligation must succeed if the following conditions hold:
@@ -77,7 +92,7 @@ liquidation
     - Liquidation of a obligation should never involve tokens other than the debt and collateral tokens of the obligation (no transfer of unrelated tokens).
     - The only way to DoS a liquidation is either a front-running **liquidation of the same obligation,** or if some debt was paid.
     - Liquidation of x > 0 tokens must succeed if any liquidation of y > x tokens succeeds.
-    - Single tick of accrue interest should never cause a solvent address to become bad debt. TODO refresh method ??
+    - Single tick of accrue interest should never cause a solvent address to become bad debt.
     - A liquidator should never pay more than his specified bound.
     - It should never be more profitable to liquidate itself rather than just repay.
     - Liquidations are profitable for the liquidator
@@ -91,7 +106,7 @@ Low level: basic integrity
     Any active borrower should be allowed to repay his debt at any time if the liquidation threshold hasn’t been reached. In general, the debt could be repaid by someone other than the borrower.
 
 Low level: correct accounting (ERC4626 - like)
-    no methods for convertToShares and convertToAssets. They just reuse this snippet
+    no methods for convertToShares and convertToAssets.
         let liquidity_amount = floor(mul(
             decimal::from(balance::value(&ctokens)),
             ctoken_ratio))
