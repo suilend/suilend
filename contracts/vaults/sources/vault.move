@@ -75,6 +75,7 @@ const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
 const MAX_REWARDS_STALENESS_MS: u64 = 3_600_000; // 1 hour in ms
 const MIN_REWARDS_STALENESS_MS: u64 = 60_000; // 1 min in ms
 const SECONDS_PER_YEAR: u64 = 31_536_000;
+const SLIPPAGE_BPS: u64 = 10; // For use in permissionless reward swap
 
 const VAULT_SHARE_DECIMALS: u8 = 6;
 const VAULT_SHARE_SYMBOL: vector<u8> = b"vSHARES";
@@ -96,7 +97,6 @@ public struct Vault<phantom V, phantom T> has key, store {
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
-    slippage_bps: u64,
     accumulator_cap: Option<AccumulatorCap<V>>,
     redemption_ratio_high_water_mark: Decimal, // Highest redemption ratio achieved (vault_value_in_base_asset / shares) for performance fees
     last_cranked_ms: u64, // timestamp_ms when rewards were last compounded and fees were last accrued
@@ -130,7 +130,6 @@ public struct VaultCreatedEvent has copy, drop {
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
-    slippage_bps: u64,
 }
 
 public struct VaultDepositEvent has copy, drop {
@@ -205,7 +204,6 @@ public fun create_vault<V, T>(
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
     withdrawal_fee_bps: u64,
-    slippage_bps: u64,
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): VaultManagerCap<V> {
@@ -242,7 +240,6 @@ public fun create_vault<V, T>(
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
-        slippage_bps,
         accumulator_cap: option::some(accumulator::create_accumulator_cap()),
         redemption_ratio_high_water_mark: decimal::from(1), // Initial ratio is 1.0 (1 share = 1 base asset)
         last_cranked_ms: current_time_ms,
@@ -259,7 +256,6 @@ public fun create_vault<V, T>(
         performance_fee_bps,
         deposit_fee_bps,
         withdrawal_fee_bps,
-        slippage_bps,
     });
 
     transfer::public_share_object(vault);
@@ -451,17 +447,6 @@ public fun create_obligation<V, T, L>(
         let obls = vector::singleton(obl);
         vault.obligations.insert(lending_market_type, obls);
     };
-}
-
-public fun set_slippage<V, T>(
-    vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
-    slippage_bps: u64,
-    _ctx: &mut TxContext,
-) {
-    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
-
-    vault.slippage_bps = slippage_bps;
 }
 
 public fun set_metadata<V, T>(
@@ -757,7 +742,6 @@ public fun swap_reward_for_base_token_w_oracle<V, T, RewardType>(
 
     let RewardWithdrawTicket { reward } = ticket;
 
-    // Calculate min_amount_out using slippage_bps and reserve prices for RewardType + T
     let reward_reserve = main_lending_market.reserve<_, RewardType>();
     let deposit_reserve = main_lending_market.reserve<_, T>();
 
@@ -774,7 +758,7 @@ public fun swap_reward_for_base_token_w_oracle<V, T, RewardType>(
     let min_amount_out = expected_base_token_amount
         .mul(decimal::from(BASIS_POINTS)
             .sub(
-                decimal::from(vault.slippage_bps),
+                decimal::from(SLIPPAGE_BPS),
             )
             .div(decimal::from(BASIS_POINTS)))
         .floor();

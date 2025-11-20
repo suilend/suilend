@@ -33,7 +33,6 @@ const DEPOSIT_FEE_BPS: u64 = 500; // 5%
 const WITHDRAWAL_FEE_BPS: u64 = 300; // 3%
 const MANAGEMENT_FEE_BPS: u64 = 200; // 2%
 const PERFORMANCE_FEE_BPS: u64 = 1000; // 10%
-const SLIPPAGE_BPS: u64 = 200; // 2%
 
 const NAV_PRECISION: u128 = 1_000_000_000;
 
@@ -88,7 +87,6 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
-        SLIPPAGE_BPS,
         &clock,
         ctx,
     );
@@ -702,7 +700,6 @@ fun test_fee_limits() {
         5000, // 50% performance fee (at limit)
         500, // 5% deposit fee (at limit)
         500, // 5% withdrawal fee (at limit)
-        SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
     );
@@ -735,7 +732,6 @@ fun test_excessive_fee_failure() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
-        SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
     );
@@ -1052,7 +1048,6 @@ fun test_compound_rewards_with_swap() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
-        SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
     );
@@ -1397,7 +1392,6 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
-        SLIPPAGE_BPS,
         &clock,
         scenario.ctx(),
     );
