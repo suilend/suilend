@@ -12,9 +12,9 @@
 import { MoveStruct } from '../../../utils/index.js';
 import { bcs } from '@mysten/sui/bcs';
 const $moduleName = '0x2::balance';
-export const Supply = new MoveStruct({ name: `${$moduleName}::Supply`, fields: {
+export const Balance = new MoveStruct({ name: `${$moduleName}::Balance`, fields: {
         value: bcs.u64()
     } });
-export const Balance = new MoveStruct({ name: `${$moduleName}::Balance`, fields: {
+export const Supply = new MoveStruct({ name: `${$moduleName}::Supply`, fields: {
         value: bcs.u64()
     } });
