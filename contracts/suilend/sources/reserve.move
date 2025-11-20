@@ -31,6 +31,7 @@ module suilend::reserve {
     use suilend::staker::{Self, Staker};
     use sui_system::sui_system::{SuiSystemState};
     use sprungsui::sprungsui::SPRUNGSUI;
+    use liquid_staking::liquid_staking::LiquidStakingInfo;
 
     // === Errors ===
     const EPriceStale: u64 = 0;
@@ -98,6 +99,7 @@ module suilend::reserve {
     // === Dynamic Field Keys ===
     public struct BalanceKey has copy, drop, store {}
     public struct StakerKey has copy, drop, store {}
+    public struct LSTRedemptionRateKey has copy, drop, store {}
 
     /// Balances are stored in a dynamic field to avoid typing the Reserve with CoinType
     public struct Balances<phantom P, phantom T> has store {
@@ -106,6 +108,11 @@ module suilend::reserve {
         fees: Balance<T>,
         ctoken_fees: Balance<CToken<P, T>>,
         deposited_ctokens: Balance<CToken<P, T>>
+    }
+
+    public struct LSTRedemptionRate has store {
+        redemption_rate: Decimal,
+        last_updated_s: u64,
     }
 
     // === Events ===
@@ -1078,9 +1085,49 @@ module suilend::reserve {
         assert!(price_identifier == reserve.price_identifier, EPriceIdentifierMismatch);
         assert!(option::is_some(&price_decimal), EInvalidPrice);
 
-        reserve.price = option::extract(&mut price_decimal);
+        reserve.price = {
+            let price = option::extract(&mut price_decimal);
+
+            // Apply redemption_rate to LSTs
+            if (dynamic_field::exists_(&reserve.id, LSTRedemptionRateKey {})) {
+                let field: &LSTRedemptionRate = dynamic_field::borrow(&reserve.id, LSTRedemptionRateKey {});
+                price.mul(field.redemption_rate)
+            } else {
+                price
+            }
+        };
+
         reserve.smoothed_price = ema_price_decimal;
         reserve.price_last_update_timestamp_s = clock::timestamp_ms(clock) / 1000;
+    }
+
+    /// Updates the LST redemption rate (net of fees) for the reserve.
+    /// Used in `update_price` to adjust LST oracle price.
+    public fun update_lst_redemption_rate<P, T>(
+        reserve: &mut Reserve<P>,
+        liquid_staking_info: &LiquidStakingInfo<T>,
+        clock: &Clock,
+    ) {
+        assert!(reserve.coin_type == type_name::with_defining_ids<T>(), EWrongType);
+
+        let one_lst = decimal::from(1_000_000_000);
+        let current_redemption_rate = decimal::from(liquid_staking_info.net_redemption_amount()).div(one_lst);
+        let timestamp = clock.timestamp_ms() / 1000;
+
+        if (dynamic_field::exists_(&reserve.id, LSTRedemptionRateKey {})) {
+            let existing: &mut LSTRedemptionRate = dynamic_field::borrow_mut(
+                &mut reserve.id,
+                LSTRedemptionRateKey {},
+            );
+            existing.redemption_rate = current_redemption_rate;
+            existing.last_updated_s = timestamp;
+        } else {
+            let redemption_data = LSTRedemptionRate {
+                redemption_rate: current_redemption_rate,
+                last_updated_s: timestamp,
+            };
+            dynamic_field::add(&mut reserve.id, LSTRedemptionRateKey {}, redemption_data);
+        }
     }
 
     /// Compounds interest and debt for the reserve.
