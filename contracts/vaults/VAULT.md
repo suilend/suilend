@@ -91,7 +91,7 @@ All valuations use prices from Suilend `lending_market.reserve`, which are Pyth-
 
 **Reward Compounding**: Base token rewards are compounded permissionlessly via direct deposit. Non-base token rewards are withdrawn, swapped externally, then deposited with slippage validation when oracles are available.
 
-**Slippage**: The vault stores a `slippage_bps` parameter for reward swaps. When both reward and base tokens have MAIN_POOL reserves, slippage protection is enforced using oracle prices.
+**Slippage**: Reward swaps use a slippage tolerance of 0.1% (10 basis points). When both reward and base tokens have MAIN_POOL reserves, slippage protection is enforced using oracle prices.
 
 ## Planned Features
 
