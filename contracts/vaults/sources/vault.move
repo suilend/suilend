@@ -815,6 +815,22 @@ public fun create_vault_value_accumulator<V, T>(vault: &mut Vault<V, T>): VaultV
     cap.create_vault_value_accumulator(obligation_ids)
 }
 
+public fun process_lending_market_for_value_accumulator<V, L>(
+    acc: &mut VaultValueAccumulator<V>,
+    lending_market: &LendingMarket<L>,
+) {
+    acc.process_lending_market_for_value_accumulator(lending_market)
+}
+
+public fun finalize_vault_value_accumulator<V, T, L>(
+    vault: &Vault<V, T>,
+    acc: VaultValueAccumulator<V>,
+    lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
+    clock: &Clock,
+): VaultValueAggregate<V> {
+    acc.finalize_vault_value_accumulator(&vault.deposit_asset, lending_market, clock)
+}
+
 /// Create a vault crank accumulator for processing all lending markets
 /// Tracks all LMs and obligations that need to be processed by process_lending_market_for_crank()
 public fun create_vault_crank_accumulator<V, T>(
@@ -835,6 +851,13 @@ public fun create_vault_crank_accumulator<V, T>(
     let cap = option::extract(&mut vault.accumulator_cap);
 
     cap.create_vault_crank_accumulator(obligation_ids, main_lending_market)
+}
+
+public fun process_lending_market_for_crank<V, L>(
+    crank: &mut VaultCrankAccumulator<V>,
+    lending_market: &LendingMarket<L>,
+) {
+    crank.process_lending_market_for_crank(lending_market)
 }
 
 /// Ensures all LendingMarkets were processed, accrues fees, updates last_cranked_ms timestamp
