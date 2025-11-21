@@ -63,6 +63,7 @@ public struct VaultUnwindAccumulator<phantom V> {
     agg: VaultValueAggregate<V>,
 }
 
+/// Aggregated value data for all obligations in a lending market
 public struct LendingMarketAllocation has copy, drop {
     deposited_value_usd: Decimal,
     borrowed_value_usd: Decimal,
@@ -70,6 +71,7 @@ public struct LendingMarketAllocation has copy, drop {
     obligations: vector<ObligationAllocation>,
 }
 
+/// Value data for a single obligation
 public struct ObligationAllocation has copy, drop, store {
     obligation_id: ID,
     deposited_value_usd: Decimal,
@@ -85,22 +87,27 @@ public struct UnwindTarget has drop {
 
 // === Public functions ===
 
+/// Total USD value of all obligations across all lending markets
 public fun total_obligation_value_usd<V>(self: &VaultValueAggregate<V>): Decimal {
     self.total_obligation_value_usd
 }
 
+/// USD value of vault's liquid assets
 public fun liquid_asset_value_usd<V>(self: &VaultValueAggregate<V>): Decimal {
     self.liquid_asset_value_usd
 }
 
+/// Obligation index for this unwind target
 public fun obligation_index(self: &UnwindTarget): u64 {
     self.obligation_index
 }
 
+/// USD amount to recover from this unwind
 public fun usd_to_recover(self: &UnwindTarget): Decimal {
     self.usd_to_recover
 }
 
+/// Allocation data for each lending market
 public fun lending_market_allocations<V>(
     self: &VaultValueAggregate<V>,
 ): vec_map::VecMap<TypeName, LendingMarketAllocation> {
@@ -109,11 +116,12 @@ public fun lending_market_allocations<V>(
 
 // === Package functions ===
 
-/// Should be used once per vault. V = vault share type
+/// Create accumulator capability. Use once per vault. V = vault share type
 public(package) fun create_accumulator_cap<V>(): AccumulatorCap<V> {
     AccumulatorCap {}
 }
 
+/// Create accumulator to aggregate obligation values
 public(package) fun create_vault_value_accumulator<V>(
     cap: AccumulatorCap<V>,
     lm_obligations_map: vec_map::VecMap<TypeName, vector<ID>>,
@@ -125,6 +133,7 @@ public(package) fun create_vault_value_accumulator<V>(
     }
 }
 
+/// Process lending market and calculate obligation values
 public(package) fun process_lending_market_for_value_accumulator<V, L>(
     acc: &mut VaultValueAccumulator<V>,
     lending_market: &LendingMarket<L>,
@@ -147,6 +156,7 @@ public(package) fun process_lending_market_for_value_accumulator<V, L>(
     acc.lending_market_allocations.insert(lending_market_type, lending_market_allocation);
 }
 
+/// Complete accumulation and return aggregate with total vault value
 public(package) fun finalize_vault_value_accumulator<V, T, L>(
     acc: VaultValueAccumulator<V>,
     deposit_asset: &Balance<T>,
@@ -179,6 +189,7 @@ public(package) fun finalize_vault_value_accumulator<V, T, L>(
     }
 }
 
+/// Consume aggregate and return accumulator capability
 public(package) fun destroy_vault_value_aggregate<V>(
     agg: VaultValueAggregate<V>,
 ): AccumulatorCap<V> {
@@ -232,6 +243,7 @@ public(package) fun process_lending_market_for_crank<V, L>(
     crank.acc.lending_market_allocations.insert(lending_market_type, lending_market_allocation);
 }
 
+/// Complete crank accumulation and return aggregate
 public(package) fun finalize_crank_accumulator<V, T, L>(
     crank: VaultCrankAccumulator<V>,
     deposit_asset: &Balance<T>,
@@ -248,6 +260,7 @@ public(package) fun finalize_crank_accumulator<V, T, L>(
     agg
 }
 
+/// Create accumulator with unwind plan to cover withdrawal shortfall
 public(package) fun create_unwind_accumulator<V>(
     agg: VaultValueAggregate<V>,
     shortfall_usd: Decimal,
@@ -262,6 +275,7 @@ public(package) fun create_unwind_accumulator<V>(
     }
 }
 
+/// Complete unwind accumulation and return shares and updated aggregate
 public(package) fun finalize_unwind_accumulator<V, T, L>(
     acc: VaultUnwindAccumulator<V>,
     deposit_asset: &Balance<T>,
@@ -303,6 +317,7 @@ public(package) fun refresh_aggregate_for_lending_market<V, L>(
     agg.total_obligation_value_usd = total_obligation_value_usd;
 }
 
+/// Update aggregate for lending market within unwind accumulator
 public(package) fun refresh_unwind_aggregate_for_lending_market<V, L>(
     acc: &mut VaultUnwindAccumulator<V>,
     obligation_ids: vector<ID>,
@@ -311,6 +326,7 @@ public(package) fun refresh_unwind_aggregate_for_lending_market<V, L>(
     acc.agg.refresh_aggregate_for_lending_market(obligation_ids, lending_market)
 }
 
+/// Recalculate liquid asset value in USD
 public(package) fun refresh_liquid_asset_value<V, T, L>(
     agg: &mut VaultValueAggregate<V>,
     deposit_asset: &Balance<T>,
@@ -324,6 +340,7 @@ public(package) fun refresh_liquid_asset_value<V, T, L>(
     agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
 }
 
+/// Get next unwind targets for lending market
 public(package) fun get_next_unwind_targets<V, L>(
     acc: &mut VaultUnwindAccumulator<V>,
 ): option::Option<vector<UnwindTarget>> {
@@ -349,6 +366,7 @@ public(package) fun get_next_unwind_targets<V, L>(
 
 // === Private functions ===
 
+/// Verify obligation has no unclaimed main pool rewards
 fun assert_no_claimable_rewards<V>(
     lending_market: &LendingMarket<V>,
     main_pool_reserves: &vector<TypeName>,
@@ -398,6 +416,7 @@ fun assert_no_claimable_rewards<V>(
     });
 }
 
+/// Get indexes of rewards with non-zero claimable amounts
 fun get_claimable_reward_indexes(
     user_reward_manager: &liquidity_mining::UserRewardManager,
     pool_reward_manager: &liquidity_mining::PoolRewardManager,
@@ -484,6 +503,7 @@ fun calculate_unwind_plan<V>(
     unwind_map
 }
 
+/// Aggregate obligation allocations into lending market totals
 fun aggregate_allocation_data(
     obligation_allocations: vector<ObligationAllocation>,
 ): LendingMarketAllocation {
@@ -505,6 +525,7 @@ fun aggregate_allocation_data(
     }
 }
 
+/// Sum net value across all lending markets
 fun aggregate_lending_market_obligations(
     allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 ): Decimal {
