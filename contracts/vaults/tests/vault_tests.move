@@ -7,9 +7,9 @@ use sui::{
     coin::{Self, Coin},
     coin_registry::{Self, Currency},
     object_table,
-    test_scenario::{Self as ts, Scenario},
-    test_utils
+    test_scenario::{Self as ts, Scenario}
 };
+use sui_system::test_runner::{Self, TestRunner};
 use suilend::{
     decimal,
     lending_market::{Self, LendingMarket},
@@ -41,66 +41,64 @@ const TEST_COIN_DECIMALS: u8 = 6;
 #[error]
 const EShouldNotReach: u8 = 0;
 
-fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
-    let mut scenario = ts::begin(ADMIN);
-
-    let ctx = scenario.ctx();
+fun init_vault_scenario(): (mock_pyth::PriceState, TestRunner) {
+    let mut runner = test_runner::build(test_runner::new());
 
     // Create clock
-    let clock = clock::create_for_testing(ctx);
+    let clock = clock::create_for_testing(runner.ctx());
 
-    let (curr, treasury_cap) = create_vault_shares(ctx);
+    let (vault_share_currency, treasury_cap) = create_vault_shares(runner.ctx());
 
-    let mut prices = mock_pyth::init_state(ctx);
-    mock_pyth::register<TEST_COIN>(&mut prices, ctx);
+    let mut prices = mock_pyth::init_state(runner.ctx());
+    mock_pyth::register<TEST_COIN>(&mut prices, runner.ctx());
     mock_pyth::update_price<TEST_COIN>(&mut prices, 1, 0, &clock); // $1
 
     let mut lending_market = lending_market::mock_for_testing<TEST_LENDING_MARKET>(
         vector::empty(),
-        object_table::new(ctx),
+        object_table::new(runner.ctx()),
         FEE_RECEIVER,
         decimal::from(0),
         decimal::from(0),
-        ctx,
+        runner.ctx(),
     );
 
     let lm_cap = lending_market::new_lending_market_owner_cap_for_testing<TEST_LENDING_MARKET>(
         object::id(&lending_market),
-        ctx,
+        runner.ctx(),
     );
 
     lending_market::add_reserve_for_testing<TEST_LENDING_MARKET, TEST_COIN>(
         &lm_cap,
         &mut lending_market,
         mock_pyth::get_price_obj<TEST_COIN>(&prices),
-        reserve_config::default_reserve_config(ctx),
+        reserve_config::default_reserve_config(runner.ctx()),
         TEST_COIN_DECIMALS,
         &clock,
-        ctx,
+        runner.ctx(),
     );
 
     // Create vault and manager cap
     let manager_cap = vault::create_vault<_, TEST_COIN>(
         treasury_cap,
-        &curr,
+        &vault_share_currency,
         MANAGEMENT_FEE_BPS,
         PERFORMANCE_FEE_BPS,
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
         &clock,
-        ctx,
+        runner.ctx(),
     );
 
     // Create Steamm CPMM pool for B_TEST_USDC <-> B_TEST_SUI swaps
-    let mut pool = steamm::cpmm_tests::setup_pool(100, 0, &mut scenario);
+    let mut pool = steamm::cpmm_tests::setup_pool(100, 0, runner.scenario_mut());
 
     let mut pool_liquidity_usdc = coin::mint_for_testing<B_TEST_USDC>(
         1_000_000_000_000,
-        scenario.ctx(),
+        runner.ctx(),
     );
     let mut pool_liquidity_sui = coin::mint_for_testing<B_TEST_SUI>(
         1_000_000_000_000,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let (lp_coins, _) = pool.deposit_liquidity(
@@ -108,20 +106,20 @@ fun init_vault_scenario(): (mock_pyth::PriceState, Scenario) {
         &mut pool_liquidity_sui,
         1_000_000_000_000,
         1_000_000_000_000,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     coin::burn_for_testing(lp_coins);
-    test_utils::destroy(pool_liquidity_sui);
-    test_utils::destroy(pool_liquidity_usdc);
+    test_runner::destroy(pool_liquidity_sui);
+    test_runner::destroy(pool_liquidity_usdc);
     clock.share_for_testing();
     transfer::public_share_object(pool);
     transfer::public_share_object(lending_market);
-    test_utils::destroy(curr);
+    test_runner::destroy(vault_share_currency);
     transfer::public_transfer(lm_cap, ADMIN);
     transfer::public_transfer(manager_cap, ADMIN);
 
-    (prices, scenario)
+    (prices, runner)
 }
 
 fun create_vault_shares(
@@ -178,19 +176,18 @@ fun mint_test_coin(amount: u64, ctx: &mut TxContext): Coin<TEST_COIN> {
 
 #[test]
 fun test_deposit_and_withdraw() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let lending_market = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     // User gets 1000 tokens
     let token_amount = 1000;
-    let deposit_coin = mint_test_coin(token_amount, scenario.ctx());
+    let deposit_coin = mint_test_coin(token_amount, runner.ctx());
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let mut vault_shares = vault.deposit(
@@ -198,17 +195,17 @@ fun test_deposit_and_withdraw() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
 
     // Test withdrawal
     let shares_to_withdraw = vault_shares.value() / 2;
     let withdraw_shares = coin::split(
         &mut vault_shares,
         shares_to_withdraw,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
@@ -217,7 +214,7 @@ fun test_deposit_and_withdraw() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Should get back approximately half (minus withdrawal fees)
@@ -225,39 +222,39 @@ fun test_deposit_and_withdraw() {
     assert!(withdrawn_amount > 0);
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(vault_shares);
         coin::burn_for_testing(withdrawn_coins);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
-        transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_fees_collected() {
-    let (mut prices, mut scenario) = init_vault_scenario();
+    let (mut prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let mut clock = scenario.take_shared<Clock>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let mut clock = runner.scenario_mut().take_shared<Clock>();
 
     // User deposits 1,000,000 tokens
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
     let deposit_amount = 1_000_000;
-    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
@@ -279,21 +276,27 @@ fun test_fees_collected() {
     assert!(initial_total_supply == deposit_amount * exp);
 
     // Manager creates obligation and deploys funds
-    scenario.next_tx(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    runner.set_sender(ADMIN);
+    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
+        vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+        runner.keep(manager_cap);
+    });
     let obligation_index = 0;
 
     let deploy_amount = 500_000 * exp;
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    vault.deploy_funds(
-        &manager_cap,
-        &mut lending_market,
-        obligation_index,
-        deploy_amount,
-        &clock,
-        agg,
-        scenario.ctx(),
-    );
+    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
+        vault.deploy_funds(
+            &manager_cap,
+            &mut lending_market,
+            obligation_index,
+            deploy_amount,
+            &clock,
+            agg,
+            runner.ctx(),
+        );
+        runner.keep(manager_cap);
+    });
 
     // === TEST 1: Management fees after 1 year ===
 
@@ -311,7 +314,7 @@ fun test_fees_collected() {
     let total_supply_before_crank = vault.total_supply();
 
     // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
@@ -338,7 +341,7 @@ fun test_fees_collected() {
     assert!(manager_fees_after_mgmt == expected_deposit_fee_shares + mgmt_fee_shares_round1);
 
     // === TEST 2: Price doubles but vault holds same amount (NO performance fee) ===
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     // Advance time by another year
     clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
@@ -391,18 +394,18 @@ fun test_fees_collected() {
     assert!(manager_fees_delta_round2 == mgmt_fee_shares_round2);
 
     // === TEST 3: Manager generates actual alpha through reward compounding ===
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     // Set up rewards pool to simulate real yield generation
     let reserve_array_index = 0;
     let reward_amount = 150_000; // 150k tokens in rewards
-    let reward_coin = mint_test_coin(reward_amount, scenario.ctx());
+    let reward_coin = mint_test_coin(reward_amount, runner.ctx());
     let start_time_ms = clock.timestamp_ms();
     let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000); // 30 days
 
-    let lm_cap = scenario.take_from_sender<
-        lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
-    >();
+    let lm_cap = runner
+        .scenario_mut()
+        .take_from_sender<lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>>();
 
     lm_cap.add_pool_reward<TEST_LENDING_MARKET, TEST_COIN>(
         &mut lending_market,
@@ -412,7 +415,7 @@ fun test_fees_collected() {
         start_time_ms,
         end_time_ms,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Get vault value before rewards
@@ -437,7 +440,7 @@ fun test_fees_collected() {
     );
 
     // Compound the rewards
-    scenario.next_tx(USER2);
+    runner.set_sender(USER2);
     vault.compound_rewards<VAULT_TESTS, TEST_COIN, TEST_LENDING_MARKET>(
         &mut lending_market,
         obligation_index,
@@ -446,7 +449,7 @@ fun test_fees_collected() {
         true, // is_deposit_reward
         0, // deposit_reserve_index
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Get vault value after rewards to verify alpha was generated
@@ -480,7 +483,7 @@ fun test_fees_collected() {
     let manager_fees_before_perf = vault.get_manager_fees_for_testing();
 
     // Crank - now should get BOTH management and performance fees
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
@@ -523,51 +526,49 @@ fun test_fees_collected() {
     assert!(manager_fees_delta_round3 == total_fee_shares_round3);
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(vault_shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
-        transfer::public_transfer(manager_cap, ADMIN);
         transfer::public_transfer(lm_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_multiple_users() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let lending_market = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    let clock = scenario.take_shared<Clock>();
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     // User 1 deposits
-    scenario.next_tx(USER1);
-    let deposit1 = mint_test_coin(1000000, scenario.ctx());
+    runner.set_sender(USER1);
+    let deposit1 = mint_test_coin(1000000, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let shares1 = vault.deposit(
         deposit1,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // User 2 deposits
-    scenario.next_tx(USER2);
-    let deposit2 = mint_test_coin(2000000, scenario.ctx()); // Above MIN_DEPOSIT
+    runner.set_sender(USER2);
+    let deposit2 = mint_test_coin(2000000, runner.ctx()); // Above MIN_DEPOSIT
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let shares2 = vault.deposit(
         deposit2,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Both users should have shares
@@ -575,85 +576,86 @@ fun test_multiple_users() {
     assert!(coin::value(&shares2) > 0);
 
     // User 1 withdraws
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn1 = vault.withdraw(
         shares1,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
     assert!(coin::value(&withdrawn1) > 0);
 
     // User 2 withdraws
-    scenario.next_tx(USER2);
+    runner.set_sender(USER2);
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn2 = vault.withdraw(
         shares2,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
     assert!(coin::value(&withdrawn2) > 0);
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(withdrawn1);
         coin::burn_for_testing(withdrawn2);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
-        transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_manager_cap_validation() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let manager_cap = runner.scenario_mut().take_from_sender<VaultManagerCap<VAULT_TESTS>>();
 
     // Test obligation creation (manager only)
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
-        ts::return_to_sender(&scenario, manager_cap);
+        test_runner::destroy(manager_cap);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 #[expected_failure(abort_code = vault::EInvalidDeposit)]
 fun test_minimum_deposit_failure() {
-    let (_prices, mut scenario) = init_vault_scenario();
+    let (_prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let lending_market = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     // Try to deposit amount below minimum (should fail)
-    let small_deposit = coin::mint_for_testing<TEST_COIN>(1, scenario.ctx()); // Less than MIN_DEPOSIT
+    let small_deposit = coin::mint_for_testing<TEST_COIN>(1, runner.ctx()); // Less than MIN_DEPOSIT
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let _shares = vault.deposit(
         small_deposit,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     abort EShouldNotReach
@@ -662,24 +664,24 @@ fun test_minimum_deposit_failure() {
 #[test]
 #[expected_failure(abort_code = vault::EInsufficientShares)]
 fun test_insufficient_shares_withdrawal() {
-    let (_prices, mut scenario) = init_vault_scenario();
+    let (_prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let lending_market = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     // Try to withdraw with zero shares (should fail)
-    let zero_shares = coin::zero<VAULT_TESTS>(scenario.ctx());
+    let zero_shares = coin::zero<VAULT_TESTS>(runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let _withdrawn = vault.withdraw(
         zero_shares,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     abort EShouldNotReach
@@ -687,10 +689,10 @@ fun test_insufficient_shares_withdrawal() {
 
 #[test]
 fun test_fee_limits() {
-    let (prices, mut scenario) = init_vault_scenario();
-    scenario.next_tx(ADMIN);
-    let clock = scenario.take_shared<Clock>();
-    let (curr, t_cap) = create_vault_shares(scenario.ctx());
+    let (prices, mut runner) = init_vault_scenario();
+    runner.set_sender(ADMIN);
+    let clock = runner.scenario_mut().take_shared<Clock>();
+    let (curr, t_cap) = create_vault_shares(runner.ctx());
 
     // Test that fee limits are enforced during vault creation
     let manager_cap = vault::create_vault<_, TEST_COIN>(
@@ -701,28 +703,28 @@ fun test_fee_limits() {
         500, // 5% deposit fee (at limit)
         500, // 5% withdrawal fee (at limit)
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         ts::return_shared(clock);
-        test_utils::destroy(curr);
+        test_runner::destroy(curr);
         transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 #[expected_failure(abort_code = vault::EFeeLimitExceeded)]
 fun test_excessive_fee_failure() {
-    let (_prices, mut scenario) = init_vault_scenario();
+    let (_prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
-    let (curr, t_cap) = create_vault_shares(scenario.ctx());
-    let clock = scenario.take_shared<Clock>();
+    let (curr, t_cap) = create_vault_shares(runner.ctx());
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     // Try to create vault with excessive fees (should fail)
     let _manager_cap = vault::create_vault<_, TEST_COIN>(
@@ -733,7 +735,7 @@ fun test_excessive_fee_failure() {
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     abort EShouldNotReach
@@ -741,18 +743,20 @@ fun test_excessive_fee_failure() {
 
 #[test]
 fun test_allocate_and_divest() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = runner.scenario_mut().take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     let deposit_amount = 1000;
-    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
     let manager_deploy_amount = deposit_coin.value() / 2;
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
@@ -761,16 +765,16 @@ fun test_allocate_and_divest() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
     let user_withdraw_amount = vault_shares.value() / 2;
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     vault.create_obligation(
         &manager_cap,
         &mut lending_market,
-        scenario.ctx(),
+        runner.ctx(),
     );
     let obligation_index = 0;
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
@@ -781,10 +785,10 @@ fun test_allocate_and_divest() {
         manager_deploy_amount,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     vault.divest_funds(
@@ -794,15 +798,15 @@ fun test_allocate_and_divest() {
         ctokens_amt - 100, // Leave MIN_AVAILABLE_AMOUNT in reserve
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
 
     let shares_to_withdraw = coin::split(
         &mut vault_shares,
         user_withdraw_amount,
-        scenario.ctx(),
+        runner.ctx(),
     );
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn_coins = vault.withdraw(
@@ -810,11 +814,11 @@ fun test_allocate_and_divest() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(vault_shares);
         coin::burn_for_testing(withdrawn_coins);
         ts::return_shared(clock);
@@ -823,32 +827,33 @@ fun test_allocate_and_divest() {
         transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_nav_changes() {
-    let (mut prices, mut scenario) = init_vault_scenario();
+    let (mut prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let mut clock = scenario.take_shared<Clock>();
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let mut clock = runner.scenario_mut().take_shared<Clock>();
 
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
 
     // Deposit funds
     let deposit_amount = 1000000;
-    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let shares = vault.deposit(
         deposit_coin,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Calculate initial NAV per share (should be 1.0 scaled)
@@ -893,47 +898,48 @@ fun test_nav_changes() {
     assert!(diluted_nav < initial_nav);
 
     {
-        test_utils::destroy(prices);
-        test_utils::destroy(agg);
+        test_runner::destroy(prices);
+        test_runner::destroy(agg);
         coin::burn_for_testing(shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
-        transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_compound_rewards() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let lm_cap = scenario.take_from_sender<
-        lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
-    >();
-    let mut clock = scenario.take_shared<Clock>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let manager_cap = runner.scenario_mut().take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    let lm_cap = runner
+        .scenario_mut()
+        .take_from_sender<lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>>();
+    let mut clock = runner.scenario_mut().take_shared<Clock>();
 
     // User deposits into vault
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
     let deposit_amount = 1000000;
-    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Manager creates obligation and deploys funds
-    scenario.next_tx(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    runner.set_sender(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
     let obligation_index = 0;
 
     let deploy_amount = 500000;
@@ -945,14 +951,14 @@ fun test_compound_rewards() {
         deploy_amount,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Admin adds reward pool for deposit rewards
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
     let reserve_array_index = 0;
     let reward_amount = 100000;
-    let reward_coin = mint_test_coin(reward_amount, scenario.ctx());
+    let reward_coin = mint_test_coin(reward_amount, runner.ctx());
     let start_time_ms = clock.timestamp_ms();
     let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000); // 30 days
 
@@ -964,14 +970,14 @@ fun test_compound_rewards() {
         start_time_ms,
         end_time_ms,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Advance clock to end of reward period
     clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days
 
     // Call compound_rewards (permissionless)
-    scenario.next_tx(USER2);
+    runner.set_sender(USER2);
     vault.compound_rewards<VAULT_TESTS, TEST_COIN, TEST_LENDING_MARKET>(
         &mut lending_market,
         obligation_index,
@@ -980,7 +986,7 @@ fun test_compound_rewards() {
         true, // is_deposit_reward
         0, // deposit_reserve_index
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Verify rewards were claimed and deposited back into the obligation
@@ -999,7 +1005,7 @@ fun test_compound_rewards() {
     assert!(deposited_value > 0);
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(vault_shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
@@ -1008,26 +1014,28 @@ fun test_compound_rewards() {
         transfer::public_transfer(lm_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_compound_rewards_with_swap() {
-    let (mut prices, mut scenario) = init_vault_scenario();
+    let (mut prices, mut runner) = init_vault_scenario();
 
     // Create a new vault with B_TEST_SUI as underlying asset (different from default TEST_COIN vault)
-    scenario.next_tx(ADMIN);
-    let mut clock = scenario.take_shared<Clock>();
-    let (curr, treasury_cap) = create_vault_shares(scenario.ctx());
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let lm_cap = scenario.take_from_sender<
-        lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
-    >();
+    runner.set_sender(ADMIN);
+    let mut clock = runner.scenario_mut().take_shared<Clock>();
+    let (curr, treasury_cap) = create_vault_shares(runner.ctx());
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let lm_cap = runner
+        .scenario_mut()
+        .take_from_sender<lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>>();
 
     let b_token_decimals = 9;
-    mock_pyth::register<B_TEST_SUI>(&mut prices, scenario.ctx());
+    mock_pyth::register<B_TEST_SUI>(&mut prices, runner.ctx());
     mock_pyth::update_price<B_TEST_SUI>(&mut prices, 4, 0, &clock); // $4
-    mock_pyth::register<B_TEST_USDC>(&mut prices, scenario.ctx());
+    mock_pyth::register<B_TEST_USDC>(&mut prices, runner.ctx());
     mock_pyth::update_price<B_TEST_USDC>(&mut prices, 1, 0, &clock); // $1
 
     // Setup B_TEST_SUI reserve (vault's underlying asset)
@@ -1035,10 +1043,10 @@ fun test_compound_rewards_with_swap() {
         &lm_cap,
         &mut lending_market,
         mock_pyth::get_price_obj<B_TEST_SUI>(&prices),
-        reserve_config::default_reserve_config(scenario.ctx()),
+        reserve_config::default_reserve_config(runner.ctx()),
         b_token_decimals,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let manager_cap = vault::create_vault<_, B_TEST_SUI>(
@@ -1049,41 +1057,41 @@ fun test_compound_rewards_with_swap() {
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Add B_TEST_USDC and B_TEST_SUI as reserves in the lending market
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, B_TEST_SUI>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, B_TEST_SUI>>();
 
     // Setup B_TEST_USDC reserve (for rewards)
     lending_market::add_reserve_for_testing<TEST_LENDING_MARKET, B_TEST_USDC>(
         &lm_cap,
         &mut lending_market,
         mock_pyth::get_price_obj<B_TEST_USDC>(&prices),
-        reserve_config::default_reserve_config(scenario.ctx()),
+        reserve_config::default_reserve_config(runner.ctx()),
         b_token_decimals,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     // User deposits B_TEST_SUI into vault
-    scenario.next_tx(USER1);
-    let deposit_coin = coin::mint_for_testing<B_TEST_SUI>(1_000_000_000_000, scenario.ctx());
+    runner.set_sender(USER1);
+    let deposit_coin = coin::mint_for_testing<B_TEST_SUI>(1_000_000_000_000, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Manager creates obligation and deploys funds to lending market
-    scenario.next_tx(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    runner.set_sender(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
     let obligation_index = 0;
 
     let deploy_amount = 500_000_000_000; // 500 SUI (with 9 decimals)
@@ -1095,16 +1103,16 @@ fun test_compound_rewards_with_swap() {
         deploy_amount,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     // Add B_TEST_USDC reward pool for B_TEST_SUI deposits
     let sui_reserve_index = 1; // Reserve order: [TEST_COIN, B_TEST_SUI, B_TEST_USDC]
     let usdc_reserve_index = 2;
     let reward_amount = 100_000_000_000; // 100 USDC (with 9 decimals)
-    let reward_coin = coin::mint_for_testing<B_TEST_USDC>(reward_amount, scenario.ctx());
+    let reward_coin = coin::mint_for_testing<B_TEST_USDC>(reward_amount, runner.ctx());
     let start_time_ms = clock.timestamp_ms();
     let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000);
 
@@ -1116,7 +1124,7 @@ fun test_compound_rewards_with_swap() {
         start_time_ms,
         end_time_ms,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Advance time to accrue rewards
@@ -1140,7 +1148,7 @@ fun test_compound_rewards_with_swap() {
     };
 
     // Compound rewards: claim B_TEST_USDC, swap to B_TEST_SUI, deposit in vault
-    scenario.next_tx(USER2);
+    runner.set_sender(USER2);
     let ticket = vault.withdraw_reward<VAULT_TESTS, B_TEST_SUI, TEST_LENDING_MARKET, B_TEST_USDC>(
         &mut lending_market,
         obligation_index,
@@ -1148,19 +1156,19 @@ fun test_compound_rewards_with_swap() {
         0, // reward_index
         true, // is_deposit_reward
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let (swap_ticket, reward) = vault.swap_reward_for_base_token_w_oracle(
         ticket,
         &lending_market,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    let output_coin = steamm_swap_usdc_to_sui(reward, &mut scenario);
+    let output_coin = steamm_swap_usdc_to_sui(reward, runner.scenario_mut());
 
-    vault.deposit_swapped_rewards(swap_ticket, output_coin, scenario.ctx());
+    vault.deposit_swapped_rewards(swap_ticket, output_coin, runner.ctx());
 
     // Verify rewards were compounded into the obligation
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
@@ -1179,8 +1187,8 @@ fun test_compound_rewards_with_swap() {
 
     {
         coin::burn_for_testing(vault_shares);
-        test_utils::destroy(prices);
-        test_utils::destroy(curr);
+        test_runner::destroy(prices);
+        test_runner::destroy(curr);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
@@ -1188,26 +1196,25 @@ fun test_compound_rewards_with_swap() {
         transfer::public_transfer(lm_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_share_precision() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let lending_market = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
 
     // === First deposit (1000 tokens) ===
     let small_deposit = 1000 * exp; // 1000 tokens = 1,000,000,000 base units
-    let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, scenario.ctx());
+    let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, runner.ctx());
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let initial_nav = vault.calculate_nav_per_share(&agg).floor();
@@ -1220,7 +1227,7 @@ fun test_share_precision() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let small_shares_amount = small_shares.value();
@@ -1238,9 +1245,9 @@ fun test_share_precision() {
     vault::destroy_vault_value_aggregate_for_testing(agg_after_first, &mut vault);
 
     // === Second deposit (95.5 tokens) ===
-    scenario.next_tx(USER2);
+    runner.set_sender(USER2);
     let large_deposit = (955 * exp) / 10; // 95.5 tokens = 95,500,000 base units
-    let large_coin = coin::mint_for_testing<TEST_COIN>(large_deposit, scenario.ctx());
+    let large_coin = coin::mint_for_testing<TEST_COIN>(large_deposit, runner.ctx());
 
     let agg2 = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let nav_before_second = vault.calculate_nav_per_share(&agg2).floor();
@@ -1255,7 +1262,7 @@ fun test_share_precision() {
         &lending_market,
         &clock,
         agg2,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let large_shares_amount = large_shares.value();
@@ -1286,15 +1293,15 @@ fun test_share_precision() {
     assert!(final_total_supply == 1_095_500_000);
 
     // === Test small withdrawal to verify reverse calculation ===
-    scenario.next_tx(USER1);
-    let withdraw_shares = coin::split(&mut small_shares, 100 * exp, scenario.ctx());
+    runner.set_sender(USER1);
+    let withdraw_shares = coin::split(&mut small_shares, 100 * exp, runner.ctx());
     let agg3 = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let withdrawn = vault.withdraw(
         withdraw_shares,
         &lending_market,
         &clock,
         agg3,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Withdrawing 100 shares (100 * 1e6 base units) at NAV = 1.0 means $100 worth
@@ -1303,35 +1310,33 @@ fun test_share_precision() {
     assert!(withdrawn_amount == 97 * exp);
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(small_shares);
         coin::burn_for_testing(large_shares);
         coin::burn_for_testing(withdrawn);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
-        transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_small_deposit() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let lending_market = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
 
     let small_deposit = (27 * exp) / 100; // $0.27
-    let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, scenario.ctx());
+    let small_coin = coin::mint_for_testing<TEST_COIN>(small_deposit, runner.ctx());
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
 
@@ -1340,38 +1345,39 @@ fun test_small_deposit() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(small_shares);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
-        transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_vault_crank_with_multiple_obligations_and_rewards() {
-    let (mut prices, mut scenario) = init_vault_scenario();
+    let (mut prices, mut runner) = init_vault_scenario();
 
     // Setup vault with B_TEST_SUI as underlying asset
-    scenario.next_tx(ADMIN);
-    let mut clock = scenario.take_shared<Clock>();
-    let (curr, treasury_cap) = create_vault_shares(scenario.ctx());
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let lm_cap = scenario.take_from_sender<
-        lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>,
-    >();
+    runner.set_sender(ADMIN);
+    let mut clock = runner.scenario_mut().take_shared<Clock>();
+    let (curr, treasury_cap) = create_vault_shares(runner.ctx());
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let lm_cap = runner
+        .scenario_mut()
+        .take_from_sender<lending_market::LendingMarketOwnerCap<TEST_LENDING_MARKET>>();
 
     let b_token_decimals = 9;
-    mock_pyth::register<B_TEST_SUI>(&mut prices, scenario.ctx());
+    mock_pyth::register<B_TEST_SUI>(&mut prices, runner.ctx());
     mock_pyth::update_price<B_TEST_SUI>(&mut prices, 4, 0, &clock);
-    mock_pyth::register<B_TEST_USDC>(&mut prices, scenario.ctx());
+    mock_pyth::register<B_TEST_USDC>(&mut prices, runner.ctx());
     mock_pyth::update_price<B_TEST_USDC>(&mut prices, 1, 0, &clock);
 
     // Add B_TEST_SUI reserve (vault's base asset)
@@ -1379,10 +1385,10 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         &lm_cap,
         &mut lending_market,
         mock_pyth::get_price_obj<B_TEST_SUI>(&prices),
-        reserve_config::default_reserve_config(scenario.ctx()),
+        reserve_config::default_reserve_config(runner.ctx()),
         b_token_decimals,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let manager_cap = vault::create_vault<_, B_TEST_SUI>(
@@ -1393,43 +1399,43 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         DEPOSIT_FEE_BPS,
         WITHDRAWAL_FEE_BPS,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, B_TEST_SUI>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, B_TEST_SUI>>();
 
     // Add B_TEST_USDC reserve (for non-base rewards)
     lending_market::add_reserve_for_testing<TEST_LENDING_MARKET, B_TEST_USDC>(
         &lm_cap,
         &mut lending_market,
         mock_pyth::get_price_obj<B_TEST_USDC>(&prices),
-        reserve_config::default_reserve_config(scenario.ctx()),
+        reserve_config::default_reserve_config(runner.ctx()),
         b_token_decimals,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     // User deposits into vault
-    scenario.next_tx(USER1);
-    let deposit_coin = coin::mint_for_testing<B_TEST_SUI>(2_000_000_000_000, scenario.ctx());
+    runner.set_sender(USER1);
+    let deposit_coin = coin::mint_for_testing<B_TEST_SUI>(2_000_000_000_000, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Create two obligations
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
     let obligation_0 = 0;
     let obligation_1 = 1;
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
 
     // Deploy funds to both obligations
     let deploy_amount = 500_000_000_000;
@@ -1441,7 +1447,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         deploy_amount,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
@@ -1452,10 +1458,10 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         deploy_amount,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
-    scenario.next_tx(ADMIN);
+    runner.set_sender(ADMIN);
 
     // Reserve indices: [TEST_COIN, B_TEST_SUI, B_TEST_USDC]
     let sui_reserve_index = 1;
@@ -1469,7 +1475,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
 
     // Add B_TEST_SUI reward pool (base token - direct compound)
     let sui_reward_amount = 50_000_000_000;
-    let sui_reward_coin = coin::mint_for_testing<B_TEST_SUI>(sui_reward_amount, scenario.ctx());
+    let sui_reward_coin = coin::mint_for_testing<B_TEST_SUI>(sui_reward_amount, runner.ctx());
     lm_cap.add_pool_reward<TEST_LENDING_MARKET, B_TEST_SUI>(
         &mut lending_market,
         sui_reserve_index,
@@ -1478,12 +1484,12 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         start_time_ms,
         end_time_ms,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Add B_TEST_USDC reward pool (non-base token - requires swap)
     let usdc_reward_amount = 100_000_000_000;
-    let usdc_reward_coin = coin::mint_for_testing<B_TEST_USDC>(usdc_reward_amount, scenario.ctx());
+    let usdc_reward_coin = coin::mint_for_testing<B_TEST_USDC>(usdc_reward_amount, runner.ctx());
     lm_cap.add_pool_reward<TEST_LENDING_MARKET, B_TEST_USDC>(
         &mut lending_market,
         sui_reserve_index,
@@ -1492,7 +1498,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         start_time_ms,
         end_time_ms,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Advance clock past reward period and staleness limit
@@ -1516,7 +1522,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         );
     };
 
-    scenario.next_tx(USER2);
+    runner.set_sender(USER2);
 
     let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
 
@@ -1531,7 +1537,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
             is_deposit_reward,
             sui_reserve_index,
             &clock,
-            scenario.ctx(),
+            runner.ctx(),
         );
 
         // Obligation 0: USDC rewards
@@ -1548,22 +1554,22 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
                 usdc_reward_index, // reward_index
                 is_deposit_reward,
                 &clock,
-                scenario.ctx(),
+                runner.ctx(),
             );
 
             let (swap_ticket, reward) = vault.swap_reward_for_base_token_w_oracle(
                 ticket,
                 &lending_market,
                 &clock,
-                scenario.ctx(),
+                runner.ctx(),
             );
 
-            let output_coin = steamm_swap_usdc_to_sui(reward, &mut scenario);
+            let output_coin = steamm_swap_usdc_to_sui(reward, runner.scenario_mut());
 
-            vault.deposit_swapped_rewards(swap_ticket, output_coin, scenario.ctx());
+            vault.deposit_swapped_rewards(swap_ticket, output_coin, runner.ctx());
         };
 
-        scenario.next_tx(USER2);
+        runner.set_sender(USER2);
 
         // Obligation 1: SUI rewards
         vault.compound_rewards<VAULT_TESTS, B_TEST_SUI, TEST_LENDING_MARKET>(
@@ -1574,7 +1580,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
             is_deposit_reward,
             sui_reserve_index,
             &clock,
-            scenario.ctx(),
+            runner.ctx(),
         );
 
         // Obligation 1: USDC rewards
@@ -1591,19 +1597,19 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
                 usdc_reward_index, // reward_index
                 is_deposit_reward,
                 &clock,
-                scenario.ctx(),
+                runner.ctx(),
             );
 
             let (swap_ticket, reward) = vault.swap_reward_for_base_token_w_oracle(
                 ticket,
                 &lending_market,
                 &clock,
-                scenario.ctx(),
+                runner.ctx(),
             );
 
-            let output_coin = steamm_swap_usdc_to_sui(reward, &mut scenario);
+            let output_coin = steamm_swap_usdc_to_sui(reward, runner.scenario_mut());
 
-            vault.deposit_swapped_rewards(swap_ticket, output_coin, scenario.ctx());
+            vault.deposit_swapped_rewards(swap_ticket, output_coin, runner.ctx());
         };
     };
 
@@ -1641,22 +1647,22 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
     assert!(obligation.deposited_value_usd().floor() > 0);
 
     // Now user operations should work again (state is fresh)
-    scenario.next_tx(USER1);
-    let test_deposit = coin::mint_for_testing<B_TEST_SUI>(1_000_000_000, scenario.ctx());
+    runner.set_sender(USER1);
+    let test_deposit = coin::mint_for_testing<B_TEST_SUI>(1_000_000_000, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let new_shares = vault.deposit(
         test_deposit,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     {
         coin::burn_for_testing(vault_shares);
         coin::burn_for_testing(new_shares);
-        test_utils::destroy(prices);
-        test_utils::destroy(curr);
+        test_runner::destroy(prices);
+        test_runner::destroy(curr);
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
@@ -1664,25 +1670,27 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         transfer::public_transfer(lm_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 #[expected_failure(abort_code = vault::EInsufficientLiquidity)]
 fun test_withdraw_insufficient_liquidity_failure() {
-    let (_prices, mut scenario) = init_vault_scenario();
+    let (_prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = runner.scenario_mut().take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     // User deposits 1000 tokens
     let deposit_amount = 1000;
-    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
     let net_deposit_amount = (deposit_amount as u64 * (10000 - DEPOSIT_FEE_BPS) / 10000);
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let mut vault_shares = vault.deposit(
@@ -1690,12 +1698,12 @@ fun test_withdraw_insufficient_liquidity_failure() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Manager deploys most of the funds, leaving insufficient liquid assets
-    scenario.next_tx(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    runner.set_sender(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
     let obligation_index = 0;
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
     let liquid_assets_left = 100 * exp;
@@ -1708,20 +1716,20 @@ fun test_withdraw_insufficient_liquidity_failure() {
         deploy_amount,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // User tries to withdraw more than is liquid
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
     let shares_to_withdraw = vault_shares.value() / 2;
-    let withdraw_shares = coin::split(&mut vault_shares, shares_to_withdraw, scenario.ctx());
+    let withdraw_shares = coin::split(&mut vault_shares, shares_to_withdraw, runner.ctx());
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let _withdrawn_coins = vault.withdraw(
         withdraw_shares,
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     abort EShouldNotReach
@@ -1729,19 +1737,21 @@ fun test_withdraw_insufficient_liquidity_failure() {
 
 #[test]
 fun test_unwind_withdrawal_success() {
-    let (prices, mut scenario) = init_vault_scenario();
+    let (prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let mut vault = scenario.take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
-    let manager_cap = scenario.take_from_sender<VaultManagerCap<VAULT_TESTS>>();
-    let mut lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let manager_cap = runner.scenario_mut().take_from_sender<VaultManagerCap<VAULT_TESTS>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
 
-    scenario.next_tx(USER1);
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(USER1);
+    let clock = runner.scenario_mut().take_shared<Clock>();
 
     // User deposits 1000 tokens
     let deposit_amount = 1000;
-    let deposit_coin = mint_test_coin(deposit_amount, scenario.ctx());
+    let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
     let net_deposit_amount = (deposit_amount as u64 * (10000 - DEPOSIT_FEE_BPS) / 10000);
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let mut vault_shares = vault.deposit(
@@ -1749,12 +1759,12 @@ fun test_unwind_withdrawal_success() {
         &lending_market,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // Manager deploys most of the funds, leaving insufficient liquid assets
-    scenario.next_tx(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, scenario.ctx());
+    runner.set_sender(ADMIN);
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
     let obligation_index = 0;
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
     let liquid_assets_left = 100 * exp;
@@ -1767,13 +1777,13 @@ fun test_unwind_withdrawal_success() {
         deploy_amount,
         &clock,
         agg,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     // User tries to withdraw more than is liquid, using the unwind flow
-    scenario.next_tx(USER1);
+    runner.set_sender(USER1);
     let shares_to_withdraw_val = vault_shares.value() / 2;
-    let withdraw_shares = coin::split(&mut vault_shares, shares_to_withdraw_val, scenario.ctx());
+    let withdraw_shares = coin::split(&mut vault_shares, shares_to_withdraw_val, runner.ctx());
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let mut unwind_acc = vault.create_unwind_accumulator(
@@ -1787,20 +1797,20 @@ fun test_unwind_withdrawal_success() {
         &mut unwind_acc,
         &mut lending_market,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     let withdrawn_coins = vault.withdraw_with_unwind(
         unwind_acc,
         &lending_market,
         &clock,
-        scenario.ctx(),
+        runner.ctx(),
     );
 
     assert!(withdrawn_coins.value() > 0);
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         coin::burn_for_testing(vault_shares);
         coin::burn_for_testing(withdrawn_coins);
         ts::return_shared(clock);
@@ -1809,16 +1819,16 @@ fun test_unwind_withdrawal_success() {
         transfer::public_transfer(manager_cap, ADMIN);
     };
 
-    scenario.end();
+    runner.finish();
 }
 
 #[test]
 fun test_token_usd_conversion_roundtrip() {
-    let (mut prices, mut scenario) = init_vault_scenario();
+    let (mut prices, mut runner) = init_vault_scenario();
 
-    scenario.next_tx(ADMIN);
-    let lending_market = scenario.take_shared<LendingMarket<TEST_LENDING_MARKET>>();
-    let clock = scenario.take_shared<Clock>();
+    runner.set_sender(ADMIN);
+    let lending_market = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    let clock = runner.scenario_mut().take_shared<Clock>();
     prices.update_decimal_price<TEST_COIN>(457823, 6, true, &clock);
 
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
@@ -1894,10 +1904,10 @@ fun test_token_usd_conversion_roundtrip() {
     };
 
     {
-        test_utils::destroy(prices);
+        test_runner::destroy(prices);
         ts::return_shared(clock);
         ts::return_shared(lending_market);
     };
 
-    scenario.end();
+    runner.finish();
 }
