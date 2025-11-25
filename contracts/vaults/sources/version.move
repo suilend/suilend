@@ -8,11 +8,6 @@ public(package) fun new(version: u16): Version {
     Version(version)
 }
 
-public(package) fun migrate_(version: &mut Version, current_version: u16) {
-    assert!(version.0 < current_version, EIncorrectVersion);
-    version.0 = current_version;
-}
-
 public(package) fun assert_version(version: &Version, current_version: u16) {
     assert!(version.0 == current_version, EIncorrectVersion);
 }

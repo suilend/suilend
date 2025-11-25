@@ -848,7 +848,7 @@ public fun create_vault_crank_accumulator<V, T>(
     main_lending_market: &LendingMarket<MAIN_POOL>,
     clock: &Clock,
 ): VaultCrankAccumulator<V> {
-    vault.version.assert_version(CURRENT_VERSION);
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
 
     assert!(
         clock.timestamp_ms() >= (vault.last_cranked_ms + MIN_REWARDS_STALENESS_MS),
