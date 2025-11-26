@@ -259,7 +259,7 @@ fun test_fees_collected() {
 
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
     let initial_user_shares = vault_shares.value();
-    let initial_total_supply = vault.total_supply();
+    let initial_total_supply = vault.get_vault_share_supply_for_testing();
     let initial_manager_fees = vault.get_manager_fees_for_testing();
 
     // Exact deposit fee calculation: 5% of deposit goes to fees
@@ -311,7 +311,7 @@ fun test_fees_collected() {
         prices.get_price_obj<TEST_COIN>(),
     );
 
-    let total_supply_before_crank = vault.total_supply();
+    let total_supply_before_crank = vault.get_vault_share_supply_for_testing();
 
     // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
     runner.set_sender(ADMIN);
@@ -319,7 +319,7 @@ fun test_fees_collected() {
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
-    let total_supply_after_mgmt = vault.total_supply();
+    let total_supply_after_mgmt = vault.get_vault_share_supply_for_testing();
     let manager_fees_after_mgmt = vault.get_manager_fees_for_testing();
 
     let mgmt_fee_shares_round1 = total_supply_after_mgmt - total_supply_before_crank;
@@ -354,7 +354,7 @@ fun test_fees_collected() {
         prices.get_price_obj<TEST_COIN>(),
     );
 
-    let supply_before_price_double_crank = vault.total_supply();
+    let supply_before_price_double_crank = vault.get_vault_share_supply_for_testing();
     let manager_fees_before_round2 = vault.get_manager_fees_for_testing();
 
     // Crank again - should only get management fees, NOT performance fees
@@ -362,7 +362,7 @@ fun test_fees_collected() {
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
-    let supply_after_price_double_crank = vault.total_supply();
+    let supply_after_price_double_crank = vault.get_vault_share_supply_for_testing();
     let manager_fees_after_round2 = vault.get_manager_fees_for_testing();
     let mgmt_fee_shares_round2 = supply_after_price_double_crank - supply_before_price_double_crank;
 
@@ -478,7 +478,7 @@ fun test_fees_collected() {
         prices.get_price_obj<TEST_COIN>(),
     );
 
-    let supply_before_perf_fee = vault.total_supply();
+    let supply_before_perf_fee = vault.get_vault_share_supply_for_testing();
     let manager_fees_before_perf = vault.get_manager_fees_for_testing();
 
     // Crank - now should get BOTH management and performance fees
@@ -487,7 +487,7 @@ fun test_fees_collected() {
     crank_acc.process_lending_market_for_crank(&lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
-    let supply_after_perf_fee = vault.total_supply();
+    let supply_after_perf_fee = vault.get_vault_share_supply_for_testing();
     let manager_fees_after_perf = vault.get_manager_fees_for_testing();
 
     let total_fee_shares_round3 = supply_after_perf_fee - supply_before_perf_fee;
@@ -862,7 +862,7 @@ fun test_nav_changes() {
     vault::destroy_vault_value_aggregate_for_testing(initial_agg, &mut vault);
 
     // Record initial total shares
-    let initial_total_shares = vault.total_supply();
+    let initial_total_shares = vault.get_vault_share_supply_for_testing();
 
     // Advance clock by 1 year to accrue management fees
     clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
@@ -886,7 +886,7 @@ fun test_nav_changes() {
     };
 
     // Total shares should have increased due to fee shares being minted
-    let new_total_shares = vault.total_supply();
+    let new_total_shares = vault.get_vault_share_supply_for_testing();
     assert!(new_total_shares > initial_total_shares);
 
     // Calculate new NAV per share after dilution
@@ -1219,7 +1219,7 @@ fun test_share_precision() {
     );
 
     let small_shares_amount = small_shares.value();
-    let total_supply_after_first = vault.total_supply();
+    let total_supply_after_first = vault.get_vault_share_supply_for_testing();
 
     // After 5% fee: net deposit = 950 tokens (worth $950), fee = 50 tokens
     // At NAV = 1.0, get 950 shares for user, 50 shares for fees (in base units with 6 decimals)
@@ -1239,7 +1239,7 @@ fun test_share_precision() {
 
     let agg2 = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let nav_before_second = vault.calculate_nav_per_share(&agg2).floor();
-    let supply_before_second = vault.total_supply();
+    let supply_before_second = vault.get_vault_share_supply_for_testing();
 
     // NAV should still be 1.0 before second deposit
     assert!(nav_before_second == NAV_PRECISION as u64);
@@ -1277,7 +1277,7 @@ fun test_share_precision() {
     // === Verify total supply is correct ===
     // Total = first_user_shares + first_fee_shares + second_user_shares + second_fee_shares
     // Total = 950,000,000 + 50,000,000 + 90,725,000 + 4,775,000 = 1,095,500,000
-    let final_total_supply = vault.total_supply();
+    let final_total_supply = vault.get_vault_share_supply_for_testing();
     assert!(final_total_supply == 1_095_500_000);
 
     // === Test small withdrawal to verify reverse calculation ===

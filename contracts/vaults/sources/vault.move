@@ -1109,11 +1109,6 @@ public fun calculate_nav_per_share<V, T>(
     }
 }
 
-/// Total supply of shares
-public fun total_supply<V, T>(vault: &Vault<V, T>): u64 {
-    vault.treasury_cap.total_supply()
-}
-
 // === Fee Management Functions ===
 
 /// Calculate and mint performance and management fee shares
@@ -1369,7 +1364,7 @@ fun emit_stats_event<V, T>(vault: &Vault<V, T>, agg: &VaultValueAggregate<V>) {
         nav_per_share_usd,
         utilization_rate_bps,
         aum_usd: aum_usd.floor(),
-        total_shares: vault.total_supply(),
+        total_shares: vault.treasury_cap.total_supply(),
         lending_market_allocations: agg.lending_market_allocations(),
     });
 }
@@ -1503,4 +1498,9 @@ public fun get_manager_fees_for_testing<V, T>(vault: &Vault<V, T>): u64 {
 #[test_only]
 public fun get_deposit_for_testing<V, T>(vault: &Vault<V, T>): u64 {
     vault.deposit_asset.value()
+}
+
+#[test_only]
+public fun get_vault_share_supply_for_testing<V, T>(vault: &Vault<V, T>): u64 {
+    vault.treasury_cap.total_supply()
 }
