@@ -671,14 +671,13 @@ public fun withdraw_with_unwind<V, T, L>(
 /// Compound rewards of same type as deposit asset
 /// Permissionless
 public fun compound_rewards<V, T, L>(
-    vault: &Vault<V, T>,
+    vault: &mut Vault<V, T>,
     // LendingMarket to claim rewards from
     lending_market: &mut LendingMarket<L>,
     obligation_index: u64,
     reward_reserve_index: u64,
     reward_index: u64,
     is_deposit_reward: bool,
-    deposit_reserve_index: u64,
     clock: &Clock,
     ctx: &mut TxContext,
 ) {
@@ -686,18 +685,18 @@ public fun compound_rewards<V, T, L>(
 
     let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap<_, _, L>(&lm_type, obligation_index);
-    let obligation_id = obligation_cap.obligation_id();
 
     // Claim rewards and deposit them back into the obligation
-    lending_market.claim_rewards_and_deposit<L, T>(
-        obligation_id,
+    let rewards = lending_market.claim_rewards<L, T>(
+        obligation_cap,
         clock,
         reward_reserve_index,
         reward_index,
         is_deposit_reward,
-        deposit_reserve_index,
         ctx,
     );
+
+    vault.deposit_asset.join(rewards.into_balance());
 }
 
 /// Withdraw a non-base token reward for swapping to base token and depositing to vault
@@ -1499,4 +1498,9 @@ public fun get_obligation_cap_for_testing<V, T, L>(
 #[test_only]
 public fun get_manager_fees_for_testing<V, T>(vault: &Vault<V, T>): u64 {
     vault.manager_fees.value()
+}
+
+#[test_only]
+public fun get_deposit_for_testing<V, T>(vault: &Vault<V, T>): u64 {
+    vault.deposit_asset.value()
 }

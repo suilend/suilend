@@ -447,7 +447,6 @@ fun test_fees_collected() {
         reserve_array_index,
         0, // reward_index
         true, // is_deposit_reward
-        0, // deposit_reserve_index
         &clock,
         runner.ctx(),
     );
@@ -976,6 +975,8 @@ fun test_compound_rewards() {
     // Advance clock to end of reward period
     clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days
 
+    let deposit_amount = vault.get_deposit_for_testing();
+
     // Call compound_rewards (permissionless)
     runner.set_sender(USER2);
     vault.compound_rewards<VAULT_TESTS, TEST_COIN, TEST_LENDING_MARKET>(
@@ -984,25 +985,12 @@ fun test_compound_rewards() {
         reserve_array_index,
         0, // reward_index
         true, // is_deposit_reward
-        0, // deposit_reserve_index
         &clock,
         runner.ctx(),
     );
 
-    // Verify rewards were claimed and deposited back into the obligation
-    let lm_type = std::type_name::with_defining_ids<TEST_LENDING_MARKET>();
-    let obligation_cap = vault.get_obligation_cap_for_testing<
-        VAULT_TESTS,
-        TEST_COIN,
-        TEST_LENDING_MARKET,
-    >(
-        &lm_type,
-        obligation_index,
-    );
-    let obligation_id = obligation_cap.obligation_id();
-    let obligation = lending_market.obligation(obligation_id);
-    let deposited_value = obligation.deposited_value_usd().floor();
-    assert!(deposited_value > 0);
+    // Verify rewards were claimed and deposited back into the vault
+    assert!(vault.get_deposit_for_testing() > deposit_amount);
 
     {
         test_runner::destroy(prices);
@@ -1535,7 +1523,6 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
             sui_reserve_index,
             sui_reward_index,
             is_deposit_reward,
-            sui_reserve_index,
             &clock,
             runner.ctx(),
         );
@@ -1578,7 +1565,6 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
             sui_reserve_index,
             sui_reward_index,
             is_deposit_reward,
-            sui_reserve_index,
             &clock,
             runner.ctx(),
         );
