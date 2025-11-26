@@ -66,6 +66,7 @@ const EReserveExists: vector<u8> = b"A reserve exists for this type, so oracle s
 const CURRENT_VERSION: u16 = 1;
 
 const BASIS_POINTS: u64 = 10_000; // 100%
+const U64_MAX: u64 = 18_446_744_073_709_551_615;
 const SECONDS_PER_YEAR: u64 = 31_536_000;
 
 const MAX_DEPOSIT_FEE_BPS: u64 = 500; // 5% max deposit fee
@@ -348,6 +349,7 @@ public fun divest_funds<V, T, L>(
     // Must contain reserve for T (withdraw target + price source)
     lending_market: &mut LendingMarket<L>,
     obligation_index: u64,
+    // U64_MAX will divest all ctokens from this obligation
     ctoken_amount: u64,
     clock: &Clock,
     mut agg: VaultValueAggregate<V>,
@@ -416,13 +418,13 @@ public fun claim_manager_fees<V, T>(
 ): Coin<V> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
 
-    let accrued_fees = vault.manager_fees.value();
-    assert!(accrued_fees >= amount, EInsufficientShares);
+    let fee_balance = if (amount == U64_MAX) {
+        vault.manager_fees.withdraw_all()
+    } else {
+        vault.manager_fees.split(amount)
+    };
 
-    let fee_balance = vault.manager_fees.split(amount);
-    let fee_coin = coin::from_balance(fee_balance, ctx);
-
-    fee_coin
+    coin::from_balance(fee_balance, ctx)
 }
 
 /// Create a new obligation for the vault
