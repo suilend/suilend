@@ -65,16 +65,17 @@ const EReserveExists: vector<u8> = b"A reserve exists for this type, so oracle s
 
 const CURRENT_VERSION: u16 = 1;
 
+const BASIS_POINTS: u64 = 10_000; // 100%
+const SECONDS_PER_YEAR: u64 = 31_536_000;
+
 const MAX_DEPOSIT_FEE_BPS: u64 = 500; // 5% max deposit fee
 const MAX_WITHDRAWAL_FEE_BPS: u64 = 500; // 5% max withdrawal fee
 const MAX_PERFORMANCE_FEE_BPS: u64 = 5000; // 50% max performance fee
 const MAX_MANAGEMENT_FEE_BPS: u64 = 500; // 5% max management fee
 const MIN_DEPOSIT_USD_SCALED: u256 = 100_000_000_000_000_000; // Minimum deposit 0.1 USD (0.1 * 1e18)
-const BASIS_POINTS: u64 = 10000; // 100%
 const NAV_PRECISION: u128 = 1_000_000_000; // 1e9 for NAV per share calculations
 const MAX_REWARDS_STALENESS_MS: u64 = 3_600_000; // 1 hour in ms
 const MIN_REWARDS_STALENESS_MS: u64 = 60_000; // 1 min in ms
-const SECONDS_PER_YEAR: u64 = 31_536_000;
 const SLIPPAGE_BPS: u64 = 10; // For use in permissionless reward swap
 
 const VAULT_SHARE_DECIMALS: u8 = 6;
