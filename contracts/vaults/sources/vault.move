@@ -269,7 +269,7 @@ public fun create_vault<V, T>(
 /// Deploy funds from vault to lending market obligation
 public fun deploy_funds<V, T, L>(
     vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
+    _vault_manager_cap: &VaultManagerCap<V>,
     // LendingMarket to deploy funds to
     // Must contain reserve for T (deploy target + price source)
     lending_market: &mut LendingMarket<L>,
@@ -342,7 +342,7 @@ public fun deploy_funds<V, T, L>(
 /// Withdraw funds from lending market obligation back to vault
 public fun divest_funds<V, T, L>(
     vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
+    _vault_manager_cap: &VaultManagerCap<V>,
     // LendingMarket to withdraw funds from
     // Must contain reserve for T (withdraw target + price source)
     lending_market: &mut LendingMarket<L>,
@@ -409,7 +409,7 @@ public fun divest_funds<V, T, L>(
 /// Claim accumulated manager fees
 public fun claim_manager_fees<V, T>(
     vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
+    _vault_manager_cap: &VaultManagerCap<V>,
     amount: u64,
     ctx: &mut TxContext,
 ): Coin<V> {
@@ -427,7 +427,7 @@ public fun claim_manager_fees<V, T>(
 /// Create a new obligation for the vault
 public fun create_obligation<V, T, L>(
     vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
+    _vault_manager_cap: &VaultManagerCap<V>,
     // LendingMarket to create new obligation for
     lending_market: &mut LendingMarket<L>,
     ctx: &mut TxContext,
@@ -455,7 +455,7 @@ public fun create_obligation<V, T, L>(
 /// Set or update vault metadata field
 public fun set_metadata<V, T>(
     vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
+    _vault_manager_cap: &VaultManagerCap<V>,
     key: std::string::String,
     value: std::string::String,
     _ctx: &mut TxContext,
@@ -472,7 +472,7 @@ public fun set_metadata<V, T>(
 /// Remove vault metadata field
 public fun unset_metadata<V, T>(
     vault: &mut Vault<V, T>,
-    _: &VaultManagerCap<V>,
+    _vault_manager_cap: &VaultManagerCap<V>,
     key: std::string::String,
     _ctx: &mut TxContext,
 ) {
@@ -778,7 +778,7 @@ public fun swap_reward_for_base_token_w_oracle<V, T, RewardType>(
 
 /// Create swap ticket without oracle check (manager only)
 public fun swap_reward_for_base_token_unchecked<V, T, RewardType>(
-    _: &VaultManagerCap<V>,
+    _vault_manager_cap: &VaultManagerCap<V>,
     ticket: RewardWithdrawTicket<V, T, RewardType>,
     main_lending_market: &LendingMarket<MAIN_POOL>,
     ctx: &mut TxContext,
