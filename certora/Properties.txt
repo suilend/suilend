@@ -5,7 +5,7 @@ Threats
     - First depositor attacks / share inflation attack
         - check report from original Kamino lend for ways to donate
         - everybody_can_withdraw rule
-    - Roundings directions
+    - Rounding directions
         - Break `ctoken_ratio` in `reserve.move` by making `1 ctoken for 0.99 underlying token`
         - Wrong use of functions that round up or down e.g. `usd_to_token_amount_lower_bound` & `usd_to_token_amount_upper_bound`
     - Boundaries are always enforced. For instance, it should not be possible to push the utilization rate over 1e18 → 100% (allowed bounds are 0 to 1e18) → this can potentially be triggered by inflating the value of `borrowed_amount` in `reserve.move`
@@ -24,7 +24,7 @@ Health of the Obligations
             f(e, args);
             assert !obligation.is_liquidatable(e);
         - First prove that oracle price cannot return two different values for the same block. And there's no interest within the same block
-        - We'll need to prove corectness of the internal accounting, e.g., 
+        - We'll need to prove correctness of the internal accounting, e.g., 
             - obligation.deposited_value_usd == sum(deposit value * open ltv) for all deposits
             - allowed_borrow_value_usd == sum(deposit value * close ltv) for all deposits
             - similarly for unweighted_borrowed_value_usd, weighted_borrowed_value_usd
@@ -32,7 +32,7 @@ Health of the Obligations
     No collateral => no borrow
         Obligation.deposits is empty => Obligation.borrows is empty
 
-	Healthy obligations cannot lose collateral to became liquidable
+	Healthy obligations cannot lose collateral to became liquidatable
         - only obligation.withdraw can decrease the collateral
         - must be healthy after (obligation.is_healthy() )
     
@@ -83,7 +83,7 @@ Solvency of the contract
 Liquidations
     - Liquidation must revert for a healthy obligation.
     - Liquidation of an unhealthy obligation must succeed: 
-        (under theese conditions)
+        (under these conditions)
             - The borrower’s obligation is unhealthy (LTV has surpassed the liquidation threshold)
             - The liquidator has enough assets to pay the (partial) debt
             - The liquidation amount is less or equal to the accrued debt
@@ -137,7 +137,7 @@ Technical
 
 Low level: basic integrity
     - deposit, withdraw, borrow, repay, ...
-    - e.g., lending_market.deposit_liquidity_and_mint_ctokens(): the return value coresponds to balance changes
+    - e.g., lending_market.deposit_liquidity_and_mint_ctokens(): the return value corresponds to balance changes
 
     Repayment success conditions
     - Any active borrower should be allowed to repay his debt at any time if the liquidation threshold hasn’t been reached
@@ -176,7 +176,7 @@ Low level: correct accounting (ERC4626 - like)
 
     zeroDepositZeroShares
         deposit(assets) == 0 <=> assets == 0;
-        might catch a bug where the user looses dust assets but dont get any cTokens due to rounding
+        might catch a bug where the user looses dust assets but don't get any cTokens due to rounding
 
     invariant assetsMoreThanSupply()
         totalAssets() / totalSupply() >= 1
@@ -207,10 +207,10 @@ Low level: correct accounting (ERC4626 - like)
     }
 
     contributingProducesShares(method f)
-        deposit(X) didnt revert => CToken.balanceOf(depositor) increased
+        deposit(X) didn't revert => CToken.balanceOf(depositor) increased
 
     onlyContributionMethodsReduceAssets(method f)
-        asset.balanceOf(user) decreased => user must have called a contribution method (deposit, mint, depositWithPermint, etc.)
+        asset.balanceOf(user) decreased => user must have called a contribution method (deposit, mint, depositWithPermit, etc.)
 
     reclaimingProducesAssets(method f)
         cToken.balanceOF(user) decreased => asset.balanceOf(user) must increase (unless they just transfer, etc.)
