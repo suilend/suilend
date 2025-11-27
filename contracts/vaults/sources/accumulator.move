@@ -551,7 +551,7 @@ fun calculate_obligation_values<L>(
         let deposited_value_usd_decimal = obligation.deposited_value_usd();
         let unweighted_borrowed_value_usd_decimal = obligation.unweighted_borrowed_value_usd();
 
-        // TODO: handle negative balances if lending is enabled
+        // TODO: handle negative balances if borrowing is enabled
         let net_value_decimal = deposited_value_usd_decimal.saturating_sub(
             unweighted_borrowed_value_usd_decimal,
         );
