@@ -133,7 +133,6 @@ export interface CreateVaultOptions {
         string
     ];
 }
-/** Create new vault with specified fee structure */
 export function createVault(options: CreateVaultOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
@@ -156,7 +155,7 @@ export function createVault(options: CreateVaultOptions) {
 }
 export interface DeployFundsArguments {
     vault: RawTransactionArgument<string>;
-    _: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
     lendingMarket: RawTransactionArgument<string>;
     obligationIndex: RawTransactionArgument<number | bigint>;
     deployAmount: RawTransactionArgument<number | bigint>;
@@ -166,7 +165,7 @@ export interface DeployFundsOptions {
     package?: string;
     arguments: DeployFundsArguments | [
         vault: RawTransactionArgument<string>,
-        _: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
         lendingMarket: RawTransactionArgument<string>,
         obligationIndex: RawTransactionArgument<number | bigint>,
         deployAmount: RawTransactionArgument<number | bigint>,
@@ -190,7 +189,7 @@ export function deployFunds(options: DeployFundsOptions) {
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock',
         `${packageAddress}::accumulator::VaultValueAggregate<${options.typeArguments[0]}>`
     ] satisfies string[];
-    const parameterNames = ["vault", "_", "lendingMarket", "obligationIndex", "deployAmount", "agg"];
+    const parameterNames = ["vault", "VaultManagerCap", "lendingMarket", "obligationIndex", "deployAmount", "agg"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -201,7 +200,7 @@ export function deployFunds(options: DeployFundsOptions) {
 }
 export interface DivestFundsArguments {
     vault: RawTransactionArgument<string>;
-    _: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
     lendingMarket: RawTransactionArgument<string>;
     obligationIndex: RawTransactionArgument<number | bigint>;
     ctokenAmount: RawTransactionArgument<number | bigint>;
@@ -211,7 +210,7 @@ export interface DivestFundsOptions {
     package?: string;
     arguments: DivestFundsArguments | [
         vault: RawTransactionArgument<string>,
-        _: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
         lendingMarket: RawTransactionArgument<string>,
         obligationIndex: RawTransactionArgument<number | bigint>,
         ctokenAmount: RawTransactionArgument<number | bigint>,
@@ -233,9 +232,10 @@ export function divestFunds(options: DivestFundsOptions) {
         'u64',
         'u64',
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock',
-        `${packageAddress}::accumulator::VaultValueAggregate<${options.typeArguments[0]}>`
+        `${packageAddress}::accumulator::VaultValueAggregate<${options.typeArguments[0]}>`,
+        '0x0000000000000000000000000000000000000000000000000000000000000003::sui_system::SuiSystemState'
     ] satisfies string[];
-    const parameterNames = ["vault", "_", "lendingMarket", "obligationIndex", "ctokenAmount", "agg"];
+    const parameterNames = ["vault", "VaultManagerCap", "lendingMarket", "obligationIndex", "ctokenAmount", "agg"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -246,14 +246,14 @@ export function divestFunds(options: DivestFundsOptions) {
 }
 export interface ClaimManagerFeesArguments {
     vault: RawTransactionArgument<string>;
-    _: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
     amount: RawTransactionArgument<number | bigint>;
 }
 export interface ClaimManagerFeesOptions {
     package?: string;
     arguments: ClaimManagerFeesArguments | [
         vault: RawTransactionArgument<string>,
-        _: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
         amount: RawTransactionArgument<number | bigint>
     ];
     typeArguments: [
@@ -269,7 +269,7 @@ export function claimManagerFees(options: ClaimManagerFeesOptions) {
         `${packageAddress}::vault::VaultManagerCap<${options.typeArguments[0]}>`,
         'u64'
     ] satisfies string[];
-    const parameterNames = ["vault", "_", "amount"];
+    const parameterNames = ["vault", "VaultManagerCap", "amount"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -280,14 +280,14 @@ export function claimManagerFees(options: ClaimManagerFeesOptions) {
 }
 export interface CreateObligationArguments {
     vault: RawTransactionArgument<string>;
-    _: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
     lendingMarket: RawTransactionArgument<string>;
 }
 export interface CreateObligationOptions {
     package?: string;
     arguments: CreateObligationArguments | [
         vault: RawTransactionArgument<string>,
-        _: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
         lendingMarket: RawTransactionArgument<string>
     ];
     typeArguments: [
@@ -296,10 +296,7 @@ export interface CreateObligationOptions {
         string
     ];
 }
-/**
- * Create a new obligation for the vault Create new obligation for vault in lending
- * market
- */
+/** Create a new obligation for the vault */
 export function createObligation(options: CreateObligationOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
@@ -307,7 +304,7 @@ export function createObligation(options: CreateObligationOptions) {
         `${packageAddress}::vault::VaultManagerCap<${options.typeArguments[0]}>`,
         `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[2]}>`
     ] satisfies string[];
-    const parameterNames = ["vault", "_", "lendingMarket"];
+    const parameterNames = ["vault", "VaultManagerCap", "lendingMarket"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -318,7 +315,7 @@ export function createObligation(options: CreateObligationOptions) {
 }
 export interface SetMetadataArguments {
     vault: RawTransactionArgument<string>;
-    _: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
     key: RawTransactionArgument<string>;
     value: RawTransactionArgument<string>;
 }
@@ -326,7 +323,7 @@ export interface SetMetadataOptions {
     package?: string;
     arguments: SetMetadataArguments | [
         vault: RawTransactionArgument<string>,
-        _: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
         key: RawTransactionArgument<string>,
         value: RawTransactionArgument<string>
     ];
@@ -344,7 +341,7 @@ export function setMetadata(options: SetMetadataOptions) {
         '0x0000000000000000000000000000000000000000000000000000000000000001::string::String',
         '0x0000000000000000000000000000000000000000000000000000000000000001::string::String'
     ] satisfies string[];
-    const parameterNames = ["vault", "_", "key", "value"];
+    const parameterNames = ["vault", "VaultManagerCap", "key", "value"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -355,14 +352,14 @@ export function setMetadata(options: SetMetadataOptions) {
 }
 export interface UnsetMetadataArguments {
     vault: RawTransactionArgument<string>;
-    _: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
     key: RawTransactionArgument<string>;
 }
 export interface UnsetMetadataOptions {
     package?: string;
     arguments: UnsetMetadataArguments | [
         vault: RawTransactionArgument<string>,
-        _: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
         key: RawTransactionArgument<string>
     ];
     typeArguments: [
@@ -378,7 +375,7 @@ export function unsetMetadata(options: UnsetMetadataOptions) {
         `${packageAddress}::vault::VaultManagerCap<${options.typeArguments[0]}>`,
         '0x0000000000000000000000000000000000000000000000000000000000000001::string::String'
     ] satisfies string[];
-    const parameterNames = ["vault", "_", "key"];
+    const parameterNames = ["vault", "VaultManagerCap", "key"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -515,7 +512,6 @@ export interface CompoundRewardsArguments {
     rewardReserveIndex: RawTransactionArgument<number | bigint>;
     rewardIndex: RawTransactionArgument<number | bigint>;
     isDepositReward: RawTransactionArgument<boolean>;
-    depositReserveIndex: RawTransactionArgument<number | bigint>;
 }
 export interface CompoundRewardsOptions {
     package?: string;
@@ -525,8 +521,7 @@ export interface CompoundRewardsOptions {
         obligationIndex: RawTransactionArgument<number | bigint>,
         rewardReserveIndex: RawTransactionArgument<number | bigint>,
         rewardIndex: RawTransactionArgument<number | bigint>,
-        isDepositReward: RawTransactionArgument<boolean>,
-        depositReserveIndex: RawTransactionArgument<number | bigint>
+        isDepositReward: RawTransactionArgument<boolean>
     ];
     typeArguments: [
         string,
@@ -544,10 +539,9 @@ export function compoundRewards(options: CompoundRewardsOptions) {
         'u64',
         'u64',
         'bool',
-        'u64',
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
     ] satisfies string[];
-    const parameterNames = ["vault", "lendingMarket", "obligationIndex", "rewardReserveIndex", "rewardIndex", "isDepositReward", "depositReserveIndex"];
+    const parameterNames = ["vault", "lendingMarket", "obligationIndex", "rewardReserveIndex", "rewardIndex", "isDepositReward"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -644,14 +638,14 @@ export function swapRewardForBaseTokenWOracle(options: SwapRewardForBaseTokenWOr
     });
 }
 export interface SwapRewardForBaseTokenUncheckedArguments {
-    _: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
     ticket: RawTransactionArgument<string>;
     mainLendingMarket: RawTransactionArgument<string>;
 }
 export interface SwapRewardForBaseTokenUncheckedOptions {
     package?: string;
     arguments: SwapRewardForBaseTokenUncheckedArguments | [
-        _: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
         ticket: RawTransactionArgument<string>,
         mainLendingMarket: RawTransactionArgument<string>
     ];
@@ -669,7 +663,7 @@ export function swapRewardForBaseTokenUnchecked(options: SwapRewardForBaseTokenU
         `${packageAddress}::vault::RewardWithdrawTicket<${options.typeArguments[0]}, ${options.typeArguments[1]}, ${options.typeArguments[2]}>`,
         '0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::suilend::MAIN_POOL>'
     ] satisfies string[];
-    const parameterNames = ["_", "ticket", "mainLendingMarket"];
+    const parameterNames = ["VaultManagerCap", "ticket", "mainLendingMarket"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -983,7 +977,8 @@ export function processUnwindsForLendingMarket(options: ProcessUnwindsForLending
         `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
         `${packageAddress}::accumulator::VaultUnwindAccumulator<${options.typeArguments[0]}>`,
         `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[2]}>`,
-        '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
+        '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock',
+        '0x0000000000000000000000000000000000000000000000000000000000000003::sui_system::SuiSystemState'
     ] satisfies string[];
     const parameterNames = ["vault", "acc", "lendingMarket"];
     return (tx: Transaction) => tx.moveCall({
@@ -1207,34 +1202,6 @@ export function calculateNavPerShare(options: CalculateNavPerShareOptions) {
         package: packageAddress,
         module: 'vault',
         function: 'calculate_nav_per_share',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-        typeArguments: options.typeArguments
-    });
-}
-export interface TotalSupplyArguments {
-    vault: RawTransactionArgument<string>;
-}
-export interface TotalSupplyOptions {
-    package?: string;
-    arguments: TotalSupplyArguments | [
-        vault: RawTransactionArgument<string>
-    ];
-    typeArguments: [
-        string,
-        string
-    ];
-}
-/** Total supply of shares */
-export function totalSupply(options: TotalSupplyOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`
-    ] satisfies string[];
-    const parameterNames = ["vault"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'vault',
-        function: 'total_supply',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });
