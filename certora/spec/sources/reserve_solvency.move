@@ -58,9 +58,14 @@ public fun cvlm_manifest() {
 }
 
 public enum ReserveInvariant has copy {
+    /// Solvency expresses that `reserve.total_supply().floor() >= reserve.ctoken_supply()`
+    /// This can be violated by `forgive_debt(..)` if the debt amount to be forgive is larger than
+    /// |reserve.total_supply().floor() - reserve.ctoken_supply()|.
+    /// We therefore exclude the `forgive_debt(..)`.
     Solvency,
 }
 
+/// Requires that the reserve is in a state where the given invariant holds
 public fun require_invariant<P>(inv: ReserveInvariant, reserve: &Reserve<P>) {
     match (inv) {
         ReserveInvariant::Solvency => {
@@ -71,6 +76,7 @@ public fun require_invariant<P>(inv: ReserveInvariant, reserve: &Reserve<P>) {
     }
 }
 
+/// Asserts that the reserve is in a state where the given invariant holds
 public fun assert_invariant<P>(inv: ReserveInvariant, reserve: &Reserve<P>) {
     match (inv) {
         ReserveInvariant::Solvency => {
@@ -81,6 +87,7 @@ public fun assert_invariant<P>(inv: ReserveInvariant, reserve: &Reserve<P>) {
     }
 }
 
+/// The actual invariant statement for the given invariant
 fun invariant_statement<P>(inv: ReserveInvariant, reserve: &Reserve<P>): bool {
     match (inv) {
         ReserveInvariant::Solvency => reserve.total_supply().floor() >= reserve.ctoken_supply(),
@@ -114,6 +121,9 @@ public(package) fun reserve_base<P, T>(inv: ReserveInvariant) {
     ghost_destroy(clock);
 }
 
+/// Induction step for the reserve invariants: deduct_liquidation_fee.
+/// Applies the action to an arbitrary reserve in a state where the invariant holds,
+/// and checks that the invariant still holds afterwards.
 public fun reserve_step_deduct_liquidation_fee<P, T>(
     inv: ReserveInvariant,
     reserve: &mut Reserve<P>,
@@ -127,6 +137,9 @@ public fun reserve_step_deduct_liquidation_fee<P, T>(
     ghost_destroy(ctokens);
 }
 
+/// Induction step for the reserve invariants: join_fees.
+/// Applies the action to an arbitrary reserve in a state where the invariant holds,
+/// and checks that the invariant still holds afterwards.
 public fun reserve_step_join_fees<P, T>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let fees: Balance<T> = nondet();
 
@@ -135,6 +148,9 @@ public fun reserve_step_join_fees<P, T>(inv: ReserveInvariant, reserve: &mut Res
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: update_reserve_config.
+/// Applies the action to an arbitrary reserve in a state where the invariant holds,
+/// and checks that the invariant still holds afterwards.
 public fun reserve_step_update_reserve_config<P>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let config: ReserveConfig = nondet();
 
@@ -143,6 +159,9 @@ public fun reserve_step_update_reserve_config<P>(inv: ReserveInvariant, reserve:
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: update_price.
+/// Applies the action to an arbitrary reserve in a state where the invariant holds,
+/// and checks that the invariant still holds afterwards.
 public fun reserve_step_update_price<P>(
     inv: ReserveInvariant,
     reserve: &mut Reserve<P>,
@@ -154,6 +173,9 @@ public fun reserve_step_update_price<P>(
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: compound_interest.
+/// Applies the action to an arbitrary reserve in a state where the invariant holds,
+/// and checks that the invariant still holds afterwards.
 public fun reserve_step_compound_interest<P>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let clock = nondet();
 
@@ -164,6 +186,9 @@ public fun reserve_step_compound_interest<P>(inv: ReserveInvariant, reserve: &mu
     ghost_destroy(clock);
 }
 
+/// Induction step for the reserve invariants: claim_fees.
+/// Applies the action to an arbitrary reserve in a state where the invariant holds,
+/// and checks that the invariant still holds afterwards.
 public fun reserve_step_claim_fees<P, T>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let mut system_state: SuiSystemState = nondet();
     let mut ctx: TxContext = nondet();
@@ -181,6 +206,7 @@ public fun reserve_step_claim_fees<P, T>(inv: ReserveInvariant, reserve: &mut Re
     ghost_destroy(system_state);
 }
 
+/// Induction step for the reserve invariants: deposit_liquidity_and_mint_ctokens.
 public fun reserve_step_deposit_liquidity_and_mint_ctokens<P, T>(
     inv: ReserveInvariant,
     reserve: &mut Reserve<P>,
@@ -191,6 +217,7 @@ public fun reserve_step_deposit_liquidity_and_mint_ctokens<P, T>(
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: redeem_ctokens.
 public fun reserve_step_redeem_ctokens<P, T>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let ctokens: Balance<CToken<P, T>> = nondet();
     inv.require_invariant(reserve);
@@ -198,6 +225,7 @@ public fun reserve_step_redeem_ctokens<P, T>(inv: ReserveInvariant, reserve: &mu
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: fulfill_liquidity_request.
 public fun reserve_step_fulfill_liquidity_request<P, T>(
     inv: ReserveInvariant,
     reserve: &mut Reserve<P>,
@@ -208,6 +236,7 @@ public fun reserve_step_fulfill_liquidity_request<P, T>(
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: init_staker.
 public fun reserve_step_init_staker<P, S: drop>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let treasury_cap: TreasuryCap<S> = nondet();
     let mut ctx: TxContext = nondet();
@@ -216,6 +245,7 @@ public fun reserve_step_init_staker<P, S: drop>(inv: ReserveInvariant, reserve: 
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: rebalance_staker.
 public fun reserve_step_rebalance_staker<P>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let mut system_state: SuiSystemState = nondet();
     let mut ctx: TxContext = nondet();
@@ -226,6 +256,7 @@ public fun reserve_step_rebalance_staker<P>(inv: ReserveInvariant, reserve: &mut
     ghost_destroy(ctx);
 }
 
+/// Induction step for the reserve invariants: unstake_sui_from_staker.
 public fun reserve_step_unstake_sui_from_staker<P, T>(
     inv: ReserveInvariant,
     reserve: &mut Reserve<P>,
@@ -241,6 +272,7 @@ public fun reserve_step_unstake_sui_from_staker<P, T>(
     ghost_destroy(liquidity_request);
 }
 
+/// Induction step for the reserve invariants: borrow_liquidity.
 public fun reserve_step_borrow_liquidity<P, T>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let amount: u64 = nondet();
     inv.require_invariant(reserve);
@@ -249,6 +281,7 @@ public fun reserve_step_borrow_liquidity<P, T>(inv: ReserveInvariant, reserve: &
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: repay_liquidity.
 public fun reserve_step_repay_liquidity<P, T>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let liquidity: Balance<T> = nondet();
     let settle_amount: Decimal = nondet();
@@ -257,6 +290,7 @@ public fun reserve_step_repay_liquidity<P, T>(inv: ReserveInvariant, reserve: &m
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: forgive_debt.
 public fun reserve_step_forgive_debt<P>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let forgive_amount: Decimal = nondet();
 
@@ -265,6 +299,7 @@ public fun reserve_step_forgive_debt<P>(inv: ReserveInvariant, reserve: &mut Res
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: deposit_ctokens.
 public fun reserve_step_deposit_ctokens<P, T>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let ctokens: Balance<CToken<P, T>> = nondet();
 
@@ -273,6 +308,7 @@ public fun reserve_step_deposit_ctokens<P, T>(inv: ReserveInvariant, reserve: &m
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: withdraw_ctokens.
 public fun reserve_step_withdraw_ctokens<P, T>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let amount: u64 = nondet();
 
@@ -282,6 +318,7 @@ public fun reserve_step_withdraw_ctokens<P, T>(inv: ReserveInvariant, reserve: &
     inv.assert_invariant(reserve);
 }
 
+/// Induction step for the reserve invariants: change_price_feed.
 public fun reserve_step_change_price_feed<P>(inv: ReserveInvariant, reserve: &mut Reserve<P>) {
     let price_info_obj: PriceInfoObject = nondet();
     let clock: Clock = nondet();
@@ -294,11 +331,14 @@ public fun reserve_step_change_price_feed<P>(inv: ReserveInvariant, reserve: &mu
     ghost_destroy(clock);
 }
 
-/* SOLVENCY */
+/* --- SOLVENCY –-- */
 
+/// Base case for the solvency invariant
 public fun solvency_base<P, T>() {
     reserve_base<P, T>(ReserveInvariant::Solvency);
 }
+
+/* Induction steps for the solvency invariant */
 
 public fun solvency_step_deduct_liquidation_fee<P, T>(reserve: &mut Reserve<P>) {
     reserve_step_deduct_liquidation_fee<P, T>(ReserveInvariant::Solvency, reserve)
@@ -360,9 +400,6 @@ public fun solvency_step_repay_liquidity<P, T>(reserve: &mut Reserve<P>) {
     reserve_step_repay_liquidity<P, T>(ReserveInvariant::Solvency, reserve)
 }
 
-public fun solvency_step_forgive_debt<P>(reserve: &mut Reserve<P>) {
-    reserve_step_forgive_debt(ReserveInvariant::Solvency, reserve)
-}
 
 public fun solvency_step_deposit_ctokens<P, T>(reserve: &mut Reserve<P>) {
     reserve_step_deposit_ctokens<P, T>(ReserveInvariant::Solvency, reserve)
