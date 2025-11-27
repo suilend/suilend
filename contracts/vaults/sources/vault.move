@@ -8,8 +8,10 @@ use sui::{
     coin::{Self, TreasuryCap, Coin},
     coin_registry,
     event,
+    sui::SUI,
     vec_map
 };
+use sui_system::sui_system::SuiSystemState;
 use suilend::{
     decimal::{Self, Decimal},
     lending_market::{ObligationOwnerCap, LendingMarket},
@@ -353,6 +355,7 @@ public fun divest_funds<V, T, L>(
     ctoken_amount: u64,
     clock: &Clock,
     mut agg: VaultValueAggregate<V>,
+    system_state: &mut SuiSystemState,
     ctx: &mut TxContext,
 ) {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
@@ -366,27 +369,19 @@ public fun divest_funds<V, T, L>(
     let reserve_array_index = extract_reserve_array_index<T, _>(lending_market);
 
     // Withdraw cTokens from obligation
-    let ctokens = lending_market.withdraw_ctokens<L, T>(
-        reserve_array_index,
+    let withdrawn_coin = redeem_ctokens(
+        lending_market,
         obligation_cap,
-        clock,
         ctoken_amount,
-        ctx,
-    );
-
-    // Redeem cTokens for underlying liquidity
-    let withdrawn_coin = lending_market.redeem_ctokens_and_withdraw_liquidity<L, T>(
-        reserve_array_index,
         clock,
-        ctokens,
-        option::none(), // No rate limiter exemption
+        system_state,
         ctx,
     );
 
     let withdrawn_amount = withdrawn_coin.value();
 
     // Add withdrawn funds back to vault's deposit asset
-    vault.deposit_asset.join(coin::into_balance(withdrawn_coin));
+    vault.deposit_asset.join(withdrawn_coin.into_balance());
 
     event::emit(ManagerDivestEvent {
         vault_id: object::id(vault),
@@ -950,6 +945,7 @@ public fun process_unwinds_for_lending_market<V, T, L>(
     acc: &mut VaultUnwindAccumulator<V>,
     lending_market: &mut LendingMarket<L>,
     clock: &Clock,
+    system_state: &mut SuiSystemState,
     ctx: &mut TxContext,
 ) {
     vault.version.assert_version(CURRENT_VERSION);
@@ -973,20 +969,12 @@ public fun process_unwinds_for_lending_market<V, T, L>(
         let lm_type = type_name::with_defining_ids<L>();
         let obligation_cap = vault.get_obligation_cap(&lm_type, target.obligation_index());
 
-        let ctokens = lending_market.withdraw_ctokens<L, T>(
-            reserve_index,
+        let withdrawn_coin = redeem_ctokens(
+            lending_market,
             obligation_cap,
-            clock,
             ctoken_amount,
-            ctx,
-        );
-
-        // Redeem cTokens for underlying liquidity
-        let withdrawn_coin = lending_market.redeem_ctokens_and_withdraw_liquidity<L, T>(
-            reserve_index,
             clock,
-            ctokens,
-            option::none(), // No rate limiter exemption
+            system_state,
             ctx,
         );
 
@@ -1458,6 +1446,80 @@ fun extract_reserve_array_index<T, L>(lending_market: &LendingMarket<L>): u64 {
     let mut index = get_reserve_array_index<T, L>(lending_market);
     assert!(index.is_some(), EMissingReserve);
     index.extract()
+}
+
+fun redeem_ctokens<T, L>(
+    lending_market: &mut LendingMarket<L>,
+    obligation_cap: &ObligationOwnerCap<L>,
+    // U64_MAX will redeem all ctokens
+    ctoken_amount: u64,
+    clock: &Clock,
+    system_state: &mut SuiSystemState,
+    ctx: &mut TxContext,
+): Coin<T> {
+    // Get reserve index for the asset type T
+    let reserve_array_index = extract_reserve_array_index<T, _>(lending_market);
+
+    // SUI may need to be unstaked before redemption
+    if (type_name::with_defining_ids<T>() == type_name::with_defining_ids<SUI>()) {
+        // Withdraw cTokens from obligation
+        let ctokens = lending_market.withdraw_ctokens<L, SUI>(
+            reserve_array_index,
+            obligation_cap,
+            clock,
+            ctoken_amount,
+            ctx,
+        );
+
+        let liquidity_request = lending_market.redeem_ctokens_and_withdraw_liquidity_request(
+            reserve_array_index,
+            clock,
+            ctokens,
+            option::none(), // No rate limiter exemption
+            ctx,
+        );
+
+        // Will no-op if there is no staker,
+        // or if there is sufficient SUI liquidity to fulfill the request
+        lending_market.unstake_sui_from_staker(
+            reserve_array_index,
+            &liquidity_request,
+            system_state,
+            ctx,
+        );
+
+        let withdrawn_coin = lending_market.fulfill_liquidity_request(
+            reserve_array_index,
+            liquidity_request,
+            ctx,
+        );
+
+        cast_as_type<_, Coin<T>>(withdrawn_coin, ctx)
+    } else {
+        let ctokens = lending_market.withdraw_ctokens<L, T>(
+            reserve_array_index,
+            obligation_cap,
+            clock,
+            ctoken_amount,
+            ctx,
+        );
+        lending_market.redeem_ctokens_and_withdraw_liquidity(
+            reserve_array_index,
+            clock,
+            ctokens,
+            option::none(),
+            ctx,
+        )
+    }
+}
+
+/// Identify generic input `t` as the `R` type.
+fun cast_as_type<T: store, R: store>(t: T, ctx: &mut TxContext): R {
+    let mut id = object::new(ctx);
+    sui::dynamic_field::add(&mut id, true, t);
+    let value: R = sui::dynamic_field::remove(&mut id, true);
+    id.delete();
+    value
 }
 
 // === Test Functions ===

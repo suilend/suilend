@@ -798,15 +798,18 @@ fun test_allocate_and_divest() {
     runner.set_sender(ADMIN);
 
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
-    vault.divest_funds(
-        &manager_cap,
-        &mut lending_market,
-        obligation_index,
-        U64_MAX, // withdraw all
-        &clock,
-        agg,
-        runner.ctx(),
-    );
+    runner.system_tx!(|state, ctx| {
+        vault.divest_funds(
+            &manager_cap,
+            &mut lending_market,
+            obligation_index,
+            U64_MAX, // withdraw all
+            &clock,
+            agg,
+            state,
+            ctx,
+        );
+    });
 
     runner.set_sender(USER1);
 
@@ -1764,12 +1767,15 @@ fun test_unwind_withdrawal_success() {
         &clock,
     );
 
-    vault.process_unwinds_for_lending_market(
-        &mut unwind_acc,
-        &mut lending_market,
-        &clock,
-        runner.ctx(),
-    );
+    runner.system_tx!(|state, ctx| {
+        vault.process_unwinds_for_lending_market(
+            &mut unwind_acc,
+            &mut lending_market,
+            &clock,
+            state,
+            ctx,
+        );
+    });
 
     let withdrawn_coins = vault.withdraw_with_unwind(
         unwind_acc,
