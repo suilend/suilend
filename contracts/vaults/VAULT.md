@@ -19,7 +19,7 @@ Users deposit base tokens (e.g., SUI, USDC) and receive fungible vault shares re
 **Vault Management**: The manager holds a VaultManagerCap proving authority over the vault. They can deploy liquid funds to lending obligations, withdraw deployed funds back to vault liquidity, and create new obligations across multiple lending markets.
 
 **Rewards Compounding**: Rewards can be compounded through two mechanisms:
-- **Base token rewards**: Claimed and deposited directly back into the lending obligation (permissionless)
+- **Base token rewards**: Claimed and deposited directly into the vault's liquid balance (permissionless)
 - **Non-base token rewards**: Withdrawn, swapped externally for base token, then deposited to vault. Oracle-based slippage protection is enforced when both tokens have reserves in MAIN_POOL. Manager permission required for tokens without oracle coverage
 
 **Vault Crank**: A periodic operation that verifies all rewards with MAIN_POOL reserves/oracles have been compounded across all vault obligations, and accrues management and performance fees. The crank can only be called once per minute (minimum interval) and must be called at least once per hour. This freshness requirement is enforced on user/manager operations.
@@ -40,7 +40,7 @@ Users deposit base tokens (e.g., SUI, USDC) and receive fungible vault shares re
 
 ### Type System
 
-- `P` is the share token type (unique per vault)
+- `V` is the share token type (unique per vault)
 - `T` is the base asset type (e.g., SUI, USDC)
 - `L` represents unique lending market types (varies per operation)
 
@@ -89,7 +89,7 @@ All valuations use prices from Suilend `lending_market.reserve`, which are Pyth-
 
 **Unwind Strategy**: Obligation unwinds are prioritised on a FIFO basis.
 
-**Reward Compounding**: Base token rewards are compounded permissionlessly via direct deposit. Non-base token rewards are withdrawn, swapped externally, then deposited with slippage validation when oracles are available.
+**Reward Compounding**: Base token rewards are compounded permissionlessly via direct deposit to vault's liquid balance. Non-base token rewards are withdrawn, swapped externally, then deposited with slippage validation when oracles are available.
 
 **Slippage**: Reward swaps use a slippage tolerance of 0.1% (10 basis points). When both reward and base tokens have MAIN_POOL reserves, slippage protection is enforced using oracle prices.
 
