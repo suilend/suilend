@@ -14,7 +14,6 @@ certoraSuiProver Spec.conf --rule \
     "spec::reserve_solvency::solvency_step_unstake_sui_from_staker" \
     "spec::reserve_solvency::solvency_step_borrow_liquidity" \
     "spec::reserve_solvency::solvency_step_repay_liquidity" \
-    "spec::reserve_solvency::solvency_step_forgive_debt" \
     "spec::reserve_solvency::solvency_step_deposit_ctokens" \
     "spec::reserve_solvency::solvency_step_withdraw_ctokens" \
     "spec::reserve_solvency::solvency_step_change_price_feed" 

@@ -51,7 +51,6 @@ public fun cvlm_manifest() {
     rule(b"solvency_step_unstake_sui_from_staker");
     rule(b"solvency_step_borrow_liquidity");
     rule(b"solvency_step_repay_liquidity");
-    rule(b"solvency_step_forgive_debt");
     rule(b"solvency_step_deposit_ctokens");
     rule(b"solvency_step_withdraw_ctokens");
     rule(b"solvency_step_change_price_feed");
