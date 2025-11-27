@@ -2,15 +2,17 @@
 
 [move]
 version = 3
-manifest_digest = "64E094FEC76170AFD8BF9CCB640BBCE78044D8D209F7580BF1803CD1D7298003"
+manifest_digest = "B8570DEFF37ABF87188ADAA8DF1335FED8D3858B8D4C438B23C834019EB2C3AC"
 deps_digest = "52B406A7A21811BEF51751CF88DA0E76DAEFFEAC888D4F4060B1A72BBE7D8D35"
 dependencies = [
   { id = "Bridge", name = "Bridge" },
   { id = "MoveStdlib", name = "MoveStdlib" },
   { id = "Sui", name = "Sui" },
   { id = "SuiSystem", name = "SuiSystem" },
-  { id = "steamm", name = "steamm" },
   { id = "suilend", name = "suilend" },
+]
+dev-dependencies = [
+  { id = "steamm", name = "steamm" },
 ]
 
 [[move.package]]
