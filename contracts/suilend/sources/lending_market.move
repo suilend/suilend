@@ -374,6 +374,55 @@ module suilend::lending_market {
         fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
     }
 
+    /// Redeems cTokens for the underlying liquidity, and unstakes Sui from the reserve stake if required
+    ///
+    /// # Arguments
+    ///
+    /// * `lending_market` - A mutable reference to the `LendingMarket`.
+    /// * `reserve_array_index` - The index of the reserve to redeem from.
+    /// * `clock` - A reference to the `Clock` to compound interest before redeeming.
+    /// * `ctokens` - The `Coin` of cTokens to redeem.
+    /// * `rate_limiter_exemption` - An optional exemption from the rate limiter.
+    /// * `system_state` - A mutable reference to the `SuiSystemState`.
+    ///
+    /// # Returns
+    ///
+    /// * `Coin<T>` - A `Coin` of the underlying asset.
+    public fun redeem_ctokens_and_withdraw_liquidity_with_unstake<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        clock: &Clock,
+        ctokens: Coin<CToken<P, T>>,
+        rate_limiter_exemption: Option<RateLimiterExemption<P, T>>,
+        system_state: &mut SuiSystemState,
+        ctx: &mut TxContext,
+    ): Coin<T> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let liquidity_request = redeem_ctokens_and_withdraw_liquidity_request(
+            lending_market,
+            reserve_array_index,
+            clock,
+            ctokens,
+            rate_limiter_exemption,
+            ctx,
+        );
+
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+        if (type_name::with_defining_ids<T>() == type_name::with_defining_ids<SUI>()) {
+            // This will abort if is not SUI reserve
+            // Will no-op if there is no staker,
+            // or if there is sufficient SUI liquidity to fulfill the request
+            reserve.unstake_sui_from_staker(
+                &liquidity_request,
+                system_state,
+                ctx,
+            );
+        };
+
+        fulfill_liquidity_request(lending_market, reserve_array_index, liquidity_request, ctx)
+    }
+
     /// Creates a liquidity request to withdraw liquidity by redeeming cTokens.
     ///
     /// Initiates the process of redeeming cTokens for the underlying asset.
