@@ -1,0 +1,16 @@
+diff --git a/contracts/suilend/sources/lending_market.move b/contracts/suilend/sources/lending_market.move
+index c90807d..97e7d8a 100644
+--- a/contracts/suilend/sources/lending_market.move
++++ b/contracts/suilend/sources/lending_market.move
+@@ -1236,6 +1236,11 @@ module suilend::lending_market {
+         &lending_market.reserves
+     }
+ 
++    #[test_only]
++    public fun reserves_mut<P>(lending_market: &mut LendingMarket<P>): &mut vector<Reserve<P>> {
++        &mut lending_market.reserves
++    }
++
+     fun max_borrow_amount<P>(
+         mut rate_limiter: RateLimiter,
+         obligation: &Obligation<P>,
