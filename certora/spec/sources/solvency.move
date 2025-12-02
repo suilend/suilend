@@ -13,43 +13,42 @@ use suilend::lending_market::LendingMarket;
 use suilend::obligation::{Obligation};
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
-use cvlm::nondet::nondet_with;
 use suilend::lending_market;
 use suilend::lending_market::LendingMarketOwnerCap;
-use cvlm::asserts::cvlm_satisfy_msg;
+use spec::dummy_pool_lending_market::DummyPool;
 
 public fun cvlm_manifest() {
     // Public mut functions
-    target(@suilend, b"lending_market", b"refresh_reserve_price");
-    target(@suilend, b"lending_market", b"create_obligation");
-    target(@suilend, b"lending_market", b"deposit_liquidity_and_mint_ctokens");
-    target(@suilend, b"lending_market", b"redeem_ctokens_and_withdraw_liquidity");
-    target(@suilend, b"lending_market", b"redeem_ctokens_and_withdraw_liquidity_request");
-    target(@suilend, b"lending_market", b"deposit_ctokens_into_obligation");
-    target(@suilend, b"lending_market", b"borrow");
-    target(@suilend, b"lending_market", b"compound_interest");
-    target(@suilend, b"lending_market", b"borrow_request");
-    target(@suilend, b"lending_market", b"fulfill_liquidity_request");
-    target(@suilend, b"lending_market", b"withdraw_ctokens");
-    target(@suilend, b"lending_market", b"liquidate");
-    target(@suilend, b"lending_market", b"repay");
-    target(@suilend, b"lending_market", b"forgive");
-    target(@suilend, b"lending_market", b"claim_rewards");
-    target(@suilend, b"lending_market", b"claim_rewards_and_deposit");
-    target(@suilend, b"lending_market", b"init_staker");
-    target(@suilend, b"lending_market", b"rebalance_staker");
-    target(@suilend, b"lending_market", b"unstake_sui_from_staker");
+    target(@spec, b"dummy_pool_lending_market", b"refresh_reserve_price");
+    target(@spec, b"dummy_pool_lending_market", b"create_obligation");
+    target(@spec, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
+    target(@spec, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
+    target(@spec, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity_request");
+    target(@spec, b"dummy_pool_lending_market", b"deposit_ctokens_into_obligation");
+    target(@spec, b"dummy_pool_lending_market", b"borrow");
+    target(@spec, b"dummy_pool_lending_market", b"compound_interest");
+    target(@spec, b"dummy_pool_lending_market", b"borrow_request");
+    target(@spec, b"dummy_pool_lending_market", b"fulfill_liquidity_request");
+    target(@spec, b"dummy_pool_lending_market", b"withdraw_ctokens");
+    target(@spec, b"dummy_pool_lending_market", b"liquidate");
+    target(@spec, b"dummy_pool_lending_market", b"repay");
+    target(@spec, b"dummy_pool_lending_market", b"forgive");
+    target(@spec, b"dummy_pool_lending_market", b"claim_rewards");
+    target(@spec, b"dummy_pool_lending_market", b"claim_rewards_and_deposit");
+    target(@spec, b"dummy_pool_lending_market", b"init_staker");
+    target(@spec, b"dummy_pool_lending_market", b"rebalance_staker");
+    target(@spec, b"dummy_pool_lending_market", b"unstake_sui_from_staker");
 
     // Admin mut functions
-    target(@suilend, b"lending_market", b"add_reserve");
-    target(@suilend, b"lending_market", b"update_reserve_config");
-    target(@suilend, b"lending_market", b"change_reserve_price_feed");
-    target(@suilend, b"lending_market", b"add_pool_reward");
-    target(@suilend, b"lending_market", b"cancel_pool_reward");
-    target(@suilend, b"lending_market", b"close_pool_reward");
-    target(@suilend, b"lending_market", b"update_rate_limiter_config");
-    target(@suilend, b"lending_market", b"set_fee_receivers");
-    target(@suilend, b"lending_market", b"new_obligation_owner_cap");
+    target(@spec, b"dummy_pool_lending_market", b"add_reserve");
+    target(@spec, b"dummy_pool_lending_market", b"update_reserve_config");
+    target(@spec, b"dummy_pool_lending_market", b"change_reserve_price_feed");
+    target(@spec, b"dummy_pool_lending_market", b"add_pool_reward");
+    target(@spec, b"dummy_pool_lending_market", b"cancel_pool_reward");
+    target(@spec, b"dummy_pool_lending_market", b"close_pool_reward");
+    target(@spec, b"dummy_pool_lending_market", b"update_rate_limiter_config");
+    target(@spec, b"dummy_pool_lending_market", b"set_fee_receivers");
+    target(@spec, b"dummy_pool_lending_market", b"new_obligation_owner_cap");
 
     invoker(b"invoke");
 
@@ -61,7 +60,6 @@ public fun cvlm_manifest() {
     rule(b"obligation_col_increase_implies_reserve_asset_increase");
 }
 
-public struct DummyPool has drop {}
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
@@ -101,44 +99,47 @@ public fun solvency_base<T>(
 /// !This should fail for target `forgive` but it passes
 public fun solvency_step(
     lending_market: &mut LendingMarket<DummyPool>,
-    reserve: &Reserve<DummyPool>,
+    i: u64,
     target: Function,
 ) {
-    cvlm_assume_msg(solvency(reserve), b"pre");
+    cvlm_assume_msg(i < lending_market.reserves().length(), b"..");
 
-    let i: u64 = nondet_with!(b"Index in range", |i| i < lending_market.reserves().length());
-    cvlm_assume_msg(&lending_market.reserves()[i] == reserve, b"test");
-    cvlm_assume_msg(vector::borrow_mut(lending_market.reserves_mut(), i) == reserve, b"test");
-    
+    {
+        let reserve = &lending_market.reserves()[i];
+        cvlm_assume_msg(solvency(reserve), b"pre");
+    };
 
     invoke(target, lending_market);
 
-    cvlm_assert_msg(solvency(lending_market.reserves().borrow(i)), b"Assert invariant in post state");
+    {
+        let reserve = &lending_market.reserves()[i];
+        cvlm_assert_msg(solvency(reserve), b"post");
+    };
 }
 
-// !This should fail but it passes
-public fun solvency_step_forgive(
-    lmarket: &mut LendingMarket<DummyPool>,
-    reserve: &Reserve<DummyPool>,
-) {
-    cvlm_assume_msg(solvency(reserve), b"pre");
+public fun solvency_step_forgive<T>(lmarket: &mut LendingMarket<DummyPool>, i: u64) {
+    cvlm_assume_msg(i < lmarket.reserves().length(), b"..");
 
-    let i: u64 = nondet_with!(b"Index in range", |i| i < lmarket.reserves().length());
-    cvlm_assume_msg(&lmarket.reserves()[i] == reserve, b"test");
-    cvlm_assume_msg(vector::borrow_mut(lmarket.reserves_mut(), i) == reserve, b"test");
-    
+    {
+        let reserve = &lmarket.reserves()[i];
+        cvlm_assume_msg(solvency(reserve), b"pre");
+    };
+
+    // invoke forgive manually
     let ob_id = nondet();
     let clock = nondet();
     let max_forgive_amount = nondet();
-    let cap : LendingMarketOwnerCap<DummyPool> = nondet();
+    let cap: LendingMarketOwnerCap<DummyPool> = nondet();
 
-    lending_market::forgive<DummyPool, SUI>(&cap, lmarket, i, ob_id, &clock, max_forgive_amount);
-
-    // cvlm_assert_msg(solvency(lending_market.reserves().borrow(i)), b"Assert invariant in post state");
-    cvlm_assert_msg(solvency(reserve), b"post");
-
+    lending_market::forgive<DummyPool, T>(&cap, lmarket, i, ob_id, &clock, max_forgive_amount);
     ghost_destroy(cap);
     ghost_destroy(clock);
+
+    {
+        let reserve = &lmarket.reserves()[i];
+        cvlm_assert_msg(solvency(reserve), b"post");
+    };
+
 }
 
 
