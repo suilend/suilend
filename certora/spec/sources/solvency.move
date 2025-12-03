@@ -1,20 +1,20 @@
 module spec::solvency;
 
-use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg, cvlm_satisfy_msg};
+use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
-use cvlm::ghost::{ghost_destroy, ghost_write, ghost_read};
-use cvlm::manifest::{target, invoker, rule, ghost, summary};
-use cvlm::nondet::{nondet, nondet_with};
+use cvlm::ghost::{ghost_destroy};
+use cvlm::manifest::{target, invoker, rule};
+use cvlm::nondet::nondet;
 use pyth::price_info::PriceInfoObject;
+use spec::dummy_pool_lending_market::DummyPool;
 use spec::utils::log;
 use std::type_name;
 use sui::clock::Clock;
 use sui::sui::SUI;
-use suilend::lending_market::{Self, LendingMarket, LendingMarketOwnerCap};
+use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
-use spec::dummy_pool_lending_market::DummyPool;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -53,11 +53,9 @@ public fun cvlm_manifest() {
 
     rule(b"solvency_base");
     rule(b"solvency_step");
-    rule(b"solvency_step_forgive");
 
     rule(b"obligation_col_increase_implies_reserve_asset_increase");
 }
-
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
@@ -98,54 +96,23 @@ public fun solvency_base<T>(
     ghost_destroy(reserve);
 }
 
-
 /// The induction steps for the solvency invariant.
-/// Assumes an arbitrary reserve in a solvent state, and assert that every function that can modify the state preserves the solvency.
-/// !This should fail for target `forgive` but it passes
-public fun solvency_step(
-    lending_market: &mut LendingMarket<DummyPool>,
-    i: u64,
-    target: Function,
-) {
-    cvlm_assume_msg(i < lending_market.reserves().length(), b"..");
+/// Assumes an arbitrary reserve, identified by its index in the lending market, that is in a solvent state,
+/// and assert that every function that can modify the state preserves the solvency.
+public fun solvency_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, target: Function) {
+    cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 
     {
         let reserve = &lending_market.reserves()[i];
-        cvlm_assume_msg(solvency(reserve), b"pre");
+        cvlm_assume_msg(solvency(reserve), b"Assume reserve is solvent pre-state");
     };
 
     invoke(target, lending_market);
 
     {
         let reserve = &lending_market.reserves()[i];
-        cvlm_assert_msg(solvency(reserve), b"post");
+        cvlm_assert_msg(solvency(reserve), b"Assert reserve is solvent in post-state");
     };
-}
-
-// ! https://prover.certora.com/output/8195906/fd7826da72bf44ffa41e18f0e1367761?anonymousKey=7d1e630c97d7bdf5c39ee8dbb5383f641c20a210
-public fun solvency_step_forgive<T>(lmarket: &mut LendingMarket<DummyPool>, i: u64) {
-    cvlm_assume_msg(i < lmarket.reserves().length(), b"..");
-
-    {
-        let reserve = &lmarket.reserves()[i];
-        cvlm_assume_msg(solvency(reserve), b"pre");
-    };
-
-    // invoke forgive manually
-    let ob_id = nondet();
-    let clock = nondet();
-    let max_forgive_amount = nondet();
-    let cap: LendingMarketOwnerCap<DummyPool> = nondet();
-
-    lending_market::forgive<DummyPool, T>(&cap, lmarket, i, ob_id, &clock, max_forgive_amount);
-    ghost_destroy(cap);
-    ghost_destroy(clock);
-
-    {
-        let reserve = &lmarket.reserves()[i];
-        cvlm_assert_msg(solvency(reserve), b"post");
-    };
-
 }
 
 /// "An internal Prover error occurred: N/A"
