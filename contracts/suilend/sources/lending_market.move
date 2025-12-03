@@ -1864,6 +1864,12 @@ module suilend::lending_market {
             obligation_id,
         );
 
+        // Calculate how much should be seized for bad debt recovery
+        let seized_ctoken_amount = obligation.calculate_deposit_seizure<P>(
+            reserve,
+            deposit.value(),
+        );
+
         event::emit(DepositEvent {
             lending_market_id,
             coin_type: type_name::with_defining_ids<T>(),
@@ -1872,13 +1878,28 @@ module suilend::lending_market {
             ctoken_amount: coin::value(&deposit),
         });
 
-        obligation::deposit<P>(
-            obligation,
-            reserve,
-            clock,
-            coin::value(&deposit),
-        );
-        reserve::deposit_ctokens<P, T>(reserve, coin::into_balance(deposit));
+        // Split the deposit: seized amount goes to protocol fees, rest goes to user's deposit
+        let mut deposit_balance = deposit.into_balance();
+        if (seized_ctoken_amount > 0) {
+            let seized_balance = deposit_balance.split(seized_ctoken_amount);
+            reserve.deposit_ctoken_fees<P, T>(seized_balance);
+
+            // Record the seizure and update historical bad debt
+            obligation.record_deposit_seizure<P>(reserve, seized_ctoken_amount);
+        };
+
+        // Deposit the remaining amount into the obligation
+        let actual_deposit_amount = deposit_balance.value();
+        if (actual_deposit_amount > 0) {
+            obligation.deposit<P>(
+                reserve,
+                clock,
+                actual_deposit_amount,
+            );
+            reserve.deposit_ctokens<P, T>(deposit_balance);
+        } else {
+            deposit_balance.destroy_zero();
+        };
 
         obligation::zero_out_rewards_if_looped(obligation, &mut lending_market.reserves, clock);
     }

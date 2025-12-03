@@ -2,6 +2,7 @@ module suilend::obligation {
     use std::type_name::{Self, TypeName};
     use sui::balance::Balance;
     use sui::clock::Clock;
+    use sui::dynamic_field;
     use sui::event;
     use suilend::decimal::{
         Self,
@@ -101,6 +102,16 @@ module suilend::obligation {
         user_reward_manager_index: u64,
     }
 
+    // === Dynamic Field Keys ===
+    public struct HistoricalBadDebtKey has copy, drop, store {}
+
+    // === Dynamic Field Values ===
+    /// Tracks historical bad debt in USD that has been forgiven but not yet repaid through deposits
+    public struct HistoricalBadDebt has store {
+        /// Total bad debt accumulated in USD
+        total_usd: Decimal,
+    }
+
     // hot potato. used by obligation::refresh to indicate that prices are stale.
     public struct ExistStaleOracles {}
 
@@ -139,6 +150,22 @@ module suilend::obligation {
         cumulative_borrow_rate: Decimal,
         market_value: Decimal,
         user_reward_manager_index: u64,
+    }
+
+    public struct BadDebtRecordedEvent has copy, drop {
+        lending_market_id: address,
+        obligation_id: address,
+        forgive_amount: Decimal,
+        forgive_value_usd: Decimal,
+        total_historical_bad_debt_usd: Decimal,
+    }
+
+    public struct BadDebtRepaidEvent has copy, drop {
+        lending_market_id: address,
+        obligation_id: address,
+        seized_ctoken_amount: u64,
+        seized_value_usd: Decimal,
+        remaining_bad_debt_usd: Decimal,
     }
 
     // === Public-Friend Functions
@@ -817,13 +844,21 @@ module suilend::obligation {
         max_forgive_amount: Decimal,
     ): Decimal {
         assert!(is_forgivable(obligation), EObligationIsNotForgivable);
-        // not logging here because it logs inside repay instead
-        repay<P>(
-            obligation,
-            reserve,
-            clock,
-            max_forgive_amount,
-        )
+
+        let forgive_amount = obligation.repay(reserve, clock, max_forgive_amount);
+        let forgive_value_usd = reserve.market_value(forgive_amount);
+
+        obligation.record_bad_debt(forgive_value_usd);
+
+        event::emit(BadDebtRecordedEvent {
+            lending_market_id: object::id_to_address(&obligation.lending_market_id),
+            obligation_id: object::uid_to_address(&obligation.id),
+            forgive_amount,
+            forgive_value_usd,
+            total_historical_bad_debt_usd: historical_bad_debt_usd(obligation),
+        });
+
+        forgive_amount
     }
 
     /// Claims liquidity mining rewards for an obligation from a specific reward pool.
@@ -1195,7 +1230,88 @@ module suilend::obligation {
         };
     }
 
+    /// Gets the historical bad debt in USD for an obligation
+    /// Returns 0 if no historical bad debt exists
+    public fun historical_bad_debt_usd<P>(obligation: &Obligation<P>): Decimal {
+        if (!dynamic_field::exists_(&obligation.id, HistoricalBadDebtKey {})) {
+            return decimal::from(0)
+        };
+
+        let historical_bad_debt = dynamic_field::borrow<HistoricalBadDebtKey, HistoricalBadDebt>(
+            &obligation.id,
+            HistoricalBadDebtKey {}
+        );
+
+        historical_bad_debt.total_usd
+    }
+
+    /// Calculates how many ctokens should be seized from a deposit for bad debt recovery.
+    public(package) fun calculate_deposit_seizure<P>(
+        obligation: &Obligation<P>,
+        reserve: &Reserve<P>,
+        ctoken_amount: u64,
+    ): u64 {
+        let historical_bad_debt = obligation.historical_bad_debt_usd();
+        if (historical_bad_debt.eq(decimal::from(0))) {
+            return 0
+        };
+
+        let deposit_value = reserve.ctoken_market_value(ctoken_amount);
+        let repayment_amount = min(deposit_value, historical_bad_debt);
+
+        usd_to_ctoken_amount(reserve, repayment_amount)
+    }
+
+    /// Records that bad debt has been repaid through deposit seizure.
+    /// Should be called in lending_market after seizing ctokens to update the historical bad debt tracker
+    public(package) fun record_deposit_seizure<P>(
+        obligation: &mut Obligation<P>,
+        reserve: &Reserve<P>,
+        seized_ctoken_amount: u64,
+    ) {
+        if (seized_ctoken_amount == 0) {
+            return
+        };
+
+        let seized_value_usd = reserve.ctoken_market_value(seized_ctoken_amount);
+
+        if (!dynamic_field::exists_(&obligation.id, HistoricalBadDebtKey {})) {
+            return
+        };
+
+        let historical_bad_debt = dynamic_field::borrow_mut<HistoricalBadDebtKey, HistoricalBadDebt>(
+            &mut obligation.id,
+            HistoricalBadDebtKey {}
+        );
+
+        let repayment_amount = min(seized_value_usd, historical_bad_debt.total_usd);
+        historical_bad_debt.total_usd = historical_bad_debt.total_usd.sub(repayment_amount);
+
+        // Clean up dynamic field if fully repaid
+        if (historical_bad_debt.total_usd.eq(decimal::from(0))) {
+            let HistoricalBadDebt { total_usd: _ } = dynamic_field::remove<HistoricalBadDebtKey, HistoricalBadDebt>(
+                &mut obligation.id,
+                HistoricalBadDebtKey {}
+            );
+        };
+
+        event::emit(BadDebtRepaidEvent {
+            lending_market_id: obligation.lending_market_id.id_to_address(),
+            obligation_id: obligation.id.uid_to_address(),
+            seized_ctoken_amount,
+            seized_value_usd,
+            remaining_bad_debt_usd: obligation.historical_bad_debt_usd(),
+        });
+    }
+
     // === Private Functions ===
+
+    /// Converts a USD value to the equivalent ctoken amount for a reserve
+    fun usd_to_ctoken_amount<P>(reserve: &Reserve<P>, usd_value: Decimal): u64 {
+        let token_amount = reserve.usd_to_token_amount(usd_value);
+        let ctoken_ratio = reserve.ctoken_ratio();
+        token_amount.div(ctoken_ratio).floor()
+    }
 
     /// Checks if an obligation is in a "looped" state.
     ///
@@ -1389,6 +1505,23 @@ module suilend::obligation {
                 borrow.cumulative_borrow_rate,
             ),
         )
+    }
+
+    /// Records bad debt by updating or creating the dynamic field
+    fun record_bad_debt<P>(obligation: &mut Obligation<P>, bad_debt_usd: Decimal) {
+        if (dynamic_field::exists_(&obligation.id, HistoricalBadDebtKey {})) {
+            let historical_bad_debt = dynamic_field::borrow_mut<HistoricalBadDebtKey, HistoricalBadDebt>(
+                &mut obligation.id,
+                HistoricalBadDebtKey {}
+            );
+            historical_bad_debt.total_usd = historical_bad_debt.total_usd.add(bad_debt_usd);
+        } else {
+            dynamic_field::add(
+                &mut obligation.id,
+                HistoricalBadDebtKey {},
+                HistoricalBadDebt { total_usd: bad_debt_usd }
+            );
+        }
     }
 
     /// Withdraw without checking if the obligation is healthy.
@@ -1629,6 +1762,22 @@ module suilend::obligation {
     #[test_only]
     public(package) fun borrows_mut<P>(obligation: &mut Obligation<P>): &mut vector<Borrow> {
         &mut obligation.borrows
+    }
+
+    /// Clears all deposits from an obligation
+    /// This simulates a scenario where deposits were fully liquidated but debt remains
+    #[test_only]
+    public fun clear_deposits_for_testing<P>(obligation: &mut Obligation<P>) {
+        while (!obligation.deposits.is_empty()) {
+            let Deposit {
+                coin_type: _,
+                reserve_array_index: _,
+                deposited_ctoken_amount: _,
+                market_value: _,
+                attributed_borrow_value: _,
+                user_reward_manager_index: _,
+            } = obligation.deposits.pop_back();
+        }
     }
 
     #[test_only]

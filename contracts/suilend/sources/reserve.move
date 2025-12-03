@@ -1625,6 +1625,15 @@ module suilend::reserve {
         balance::join(&mut balances.deposited_ctokens, ctokens);
     }
 
+    /// Deposits ctokens directly into the reserve's ctoken fees balance
+    public(package) fun deposit_ctoken_fees<P, T>(
+        reserve: &mut Reserve<P>,
+        ctokens: Balance<CToken<P, T>>
+    ) {
+        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+        balances.ctoken_fees.join(ctokens);
+    }
+
     /// Withdraws ctokens from the reserve's deposited ctokens balance.
     ///
     /// # Arguments
