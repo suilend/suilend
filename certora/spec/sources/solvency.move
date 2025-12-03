@@ -99,6 +99,7 @@ public fun solvency_base<T>(
 /// The induction steps for the solvency invariant.
 /// Assumes an arbitrary reserve, identified by its index in the lending market, that is in a solvent state,
 /// and assert that every function that can modify the state preserves the solvency.
+/// ! Timeouts
 public fun solvency_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, target: Function) {
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 
@@ -114,33 +115,55 @@ public fun solvency_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, 
         cvlm_assert_msg(solvency(reserve), b"Assert reserve is solvent in post-state");
     };
 }
+/* Other Rules */
 
-/// "An internal Prover error occurred: N/A"
-/// https://prover.certora.com/output/8195906/e80e66f203b14b6dae55878de98bffe8?anonymousKey=b56fc438b4cb4b39487b6949b90aeb6510f60e75
+/// Spurious cex in invalid states(?) and timeouts.
+/// !https://prover.certora.com/output/8195906/85d1b933016345b480f2ebe7e1552068?anonymousKey=ff7b6e36154ea2f9318757c8431ad5668910278a
+fun get_ctoken_amounts(lm: &LendingMarket<DummyPool>, ri: u64, obi: ID): (u64, u64) {
+    let reserve = &lm.reserves()[ri];
+    let reserve_ctokens = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
+
+    let obligation = lm.obligation(obi);
+    let obligation_ctokens = obligation.deposited_ctoken_amount<DummyPool, SUI>();
+    (obligation_ctokens, reserve_ctokens)
+}
+
+
+
 public fun obligation_col_increase_implies_reserve_asset_increase(
     lending_market: &mut LendingMarket<DummyPool>,
-    reserve: &Reserve<DummyPool>,
-    obligation: &Obligation<DummyPool>,
+    i: u64,
+    ob_id: ID,
     target: Function,
 ) {
-    cvlm_assume_msg(reserve.coin_type() == type_name::get<SUI>(), b"Assume SUI reserve");
-    let obligation_ctoken_pre = obligation.deposited_ctoken_amount<DummyPool, SUI>();
-    let reserve_ctokens_pre = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
+    cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 
-    let i: u64 = nondet();
-    cvlm_assume_msg(vector::borrow_mut(lending_market.reserves_mut(), i) == reserve, b"test");
-    cvlm_assume_msg(i < lending_market.reserves().length(), b"test");
-    cvlm_assume_msg(&lending_market.reserves()[i] == reserve, b"test");
+    //let (ob_ctokens_pre, res_ctokens_pre) = get_ctoken_amounts(lending_market, i, ob_id);
+    let (ob_ctokens_pre, res_ctokens_pre) = {
+        let reserve = &lending_market.reserves()[i];
+        let reserve_ctokens = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
+
+        let obligation = lending_market.obligation(ob_id);
+        let obligation_ctokens = obligation.deposited_ctoken_amount<DummyPool, SUI>();
+        (obligation_ctokens, reserve_ctokens)
+    };
 
     invoke(target, lending_market);
 
-    let obligation_ctoken_post = obligation.deposited_ctoken_amount<DummyPool, SUI>();
-    let reserve_ctokens_post = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
+    // let (ob_ctokens_post, res_ctokens_post) = get_ctoken_amounts(lending_market, i, ob_id);
+    let (ob_ctokens_post, res_ctokens_post) = {
+        let reserve = &lending_market.reserves()[i];
+        let reserve_ctokens = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
 
-    if (obligation_ctoken_post > obligation_ctoken_pre) {
-        let obligation_diff = obligation_ctoken_post - obligation_ctoken_pre;
-        cvlm_assert(reserve_ctokens_post > reserve_ctokens_pre);
-        let reserve_diff = reserve_ctokens_post - reserve_ctokens_pre;
+        let obligation = lending_market.obligation(ob_id);
+        let obligation_ctokens = obligation.deposited_ctoken_amount<DummyPool, SUI>();
+        (obligation_ctokens, reserve_ctokens)
+    };
+
+    if (ob_ctokens_post > ob_ctokens_pre) {
+        let obligation_diff = ob_ctokens_post - ob_ctokens_pre;
+        cvlm_assert(res_ctokens_post > res_ctokens_pre);
+        let reserve_diff = res_ctokens_post - res_ctokens_pre;
         cvlm_assert(obligation_diff == reserve_diff);
     }
 }
