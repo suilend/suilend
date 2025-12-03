@@ -2,8 +2,8 @@
 name = "suilend"
 version = "0.0.1"
 published-at = "0x34171e8092d831c1cb71d70b04389f9a0fec8af56f69e760b58d613d764c6945"
-edition = "2024.beta"
- 
+edition = "2024"
+
 [dependencies.Pyth]
 git = "https://github.com/solendprotocol/pyth-crosschain.git"
 subdir = "target_chains/sui/contracts"
