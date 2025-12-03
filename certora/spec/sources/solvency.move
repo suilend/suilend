@@ -2,19 +2,17 @@ module spec::solvency;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
-use cvlm::ghost::{ghost_destroy};
+use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
-use cvlm::nondet::nondet;
 use pyth::price_info::PriceInfoObject;
 use spec::dummy_pool_lending_market::DummyPool;
 use spec::utils::log;
-use std::type_name;
 use sui::clock::Clock;
 use sui::sui::SUI;
-use suilend::lending_market::LendingMarket;
-use suilend::obligation::Obligation;
+use suilend::lending_market::{LendingMarket};
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
+use suilend::decimal;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -53,6 +51,8 @@ public fun cvlm_manifest() {
 
     rule(b"solvency_base");
     rule(b"solvency_step");
+
+    rule(b"solvency_ratio_monotonicity");
 
     rule(b"obligation_col_increase_implies_reserve_asset_increase");
 }
@@ -115,6 +115,52 @@ public fun solvency_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, 
         cvlm_assert_msg(solvency(reserve), b"Assert reserve is solvent in post-state");
     };
 }
+
+/* Solvency Ratio Monotonicity */
+
+/// Verifies that the solvency ratio, i.e. liquidity to collateral ratio, cannot decrease by
+/// user operations. This ensure that no action performed by any user can depreciate the value
+/// of a ctoken.
+/// This does not hold for the privileged `forgive` function.
+public fun solvency_ratio_monotonicity(
+    lending_market: &mut LendingMarket<DummyPool>,
+    i: u64,
+    target: Function,
+) {
+    cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
+
+    let reserve = &lending_market.reserves()[i];
+    cvlm_assume_msg(solvency(reserve), b"Require invariant reserve is solvent");
+
+    // let ratio_pre = reserve.ctoken_ratio();
+    let (assets_pre, shares_pre) = {
+        let assets = reserve.total_supply();
+        let shares = decimal::from(reserve.ctoken_supply());
+        (assets, shares)
+    };
+
+    cvlm_assume_msg(shares_pre.gt(decimal::from(0)), b"Assume non-zero collateral");
+
+    invoke(target, lending_market);
+
+    let reserve = &lending_market.reserves()[i];
+    // let ratio_post = reserve.ctoken_ratio();
+    
+    let (assets_post, shares_post) = {
+        let assets = reserve.total_supply();
+        let shares =  decimal::from(reserve.ctoken_supply());
+        (assets, shares)
+    };
+
+    // Assert that the ratio assets/shares did not decrease:
+    //      assets_pre/shares_pre <= assets_post/shares_post
+    // <==> assets_pre * shares_post <= assets_post * shares_pre
+
+   cvlm_assert(decimal::le(assets_pre.mul(shares_post), assets_post.mul(shares_pre)));
+   // cvlm_assert(ratio_pre.le(ratio_post));
+}
+
+
 /* Other Rules */
 
 /// Spurious cex in invalid states(?) and timeouts.
