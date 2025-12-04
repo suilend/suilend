@@ -9,7 +9,10 @@ use spec::dummy_pool_lending_market::DummyPool;
 use spec::utils::log;
 use sui::clock::Clock;
 use sui::sui::SUI;
-use suilend::lending_market::{LendingMarket};
+use suilend::decimal::{Self, Decimal, min};
+use suilend::lending_market::LendingMarket;
+use suilend::obligation::{Obligation, find_borrow_index};
+use suilend::rate_limiter::RateLimiter;
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
 use suilend::decimal;
@@ -63,13 +66,13 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 
 /// Returns whether given reserve is solvent, i.e., whether the total supply of assets is equal to or greater than the amount of cTokens.
 fun solvency(reserve: &Reserve<DummyPool>): bool {
-    let assets = reserve.total_supply().floor();
-    let shares = reserve.ctoken_supply();
+    let assets = reserve.total_supply();
+    let shares = decimal::from(reserve.ctoken_supply());
 
     log(&assets);
     log(&shares);
 
-    assets >= shares
+    assets.ge(shares)
 }
 
 /// The base case for the induction.
@@ -145,10 +148,10 @@ public fun solvency_ratio_monotonicity(
 
     let reserve = &lending_market.reserves()[i];
     // let ratio_post = reserve.ctoken_ratio();
-    
+
     let (assets_post, shares_post) = {
         let assets = reserve.total_supply();
-        let shares =  decimal::from(reserve.ctoken_supply());
+        let shares = decimal::from(reserve.ctoken_supply());
         (assets, shares)
     };
 
@@ -156,10 +159,9 @@ public fun solvency_ratio_monotonicity(
     //      assets_pre/shares_pre <= assets_post/shares_post
     // <==> assets_pre * shares_post <= assets_post * shares_pre
 
-   cvlm_assert(decimal::le(assets_pre.mul(shares_post), assets_post.mul(shares_pre)));
-   // cvlm_assert(ratio_pre.le(ratio_post));
+    cvlm_assert(decimal::le(assets_pre.mul(shares_post), assets_post.mul(shares_pre)));
+    // cvlm_assert(ratio_pre.le(ratio_post));
 }
-
 
 /* Other Rules */
 
@@ -173,8 +175,6 @@ fun get_ctoken_amounts(lm: &LendingMarket<DummyPool>, ri: u64, obi: ID): (u64, u
     let obligation_ctokens = obligation.deposited_ctoken_amount<DummyPool, SUI>();
     (obligation_ctokens, reserve_ctokens)
 }
-
-
 
 public fun obligation_col_increase_implies_reserve_asset_increase(
     lending_market: &mut LendingMarket<DummyPool>,
