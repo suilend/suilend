@@ -43,12 +43,14 @@ module suilend::reserve {
     const EWrongType: u64 = 7;
     const EStakerAlreadyInitialized: u64 = 8;
     const EStakerNotInitialized: u64 = 9;
+    const EPriceEmaDeviation: u64 = 10;
 
     // === Constants ===
     const PRICE_STALENESS_THRESHOLD_S: u64 = 0;
     // to prevent certain rounding bug attacks, we make sure that X amount of the underlying token amount
     // can never be withdrawn or borrowed.
-    const MIN_AVAILABLE_AMOUNT: u64 = 100; 
+    const MIN_AVAILABLE_AMOUNT: u64 = 100;
+    const DEFAULT_PRICE_EMA_DIVERGENCE_THRESHOLD_BPS: u64 = 5000; // 50%
 
     // === Public Structs ===
 
@@ -98,6 +100,7 @@ module suilend::reserve {
     // === Dynamic Field Keys ===
     public struct BalanceKey has copy, drop, store {}
     public struct StakerKey has copy, drop, store {}
+    public struct PriceEmaDivergenceThresholdBpsKey has copy, drop, store {}
 
     /// Balances are stored in a dynamic field to avoid typing the Reserve with CoinType
     public struct Balances<phantom P, phantom T> has store {
@@ -349,6 +352,31 @@ module suilend::reserve {
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
 
         cur_time_s - reserve.price_last_update_timestamp_s <= PRICE_STALENESS_THRESHOLD_S
+    }
+
+    public(package) fun assert_price_ema_divergence_within_threshold<P>(reserve: &Reserve<P>, clock: &Clock) {
+        reserve.assert_price_is_fresh(clock);
+
+        // Skip if price is zero
+        if (reserve.price.eq(decimal::from(0))) {
+            return
+        };
+
+        // Calculate absolute difference
+        let price_diff = if (reserve.price.gt(reserve.smoothed_price)) {
+            reserve.price.sub(reserve.smoothed_price)
+        } else {
+            reserve.smoothed_price.sub(reserve.price)
+        };
+
+        // Calculate divergence ratio
+        let divergence_ratio = price_diff.div(reserve.price);
+
+        let threshold_bps = price_ema_divergence_threshold_bps(reserve);
+        let threshold = decimal::from_bps(threshold_bps);
+
+        // Check if divergence < threshold
+        assert!(divergence_ratio.lt(threshold), EPriceEmaDeviation);
     }
 
     /// Gets the current price of the reserve's underlying asset.
@@ -958,6 +986,14 @@ module suilend::reserve {
         dynamic_field::borrow(&reserve.id, StakerKey {})
     }
 
+    public fun price_ema_divergence_threshold_bps<P>(reserve: &Reserve<P>): u64 {
+        if (dynamic_field::exists_(&reserve.id, PriceEmaDivergenceThresholdBpsKey {})) {
+            *dynamic_field::borrow(&reserve.id, PriceEmaDivergenceThresholdBpsKey {})
+        } else {
+            DEFAULT_PRICE_EMA_DIVERGENCE_THRESHOLD_BPS
+        }
+    }
+
     // === Public-Mutative Functions ===
 
     /// Gets a mutable reference to the deposits pool reward manager.
@@ -1055,6 +1091,26 @@ module suilend::reserve {
     ) {
         let old = cell::set(&mut reserve.config, config);
         reserve_config::destroy(old);
+    }
+
+    public(package) fun set_price_ema_divergence_threshold_bps<P>(
+        reserve: &mut Reserve<P>,
+        threshold_bps: u64,
+    ) {
+        if (dynamic_field::exists_(&reserve.id, PriceEmaDivergenceThresholdBpsKey {})) {
+            let existing: &mut u64 = dynamic_field::borrow_mut(&mut reserve.id, PriceEmaDivergenceThresholdBpsKey {});
+            *existing = threshold_bps;
+        } else {
+            dynamic_field::add(&mut reserve.id, PriceEmaDivergenceThresholdBpsKey {}, threshold_bps);
+        }
+    }
+
+    public(package) fun delete_price_ema_divergence_threshold_bps<P>(
+        reserve: &mut Reserve<P>,
+    ) {
+        if (dynamic_field::exists_(&reserve.id, PriceEmaDivergenceThresholdBpsKey {})) {
+            let _: u64 = dynamic_field::remove(&mut reserve.id, PriceEmaDivergenceThresholdBpsKey {});
+        }
     }
 
     /// Updates the reserve's price using the provided price information.
@@ -1969,7 +2025,17 @@ module suilend::reserve {
     ) {
         init_staker(reserve, treasury_cap, ctx);
     }
-    
+
+    #[test_only]
+    public fun set_smoothed_price_for_testing<P>(reserve: &mut Reserve<P>, smoothed_price: Decimal) {
+        reserve.smoothed_price = smoothed_price;
+    }
+
+    #[test_only]
+    public fun set_price_ema_divergence_threshold_bps_for_testing<P>(reserve: &mut Reserve<P>, threshold_bps: u64) {
+        set_price_ema_divergence_threshold_bps(reserve, threshold_bps);
+    }
+
     #[test_only]
     public fun mock_for_testing<P, T>(
         lending_market_id: ID,

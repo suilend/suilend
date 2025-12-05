@@ -592,4 +592,77 @@ module suilend::reserve_tests {
 
         test_scenario::end(scenario);
     }
+
+    #[test]
+    #[expected_failure(abort_code = suilend::reserve::EPriceEmaDeviation)]
+    fun test_ema_divergence_exceeds_threshold() {
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::reserve_config::{default_reserve_config};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        let mut reserve = create_for_testing<TEST_LM, TEST_USDC>(
+            default_reserve_config(scenario.ctx()),
+            0,
+            6,
+            decimal::from(100),  // spot price
+            0,
+            500,
+            200,
+            decimal::from(500),
+            decimal::from(1),
+            1,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Manually set smoothed_price to create 51% divergence
+        reserve.set_smoothed_price_for_testing(decimal::from(151));
+
+        // This should fail with EPriceEmaDeviation
+        reserve::assert_price_ema_divergence_within_threshold(&reserve, &clock);
+
+        sui::test_utils::destroy(reserve);
+        sui::test_utils::destroy(clock);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = suilend::reserve::EPriceEmaDeviation)]
+    fun test_ema_divergence_fails_with_custom_threshold() {
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::reserve_config::{default_reserve_config};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+
+        let mut reserve = create_for_testing<TEST_LM, TEST_USDC>(
+            default_reserve_config(scenario.ctx()),
+            0,
+            6,
+            decimal::from(100),  // spot price
+            0,
+            500,
+            200,
+            decimal::from(500),
+            decimal::from(1),
+            1,
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Manually set smoothed_price to create 40% divergence
+        reserve.set_smoothed_price_for_testing(decimal::from(140));
+
+        // Set a stricter threshold of 30%
+        reserve::set_price_ema_divergence_threshold_bps_for_testing(&mut reserve, 3000);
+
+        // This should fail because 40% > 30%
+        reserve::assert_price_ema_divergence_within_threshold(&reserve, &clock);
+
+        sui::test_utils::destroy(reserve);
+        sui::test_utils::destroy(clock);
+        test_scenario::end(scenario);
+    }
 }

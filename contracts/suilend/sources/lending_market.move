@@ -601,6 +601,7 @@ module suilend::lending_market {
 
         reserve::compound_interest(reserve, clock);
         reserve::assert_price_is_fresh(reserve, clock);
+        reserve.assert_price_ema_divergence_within_threshold(clock);
 
         if (amount == U64_MAX) {
             amount = max_borrow_amount<P>(lending_market.rate_limiter, obligation, reserve, clock);
@@ -816,6 +817,8 @@ module suilend::lending_market {
             repay_reserve_array_index,
         );
         assert!(reserve::coin_type(repay_reserve) == type_name::with_defining_ids<Repay>(), EWrongType);
+        repay_reserve.assert_price_ema_divergence_within_threshold(clock);
+
         reserve::repay_liquidity<P, Repay>(
             repay_reserve,
             coin::into_balance(required_repay_coins),
@@ -827,6 +830,8 @@ module suilend::lending_market {
             withdraw_reserve_array_index,
         );
         assert!(reserve::coin_type(withdraw_reserve) == type_name::with_defining_ids<Withdraw>(), EWrongType);
+        withdraw_reserve.assert_price_ema_divergence_within_threshold(clock);
+
         let mut ctokens = reserve::withdraw_ctokens<P, Withdraw>(
             withdraw_reserve,
             withdraw_ctoken_amount,
@@ -1494,6 +1499,31 @@ module suilend::lending_market {
         assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         reserve::change_price_feed<P>(reserve, price_info_obj, clock);
+    }
+
+    public fun set_reserve_price_ema_divergence_threshold<P, T>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        threshold_bps: u64,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve_array_index = lending_market.reserve_array_index<_, T>();
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+
+        reserve.set_price_ema_divergence_threshold_bps(threshold_bps);
+    }
+
+    public fun delete_reserve_price_ema_divergence_threshold<P, T>(
+        _: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let reserve_array_index = lending_market.reserve_array_index<_, T>();
+        let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
+
+        reserve.delete_price_ema_divergence_threshold_bps();
     }
 
     /// Adds a new reward pool to a reserve for either deposits or borrows.
