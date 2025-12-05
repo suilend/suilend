@@ -1,0 +1,13 @@
+diff --git a/contracts/suilend/sources/obligation.move b/contracts/suilend/sources/obligation.move
+index df13b62..c55edfd 100644
+--- a/contracts/suilend/sources/obligation.move
++++ b/contracts/suilend/sources/obligation.move
+@@ -155,7 +155,7 @@ module suilend::obligation {
+     /// # Returns
+     ///
+     /// * `Obligation<P>` - A new `Obligation` instance.
+-    public(package) fun create_obligation<P>(
++    public fun create_obligation<P>(
+         lending_market_id: ID,
+         ctx: &mut TxContext,
+     ): Obligation<P> {

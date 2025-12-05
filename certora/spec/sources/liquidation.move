@@ -9,6 +9,8 @@ use spec::dummy_pool_lending_market::DummyPool;
 use sui::coin::Coin;
 use suilend::lending_market::LendingMarket;
 use cvlm::asserts::cvlm_assume_msg;
+use suilend::obligation::Obligation;
+use spec::obligation_integrity::liquidatable_implies_unhealthy;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -58,41 +60,8 @@ public fun liquidated_only_unhealthy_obligation<R, W>(
 ) {
     let obligation = lm.obligation(ob_id);
 
-    /* 
-    open_ltv <= close_ltv
-    market_value_lower_bound <= market_value <= market_value_upper_bound
-
-    allowed_borrow_value_usd = market_value_lower_bound * open_ltv
-    unhealthy_borrow_value_usd = market_value * close_ltv
-
-    ==> allowed_borrow_value_usd <= unhealthy_borrow_value_usd
-   
-    weighted_borrowed_value_upper_bound_usd = market_value_upper_bound * borrow_weight
-    weighted_borrowed_value_usd = market_value * borrow_weight
-
-    ==> weighted_borrowed_value_usd <= weighted_borrowed_value_upper_bound_usd
-
-  
-    Unhealthy:    market_value_upper_bound * borrow_weight >   market_value_lower_bound * open_ltv
-                                >=                                            <=
-    Liquidatable:     market_value * borrow_weight         >         market_value * close_ltv
-
-    market_value_upper_bound * borrow_weight >= market_value * borrow_weight > market_value * close_ltv >= market_value_lower_bound * open_ltv
-    |                                           |                                                      |                                       |             
-    |                                           |------------------------- UNHEALTHY ------------------|                                       |
-    |------------------------------------------------------------------- LIQUIDATABLE ---------------------------------------------------------|
-
-    Thus: LIQUIDATABLE => UNHEALTHY
-    But not UNHEALTHY => LIQUIDATABLE
-    
-
-
-    */
-
+    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"liquidatable => unhealthy");
     let healthy = obligation.is_healthy();
-    let liquidatable = obligation.is_liquidatable();
-
-    cvlm_assume_msg(!liquidatable || !healthy, b"liquidatable => unhealthy");
 
     // We don't care about the actual reserve to withdraw from/deposit to;
     let repay_reserve_array_index = nondet();
