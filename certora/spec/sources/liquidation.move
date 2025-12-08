@@ -1,17 +1,16 @@
 module spec::liquidation;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
-use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
-use cvlm::manifest::{target, invoker, rule};
+use cvlm::manifest::{target, rule};
 use cvlm::nondet::nondet;
 use spec::dummy_pool_lending_market::DummyPool;
 use spec::obligation_integrity::liquidatable_implies_unhealthy;
 use sui::coin::Coin;
 use suilend::lending_market::LendingMarket;
-use suilend::obligation::Obligation;
 use suilend::reserve::CToken;
 use suilend::decimal;
+
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -46,14 +45,11 @@ public fun cvlm_manifest() {
     target(@spec, b"dummy_pool_lending_market", b"set_fee_receivers");
     target(@spec, b"dummy_pool_lending_market", b"new_obligation_owner_cap");
 
-    invoker(b"invoke");
-
     rule(b"liquidation_only_unhealthy_obligation");
     rule(b"liquidation_with_bonus_profitable");
     rule(b"liquidation_no_loss");
+    rule(b"liquidation_reduces_collateral_and_debt");
 }
-
-native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
 /* Liquidation reverts on healthy obligation */
 
@@ -180,4 +176,47 @@ public fun liquidation_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: I
     ghost_destroy(clock);
     ghost_destroy(repay_coins);
     ghost_destroy(liquidated_ctokens);
+}
+
+public fun liquidation_reduces_collateral_and_debt<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
+
+    let (deposits_pre, borrows_pre) = {
+        let obligation = lm.obligation(ob_id);
+        let deposits = obligation.deposited_value_usd();
+        let borrows = obligation.unweighted_borrowed_value_usd();
+        (deposits, borrows)
+    };
+    
+    
+
+    let repay_reserve_array_index = nondet();
+    let withdraw_reserve_array_index = nondet();
+    cvlm_assume_msg(repay_reserve_array_index != withdraw_reserve_array_index, b"Different reserves");
+    let clock = nondet();
+    let mut ctx = nondet();
+    let mut repay_coins: Coin<R> = nondet();
+
+    
+    let (c, _) = lm.liquidate<DummyPool, R, W>(
+        ob_id,
+        repay_reserve_array_index,
+        withdraw_reserve_array_index,
+        &clock,
+        &mut repay_coins,
+        &mut ctx,
+    );
+
+    let (deposits_post, borrows_post) = {
+        let obligation = lm.obligation(ob_id);
+        let deposits = obligation.deposited_value_usd();
+        let borrows = obligation.unweighted_borrowed_value_usd();
+        (deposits, borrows)
+    };
+
+    cvlm_assert(deposits_pre.gt( deposits_post));
+    cvlm_assert(borrows_pre.gt(borrows_post));
+
+    ghost_destroy(c);
+    ghost_destroy(clock);
+    ghost_destroy(repay_coins);
 }
