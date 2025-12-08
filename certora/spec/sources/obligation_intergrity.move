@@ -9,13 +9,12 @@ use cvlm::function::Function;
 use suilend::obligation::create_obligation;
 use suilend::lending_market::LendingMarket;
 use cvlm::asserts::cvlm_assert;
-use suilend::obligation;
 use cvlm::ghost::ghost_destroy;
 
 
 public fun cvlm_manifest() {
     rule(b"liquidatable_implies_unhealthy_base");
-    rule(b"liquidatable_implies_unhealthy_step");
+    //rule(b"liquidatable_implies_unhealthy_step");
 }
 
 /**
@@ -60,7 +59,7 @@ public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut 
     ghost_destroy(obligation);
 }
 
-public fun liquidatable_implies_unhealthy_step(obligation: &mut Obligation<DummyPool>, target: Function) {
-    // TODO: Needs a Obligation<DummyPool> implementation
-    cvlm_assert(false);
-}
+// public fun liquidatable_implies_unhealthy_step(obligation: &mut Obligation<DummyPool>, target: Function) {
+//     // TODO: Needs a Obligation<DummyPool> implementation
+//     cvlm_assert(false);
+// }

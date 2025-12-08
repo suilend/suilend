@@ -1,16 +1,17 @@
 module spec::liquidation;
 
-use cvlm::asserts::cvlm_assert;
+use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
 use cvlm::nondet::nondet;
 use spec::dummy_pool_lending_market::DummyPool;
+use spec::obligation_integrity::liquidatable_implies_unhealthy;
 use sui::coin::Coin;
 use suilend::lending_market::LendingMarket;
-use cvlm::asserts::cvlm_assume_msg;
 use suilend::obligation::Obligation;
-use spec::obligation_integrity::liquidatable_implies_unhealthy;
+use suilend::reserve::CToken;
+use suilend::decimal;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -47,14 +48,16 @@ public fun cvlm_manifest() {
 
     invoker(b"invoke");
 
-    rule(b"liquidated_only_unhealthy_obligation");
+    rule(b"liquidation_only_unhealthy_obligation");
+    rule(b"liquidation_with_bonus_profitable");
+    rule(b"liquidation_no_loss");
 }
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
 /* Liquidation reverts on healthy obligation */
 
-public fun liquidated_only_unhealthy_obligation<R, W>(
+public fun liquidation_only_unhealthy_obligation<R, W>(
     lm: &mut LendingMarket<DummyPool>,
     ob_id: ID,
 ) {
@@ -88,4 +91,93 @@ public fun liquidated_only_unhealthy_obligation<R, W>(
 
     // We cannot check for aborts yet, but we can assert that the liquidation only passed in the obligation was unhealthy
     cvlm_assert(!healthy);
+}
+
+/// Verifies that liquidation is profitable to the liquidator, given the bonus rate is not 0.
+/// That means that the market value of the returned CTokens exceeds the market value of the repaid debt.
+public fun liquidation_with_bonus_profitable<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
+
+    let repay_reserve_array_index = nondet();
+    let withdraw_reserve_array_index = nondet();
+
+    {
+        let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_array_index);
+        let bonus = withdraw_reserve.config().liquidation_bonus();
+        cvlm_assume_msg(bonus.gt(decimal::from(0)), b"positive bonus");
+    };
+
+    cvlm_assume_msg(repay_reserve_array_index != withdraw_reserve_array_index, b"Different reserves");
+
+    let clock = nondet();
+    let mut ctx = nondet();
+    let mut repay_coins: Coin<R> = nondet();
+    let repay_coin_value_pre = repay_coins.value();
+
+    let liquidated_ctokens: Coin<CToken<DummyPool, W>>;
+    (liquidated_ctokens,  _) = lm.liquidate<DummyPool, R, W>(
+        ob_id,
+        repay_reserve_array_index,
+        withdraw_reserve_array_index,
+        &clock,
+        &mut repay_coins,
+        &mut ctx,
+    );
+
+    // Less than the repay coins value might have been use to repay the debt. 
+    let repay_amount = repay_coin_value_pre - repay_coins.value();    
+    let repay_reserve = vector::borrow(lm.reserves(), repay_reserve_array_index);
+    let repay_value = repay_reserve.market_value(decimal::from(repay_amount));
+
+    let liquidated_ctokens_amount = liquidated_ctokens.value();
+    let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_array_index);
+    let liquidated_value = withdraw_reserve.ctoken_market_value(liquidated_ctokens_amount);
+
+    cvlm_assert(repay_value.le(liquidated_value));
+    ghost_destroy(clock);
+    ghost_destroy(repay_coins);
+    ghost_destroy(liquidated_ctokens);
+}
+
+/// Verifies that liquidation is not a loss for the liquidator. 
+/// That means that the market value of the returned CTokens is at least the market value of the repaid debt.
+public fun liquidation_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
+
+    let repay_reserve_array_index = nondet();
+    let withdraw_reserve_array_index = nondet();
+
+    cvlm_assume_msg(repay_reserve_array_index != withdraw_reserve_array_index, b"Different reserves");
+
+    let clock = nondet();
+    let mut ctx = nondet();
+    let mut repay_coins: Coin<R> = nondet();
+    let repay_coin_value_pre = repay_coins.value();
+
+    
+    let (liquidated_ctokens,  _) = lm.liquidate<DummyPool, R, W>(
+        ob_id,
+        repay_reserve_array_index,
+        withdraw_reserve_array_index,
+        &clock,
+        &mut repay_coins,
+        &mut ctx,
+    );
+
+    // Less than the repay coins value might have been use to repay the debt. 
+    let repay_amount = repay_coin_value_pre - repay_coins.value();    
+
+    // Convert to repay amount to usd
+    let repay_reserve = vector::borrow(lm.reserves(), repay_reserve_array_index);
+    let repay_value = repay_reserve.market_value(decimal::from(repay_amount));
+
+    // Convert liquidation result (= ctokens obtained) to usd
+    let liquidated_ctokens_amount = liquidated_ctokens.value();
+    let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_array_index);
+    let liquidated_value = withdraw_reserve.ctoken_market_value(liquidated_ctokens_amount);
+
+    cvlm_assert(repay_value.le(liquidated_value));
+
+
+    ghost_destroy(clock);
+    ghost_destroy(repay_coins);
+    ghost_destroy(liquidated_ctokens);
 }
