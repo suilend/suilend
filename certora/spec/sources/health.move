@@ -4,7 +4,7 @@ use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
-use spec::dummy_pool_lending_market::DummyPool;
+use spec::dummy_pool::DummyPool;
 use suilend::lending_market::{LendingMarket};
 use suilend::obligation::{Obligation};
 use cvlm::nondet::nondet;

@@ -1,65 +1,104 @@
 module spec::obligation_integrity;
 
-
-
-use suilend::obligation::Obligation;
-use spec::dummy_pool_lending_market::DummyPool;
-use cvlm::manifest::rule;
+use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
-use suilend::obligation::create_obligation;
-use suilend::lending_market::LendingMarket;
-use cvlm::asserts::cvlm_assert;
 use cvlm::ghost::ghost_destroy;
-
+use cvlm::manifest::{rule, target, invoker};
+use cvlm::nondet::nondet;
+use spec::dummy_pool::DummyPool;
+use suilend::obligation::Obligation;
+use spec::dummy_pool_obligation;
+use suilend::reserve::Reserve;
+use suilend::reserve;
+use suilend::decimal;
+use suilend::obligation;
+use liquid_staking::weight;
+use sui::clock::Clock;
 
 public fun cvlm_manifest() {
+    target(@spec, b"dummy_pool_obligation", b"refresh");
+    target(@spec, b"dummy_pool_obligation", b"deposit");
+    target(@spec, b"dummy_pool_obligation", b"borrow");
+    target(@spec, b"dummy_pool_obligation", b"repay");
+    target(@spec, b"dummy_pool_obligation", b"withdraw");
+    target(@spec, b"dummy_pool_obligation", b"liquidate");
+    target(@spec, b"dummy_pool_obligation", b"forgive");
+    target(@spec, b"dummy_pool_obligation", b"claim_rewards");
+
+    invoker(b"invoke");
+
     rule(b"liquidatable_implies_unhealthy_base");
-    //rule(b"liquidatable_implies_unhealthy_step");
+    rule(b"liquidatable_implies_unhealthy_step");
 }
 
-/**
-open_ltv <= close_ltv
-market_value_lower_bound <= market_value <= market_value_upper_bound
+native fun invoke(target: Function, obligation: &mut Obligation<DummyPool>, reserve: &mut Reserve<DummyPool>);
 
-allowed_borrow_value_usd = market_value_lower_bound * open_ltv
-unhealthy_borrow_value_usd = market_value * close_ltv
-
-==> allowed_borrow_value_usd <= unhealthy_borrow_value_usd
-
-weighted_borrowed_value_upper_bound_usd = market_value_upper_bound * borrow_weight
-weighted_borrowed_value_usd = market_value * borrow_weight
-
-==> weighted_borrowed_value_usd <= weighted_borrowed_value_upper_bound_usd
-
-
-Unhealthy:    market_value_upper_bound * borrow_weight >   market_value_lower_bound * open_ltv
-                            >=                                            <=
-Liquidatable:     market_value * borrow_weight         >         market_value * close_ltv
-
-market_value_upper_bound * borrow_weight >= market_value * borrow_weight > market_value * close_ltv >= market_value_lower_bound * open_ltv
-|                                           |                                                      |                                       |             
-|                                           |------------------------- LIQUIDATABLE ---------------|                                       |
-|---------------------------------------------------------------------- UNHEALTHY ---------------------------------------------------------|
-
-Thus: LIQUIDATABLE => UNHEALTHY
-But not UNHEALTHY => LIQUIDATABLE
-*/
 public fun liquidatable_implies_unhealthy(obligation: &Obligation<DummyPool>): bool {
     let healthy = obligation.is_healthy();
     let liquidatable = obligation.is_liquidatable();
+    // liquidatable -> unhealthy  <==> !liquidatable || unhealthy
     return !liquidatable || !healthy
 }
 
 
+public fun weighted_borrow_leq_weighted_borrow_upper_bound(obligation: &Obligation<DummyPool>): bool {
+    let weighted = obligation.weighted_borrowed_value_usd();
+    let weighted_ub = obligation.weighted_borrowed_value_upper_bound_usd();
+    weighted.le(weighted_ub)
+}
+
+public fun allowed_borrow_value_leq_unhealthy_borrow_value(obligation: &Obligation<DummyPool>): bool {
+    let allowed = obligation.allowed_borrow_value_usd();
+    let unhealthy = obligation.unhealthy_borrow_value_usd();
+    allowed.le(unhealthy)
+}
+
+
 public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut TxContext) {
-    let obligation = create_obligation(lending_market_id, ctx);
+    let obligation = spec::dummy_pool_obligation::create_obligation(lending_market_id, ctx);
 
     cvlm_assert(liquidatable_implies_unhealthy(&obligation));
+
 
     ghost_destroy(obligation);
 }
 
-// public fun liquidatable_implies_unhealthy_step(obligation: &mut Obligation<DummyPool>, target: Function) {
-//     // TODO: Needs a Obligation<DummyPool> implementation
-//     cvlm_assert(false);
-// }
+public fun liquidatable_implies_unhealthy_step(
+    obligation: &mut Obligation<DummyPool>,
+    reserve: &mut Reserve<DummyPool>,
+    reserves: &mut vector<Reserve<DummyPool>>,
+    clock: &Clock,
+    target: Function,
+) {
+    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"Assume invariant in pre-state");
+
+    cvlm_assume_msg(weighted_borrow_leq_weighted_borrow_upper_bound(obligation), b"Require 1");
+    cvlm_assume_msg( reserve.config().open_ltv().lt(reserve.config().close_ltv()), b"Require 2");
+    let one = decimal::from_percent(100);
+    cvlm_assume_msg( reserve.config().close_ltv().lt(one), b"Require 3");
+    cvlm_assume_msg( allowed_borrow_value_leq_unhealthy_borrow_value(obligation), b"Require 4");
+
+    cvlm_assume_msg(reserves.length() == 1, b"");
+    cvlm_assume_msg(&mut reserves[1] == reserve, b"");
+    let rfr = obligation.refresh(reserves, clock);
+    ghost_destroy(rfr);
+    invoke(target, obligation, reserve);
+
+    cvlm_assert(liquidatable_implies_unhealthy(obligation));
+}
+
+public fun liquidatable_implies_unhealthy_step_refresh(obligation: &mut Obligation<DummyPool>) {
+    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"Assume invariant in pre-state");
+
+    let mut reserves = nondet();
+    let clock = nondet();
+
+    //let r = obligation.refresh(&mut reserves, &clock);
+    let r = dummy_pool_obligation::refresh(obligation, &mut reserves, &clock);
+
+    cvlm_assert(liquidatable_implies_unhealthy(obligation));
+
+    ghost_destroy(r);
+    ghost_destroy(clock);
+    ghost_destroy(reserves);
+}

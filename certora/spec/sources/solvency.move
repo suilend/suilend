@@ -6,7 +6,7 @@ use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule, summary};
 use cvlm::nondet::{nondet, nondet_with};
 use pyth::price_info::PriceInfoObject;
-use spec::dummy_pool_lending_market::DummyPool;
+use spec::dummy_pool::DummyPool;
 use spec::utils::log;
 use sui::clock::Clock;
 use sui::sui::SUI;
@@ -63,12 +63,12 @@ public fun cvlm_manifest() {
     rule(b"obligation_col_increase_implies_reserve_asset_increase");
 
     // Obligation Summaries
-    summary(b"obligation_repay", @suilend, b"obligation", b"repay");
-    summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
-    summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
-    summary(b"obligation_borrow", @suilend, b"obligation", b"borrow");
-    summary(b"obligation_deposit", @suilend, b"obligation", b"deposit");
-    summary(b"obligation_liquidate", @suilend, b"obligation", b"liquidate");
+    // summary(b"obligation_repay", @suilend, b"obligation", b"repay");
+    // summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
+    // summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
+    // summary(b"obligation_borrow", @suilend, b"obligation", b"borrow");
+    // summary(b"obligation_deposit", @suilend, b"obligation", b"deposit");
+    //summary(b"obligation_liquidate", @suilend, b"obligation", b"liquidate");
     summary(
         b"obligation_zero_out_rewards_if_looped",
         @suilend,

@@ -4,7 +4,7 @@ use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, rule};
 use cvlm::nondet::nondet;
-use spec::dummy_pool_lending_market::DummyPool;
+use spec::dummy_pool::DummyPool;
 use spec::obligation_integrity::liquidatable_implies_unhealthy;
 use sui::coin::Coin;
 use suilend::lending_market::LendingMarket;
