@@ -1,5 +1,5 @@
 [package]
-name = "spec"
+name = "setup"
 edition = "2024.beta"
 
 [dependencies]
@@ -8,4 +8,4 @@ cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm",
 certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries",  rev = "main" }
 
 [addresses]
-spec = "0x0"
+setup = "0x0"
