@@ -7,7 +7,6 @@ use cvlm::manifest::{target, invoker, rule};
 use pyth::price_info::PriceInfoObject;
 use dummy_pool::dummy_pool::DummyPool;
 use sui::clock::Clock;
-use sui::sui::SUI;
 use suilend::decimal::{Self};
 use suilend::lending_market::LendingMarket;
 use suilend::reserve::{Reserve, create_reserve};
@@ -56,7 +55,7 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 
 
 /// Returns whether given reserve is solvent, i.e., whether the total supply of assets is equal to or greater than the amount of cTokens.
-public fun solvency(reserve: &Reserve<DummyPool>): bool {
+public fun is_solvent(reserve: &Reserve<DummyPool>): bool {
     let assets = reserve.total_supply();
     let shares = decimal::from(reserve.ctoken_supply());
     assets.ge(shares)
@@ -82,27 +81,26 @@ public fun solvency_base<T>(
         clock,
         ctx,
     );
-    cvlm_assert(solvency(&reserve));
+    cvlm_assert(is_solvent(&reserve));
     ghost_destroy(reserve);
 }
 
 /// The induction steps for the solvency invariant.
 /// Assumes an arbitrary reserve, identified by its index in the lending market, that is in a solvent state,
 /// and assert that every function that can modify the state preserves the solvency.
-/// ! Timeouts
 public fun solvency_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, target: Function) {
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 
     {
         let reserve = &lending_market.reserves()[i];
-        cvlm_assume_msg(solvency(reserve), b"Assume reserve is solvent pre-state");
+        cvlm_assume_msg(is_solvent(reserve), b"Assume reserve is solvent pre-state");
     };
 
     invoke(target, lending_market);
 
     {
         let reserve = &lending_market.reserves()[i];
-        cvlm_assert_msg(solvency(reserve), b"Assert reserve is solvent in post-state");
+        cvlm_assert_msg(is_solvent(reserve), b"Assert reserve is solvent in post-state");
     };
 }
 

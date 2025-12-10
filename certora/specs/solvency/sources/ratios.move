@@ -8,7 +8,7 @@ use cvlm::manifest::invoker;
 use cvlm::manifest::target;
 use cvlm::manifest::rule;
 use cvlm::asserts::cvlm_assert;
-use solvency::solvency::solvency;
+use solvency::solvency::is_solvent;
 
 
 
@@ -65,7 +65,9 @@ public fun ratio_monotonicity(
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 
     let reserve = &lending_market.reserves()[i];
-    cvlm_assume_msg(solvency(reserve), b"Require invariant reserve is solvent");
+    cvlm_assume_msg(is_solvent(reserve), b"Require invariant reserve is solvent");
+
+
 
     // let ratio_pre = reserve.ctoken_ratio();
     let (assets_pre, shares_pre) = {
