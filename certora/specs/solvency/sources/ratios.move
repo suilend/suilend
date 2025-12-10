@@ -47,7 +47,7 @@ public fun cvlm_manifest() {
 
     invoker(b"invoke");
 
-    rule(b"solvency_ratio_monotonicity");
+    rule(b"ratio_monotonicity");
 
 }
 
@@ -57,7 +57,7 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 /// user operations. This ensure that no action performed by any user can depreciate the value
 /// of a ctoken.
 /// This does not hold for the privileged `forgive` function.
-public fun solvency_ratio_monotonicity(
+public fun ratio_monotonicity(
     lending_market: &mut LendingMarket<DummyPool>,
     i: u64,
     target: Function,
