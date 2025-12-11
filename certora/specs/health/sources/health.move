@@ -3,11 +3,17 @@ module health::health;
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
-use cvlm::manifest::{target, invoker, rule};
+use cvlm::manifest::{target, invoker, rule, summary};
+use cvlm::nondet::{nondet_with, nondet};
 use dummy_pool::dummy_pool::DummyPool;
-use suilend::lending_market::{LendingMarket};
-use suilend::obligation::{Obligation};
-use cvlm::nondet::nondet;
+use sui::clock::Clock;
+use suilend::decimal::Decimal;
+use suilend::lending_market::LendingMarket;
+use suilend::liquidity_mining::PoolRewardManager;
+use suilend::obligation::Obligation;
+use suilend::rate_limiter::RateLimiter;
+use suilend::reserve::{Reserve, LiquidityRequest};
+use suilend::liquidity_mining::UserRewardManager;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -15,7 +21,11 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity_request");
+    target(
+        @dummy_pool,
+        b"dummy_pool_lending_market",
+        b"redeem_ctokens_and_withdraw_liquidity_request",
+    );
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_ctokens_into_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow");
     target(@dummy_pool, b"dummy_pool_lending_market", b"compound_interest");
@@ -44,6 +54,31 @@ public fun cvlm_manifest() {
 
     invoker(b"invoke");
 
+    //summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
+    summary(b"reserve_compound_interest", @suilend, b"reserve", b"compound_interest");
+    summary(b"reserve_borrow_liquidity", @suilend, b"reserve", b"borrow_liquidity");
+
+    summary(b"rate_limiter_process_qty", @suilend, b"rate_limiter", b"process_qty");
+
+    summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
+    summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
+    summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
+    summary(b"obligation_find_or_add_user_reward_manager", @suilend, b"obligation", b"find_or_add_user_reward_manager");
+    summary(
+        b"obligation_zero_out_rewards_if_looped",
+        @suilend,
+        b"obligation",
+        b"zero_out_rewards_if_looped",
+    );
+
+    summary(
+        b"mining_change_user_reward_manager_share",
+        @suilend,
+        b"liquidity_mining",
+        b"change_user_reward_manager_share",
+    );
+    
+
     rule(b"obligation_health_base");
     rule(b"obligation_health_step");
 
@@ -54,6 +89,61 @@ public fun cvlm_manifest() {
 }
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
+
+public fun reserve_compound_borrow_rate(_: &mut Reserve<DummyPool>, _: u64): Decimal {
+    let val = nondet_with!(b"Borrow rate", |r| 1 <= r && r < 2);
+    suilend::decimal::from(val)
+}
+
+public fun reserve_compound_interest<P>(_: &mut Reserve<P>, _: &Clock) {}
+
+public fun reserve_borrow_liquidity<P, T>(
+    _reserve: &mut Reserve<P>,
+    _amount: u64,
+): LiquidityRequest<P, T> {
+    nondet()
+}
+
+public fun rate_limiter_process_qty(
+    _rate_limiter: &mut RateLimiter,
+    _cur_time: u64,
+    _qty: Decimal,
+) {} // noop
+
+public fun obligation_find_borrow_index<P>(_: &Obligation<P>, _: &Reserve<P>): u64 {
+    return nondet()
+}
+
+public fun obligation_find_deposit_index<P>(_: &Obligation<P>, _: &Reserve<P>): u64 {
+    return nondet()
+}
+
+public fun mining_change_user_reward_manager_share(
+    _pool_reward_manager: &mut PoolRewardManager,
+    _user_reward_manager: &mut UserRewardManager,
+    _new_share: u64,
+    _clock: &Clock,
+) {}
+
+public fun obligation_log_obligation_data<P>(_obligation: &Obligation<P>) {} // no-op
+
+public(package) fun obligation_zero_out_rewards_if_looped<P>(
+    _obligation: &mut Obligation<P>,
+    _reserves: &mut vector<Reserve<P>>,
+    _clock: &Clock,
+) {} //noop
+
+
+
+public fun obligation_find_or_add_user_reward_manager<P>(
+        _obligation: &mut Obligation<P>,
+        _pool_reward_manager: &mut PoolRewardManager,
+        _clock: &Clock,
+    ): (u64, &mut UserRewardManager) {
+        let i = nondet();
+        let mnrg = vector::borrow_mut(_obligation.user_reward_managers_mut(), i);
+        (i, mnrg)
+    }
 
 /* -- Obligation health -- */
 
