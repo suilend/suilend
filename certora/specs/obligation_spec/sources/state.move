@@ -14,14 +14,14 @@ use sui::clock::Clock;
 use dummy_pool::obligation::create_obligation;
 
 public fun cvlm_manifest() {
-    target(@dummy_pool, b"dummy_pool_obligation", b"refresh");
-    target(@dummy_pool, b"dummy_pool_obligation", b"deposit");
-    target(@dummy_pool, b"dummy_pool_obligation", b"borrow");
-    target(@dummy_pool, b"dummy_pool_obligation", b"repay");
-    target(@dummy_pool, b"dummy_pool_obligation", b"withdraw");
-    target(@dummy_pool, b"dummy_pool_obligation", b"liquidate");
-    target(@dummy_pool, b"dummy_pool_obligation", b"forgive");
-    target(@dummy_pool, b"dummy_pool_obligation", b"claim_rewards");
+    target(@dummy_pool, b"obligation", b"refresh");
+    target(@dummy_pool, b"obligation", b"deposit");
+    target(@dummy_pool, b"obligation", b"borrow");
+    target(@dummy_pool, b"obligation", b"repay");
+    target(@dummy_pool, b"obligation", b"withdraw");
+    target(@dummy_pool, b"obligation", b"liquidate");
+    target(@dummy_pool, b"obligation", b"forgive");
+    target(@dummy_pool, b"obligation", b"claim_rewards");
 
     invoker(b"invoke");
 
