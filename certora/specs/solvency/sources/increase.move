@@ -51,7 +51,6 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 
 
 /// Spurious cex in invalid states(?) and timeouts.
-/// !https://prover.certora.com/output/8195906/85d1b933016345b480f2ebe7e1552068?anonymousKey=ff7b6e36154ea2f9318757c8431ad5668910278a
 fun get_ctoken_amounts(lm: &LendingMarket<DummyPool>, ri: u64, obi: ID): (u64, u64) {
     let reserve = &lm.reserves()[ri];
     let reserve_ctokens = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
@@ -70,27 +69,13 @@ public fun obligation_col_increase_implies_reserve_asset_increase(
 ) {
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 
-    //let (ob_ctokens_pre, res_ctokens_pre) = get_ctoken_amounts(lending_market, i, ob_id);
-    let (ob_ctokens_pre, res_ctokens_pre) = {
-        let reserve = &lending_market.reserves()[i];
-        let reserve_ctokens = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
+    let (ob_ctokens_pre, res_ctokens_pre) = get_ctoken_amounts(lending_market, i, ob_id);
 
-        let obligation = lending_market.obligation(ob_id);
-        let obligation_ctokens = obligation.deposited_ctoken_amount<DummyPool, SUI>();
-        (obligation_ctokens, reserve_ctokens)
-    };
 
     invoke(target, lending_market);
 
-    // let (ob_ctokens_post, res_ctokens_post) = get_ctoken_amounts(lending_market, i, ob_id);
-    let (ob_ctokens_post, res_ctokens_post) = {
-        let reserve = &lending_market.reserves()[i];
-        let reserve_ctokens = reserve.balances().deposited_ctoken_amount<DummyPool, SUI>().value();
-
-        let obligation = lending_market.obligation(ob_id);
-        let obligation_ctokens = obligation.deposited_ctoken_amount<DummyPool, SUI>();
-        (obligation_ctokens, reserve_ctokens)
-    };
+   let (ob_ctokens_post, res_ctokens_post) = get_ctoken_amounts(lending_market, i, ob_id);
+   
 
     if (ob_ctokens_post > ob_ctokens_pre) {
         let obligation_diff = ob_ctokens_post - ob_ctokens_pre;
