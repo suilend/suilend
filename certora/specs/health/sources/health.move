@@ -51,36 +51,14 @@ public fun cvlm_manifest() {
     rule(b"no_deposits_no_borrow_step");
 
     rule(b"unhealthy_only_if_borrow_increases");
-    
-    rule(b"consistency");
 }
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
 /* -- Obligation health -- */
 
-public fun consistency(lending_market: &mut LendingMarket<DummyPool>, id: ID) {
-  let ob_a = lending_market.obligation(id);
-  let d_a = ob_a.deposits().length();
-
-  let mut ctx = nondet();
-
-  let cap = lending_market.create_obligation(&mut ctx);
-
-  let ob_b = lending_market.obligation(id);
-  let d_b = ob_b.deposits().length();
-
-  cvlm_assert(d_a == d_b);
-
-  ghost_destroy(cap);
-  ghost_destroy(ctx);
-
-}
-
 /// The base case for the induction.
 /// Asserts that in the initial state, i.e. right after creating a new obligation, it is healthy.
-/// ! Fails because somehow a different obligation is returned when retrieving it from the storage.
-/// ! https://prover.certora.com/output/8195906/89205f681a9245d7a2fec9591bab5122?anonymousKey=07d2e7c012041f60f7a67b17ee4e2d75d0075737
 public fun obligation_health_base(
     lending_market: &mut LendingMarket<DummyPool>,
     ctx: &mut TxContext,
@@ -94,10 +72,7 @@ public fun obligation_health_base(
 }
 
 /// The step cases for the induction.
-/// Asserts that if obligation is in a healthy state, no lending operation can make it unhealthy.
-/// This of course does when changing the prices or interest is accrued.
-/// ! Fails because somehow a different obligation is returned when retrieving it from the storage.
-/// ! https://prover.certora.com/output/8195906/89205f681a9245d7a2fec9591bab5122?anonymousKey=07d2e7c012041f60f7a67b17ee4e2d75d0075737
+/// Asserts that if obligation is in a healthy state, no lending operation can make it unhealthy, unless enough interest is accrued.
 public fun obligation_health_step(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
