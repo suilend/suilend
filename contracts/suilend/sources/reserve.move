@@ -1275,15 +1275,20 @@ module suilend::reserve {
     /// * If the total supply in USD exceeds the USD deposit limit (`EDepositLimitExceeded`).
     /// * If the `BalanceKey` dynamic field is not found.
     public(package) fun deposit_liquidity_and_mint_ctokens<P, T>(
-        reserve: &mut Reserve<P>, 
-        liquidity: Balance<T>, 
+        reserve: &mut Reserve<P>,
+        liquidity: Balance<T>,
     ): Balance<CToken<P, T>> {
-        let ctoken_ratio = ctoken_ratio(reserve);
-
-        let new_ctokens = floor(div(
-            decimal::from(balance::value(&liquidity)),
-            ctoken_ratio
-        ));
+        let new_ctokens = if (reserve.ctoken_supply == 0) {
+            liquidity.value()
+        } else {
+            // (liquidity * ctoken_supply) / total_supply
+            decimal::from(liquidity.value())
+                .mul(
+                    decimal::from(reserve.ctoken_supply),
+                )
+                .div(reserve.total_supply())
+                .floor()
+        };
 
         reserve.available_amount = reserve.available_amount + balance::value(&liquidity);
         reserve.ctoken_supply = reserve.ctoken_supply + new_ctokens;
@@ -2036,5 +2041,84 @@ module suilend::reserve {
         );
 
         reserve
+    }
+
+    /// Test that the ctoken ratio never decreases after a deposit (monotonicity invariant)
+    #[test]
+    fun test_ctoken_ratio_monotonicity_on_deposit() {
+        use sui::test_scenario::{Self};
+        use suilend::test_usdc::{TEST_USDC};
+        use suilend::reserve_config::{default_reserve_config};
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+
+        // Create a reserve:
+        // total_supply = 2*WAD + 1, ctoken_supply = 2*WAD
+        let mut reserve = Reserve<TEST_USDC> {
+            id: object::new(test_scenario::ctx(&mut scenario)),
+            lending_market_id: object::uid_to_inner(&lending_market_id),
+            array_index: 0,
+            coin_type: type_name::with_defining_ids<TEST_USDC>(),
+            config: cell::new(default_reserve_config(scenario.ctx())),
+            mint_decimals: 6,
+            price_identifier: example_price_identifier(),
+            price: decimal::from(1),
+            smoothed_price: decimal::from(1),
+            price_last_update_timestamp_s: 0,
+            available_amount: 2_000_000_000_000_000_001, // 2*WAD + 1
+            ctoken_supply: 2_000_000_000_000_000_000, // 2*WAD
+            borrowed_amount: decimal::from(0),
+            cumulative_borrow_rate: decimal::from(1),
+            interest_last_update_timestamp_s: 0,
+            unclaimed_spread_fees: decimal::from(0),
+            attributed_borrow_value: decimal::from(0),
+            deposits_pool_reward_manager: liquidity_mining::new_pool_reward_manager(
+                test_scenario::ctx(&mut scenario),
+            ),
+            borrows_pool_reward_manager: liquidity_mining::new_pool_reward_manager(
+                test_scenario::ctx(&mut scenario),
+            ),
+        };
+
+        // Add the balances dynamic field
+        dynamic_field::add(
+            &mut reserve.id,
+            BalanceKey {},
+            Balances<TEST_USDC, TEST_USDC> {
+                available_amount: balance::create_for_testing(2_000_000_000_000_000_001),
+                ctoken_supply: {
+                    let mut supply = balance::create_supply(CToken<TEST_USDC, TEST_USDC> {});
+                    let tokens = balance::increase_supply(&mut supply, 2_000_000_000_000_000_000);
+                    std::unit_test::destroy(tokens);
+                    supply
+                },
+                fees: balance::zero(),
+                ctoken_fees: balance::zero(),
+                deposited_ctokens: balance::zero(),
+            },
+        );
+
+        // Record the ctoken ratio before deposit
+        let ratio_before = ctoken_ratio(&reserve);
+
+        // Deposit 1 token - this should mint 0 ctokens
+        let liquidity = balance::create_for_testing<TEST_USDC>(1);
+        let ctokens = deposit_liquidity_and_mint_ctokens(&mut reserve, liquidity);
+
+        // Record the ctoken ratio after deposit
+        let ratio_after = ctoken_ratio(&reserve);
+
+        // Key invariant: ratio should not decrease after a deposit
+        assert!(ratio_after.ge(ratio_before));
+
+        // Verify that 0 ctokens were minted
+        assert!(ctokens.value() == 0);
+
+        std::unit_test::destroy(lending_market_id);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(ctokens);
+        test_scenario::end(scenario);
     }
 }
