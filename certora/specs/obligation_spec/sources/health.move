@@ -110,7 +110,9 @@ fun require_fresh_state(
 
 fun get_reserve(reserves: &mut vector<Reserve<DummyPool>>): &mut Reserve<DummyPool> {
     let i = nondet();
-    vector::borrow_mut(reserves, i)
+    let res = vector::borrow_mut(reserves, i);
+    cvlm_assume_msg(res.array_index() == i, b"array_index == position");
+    res
 }
 
 public fun obligation_health_step_refresh(
