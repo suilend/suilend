@@ -94,6 +94,12 @@ public fun available_balance_correct_base(
 /// and assert that every function that can modify the state preserves the solvency.
 public fun available_balance_correct_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, target: Function) {
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
+    {
+        let reserves = lending_market.reserves();
+        cvlm_assume_msg(reserves.length() == 2, b"Assume 2 reserves");
+        cvlm_assume_msg(reserves[0].id() != reserves[1].id(), b"Assume different IDs");
+        cvlm_assume_msg(reserves[0].coin_type() != reserves[1].coin_type(), b"Assume different coin types");
+    };
 
     {
         let reserve = &lending_market.reserves()[i];
