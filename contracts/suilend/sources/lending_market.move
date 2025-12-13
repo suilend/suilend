@@ -550,6 +550,20 @@ module suilend::lending_market {
         reserve.compound_interest(clock);
     }
 
+    /// Refresh the obligation's state and assert no stale oracles
+    public fun refresh_obligation<P>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_id: ID,
+        clock: &Clock,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = lending_market.obligations.borrow_mut(obligation_id);
+
+        let exist_stale_oracles = obligation.refresh(&mut lending_market.reserves, clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
+    }
+
     /// Borrows a specified amount of a token from a reserve. A fee is charged on the borrowed amount.
     ///
     /// # Arguments
