@@ -638,15 +638,11 @@ public fun withdraw<V, T, L>(
 
     // Split shares into user portion (to burn) and fee portion (to manager)
     let mut shares_balance = shares.into_balance();
-    let fee_balance = shares_balance.split(withdrawal_fee_shares);
-
-    // Burn user's shares
-    vault.treasury_cap.burn(coin::from_balance(shares_balance, ctx));
-
-    // Transfer fee shares to manager
-    vault.manager_fees.join(fee_balance);
 
     if (withdrawal_fee_shares > 0) {
+        let fee_balance = shares_balance.split(withdrawal_fee_shares);
+        // Transfer fee shares to manager
+        vault.manager_fees.join(fee_balance);
         event::emit(FeesAccruedEvent {
             vault_id: object::id(vault),
             fee_type: b"withdraw".to_string(),
@@ -654,6 +650,9 @@ public fun withdraw<V, T, L>(
             timestamp_ms: current_time,
         });
     };
+
+    // Burn user's shares
+    vault.treasury_cap.burn(coin::from_balance(shares_balance, ctx));
 
     let withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
 
