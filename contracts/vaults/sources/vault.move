@@ -715,6 +715,7 @@ public fun compound_rewards<V, T, L>(
     ctx: &mut TxContext,
 ) {
     vault.version.assert_version(CURRENT_VERSION);
+    assert!(vault.accumulator_cap.is_some(), EAccumulationInProgress);
 
     let lm_type = type_name::with_defining_ids<L>();
     let obligation_cap = vault.get_obligation_cap<_, _, L>(&lm_type, obligation_index);
@@ -834,6 +835,7 @@ public fun deposit_swapped_rewards<V, T>(
     _ctx: &mut TxContext,
 ) {
     vault.version.assert_version(CURRENT_VERSION);
+    assert!(vault.accumulator_cap.is_some(), EAccumulationInProgress);
 
     let SwapTicket { mut min_amount_out } = swap_cap;
 
