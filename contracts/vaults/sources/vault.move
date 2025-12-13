@@ -481,6 +481,42 @@ public fun unset_metadata<V, T>(
     };
 }
 
+/// Move a specified lending market + associated obligations to the front of the VecMap
+/// This lending market will be be prioritised for unwinds
+public fun move_lending_market_to_front<V, T>(
+    vault: &mut Vault<V, T>,
+    _vault_manager_cap: &VaultManagerCap<V>,
+    lending_market_type: TypeName,
+) {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+
+    move_pair_to_start(&mut vault.obligations, lending_market_type);
+}
+
+/// Move an obligation to the front within its lending market's obligations vector
+/// This obligation will be be prioritised for unwinds
+public fun move_obligation_to_front<V, T>(
+    vault: &mut Vault<V, T>,
+    _vault_manager_cap: &VaultManagerCap<V>,
+    lending_market_type: TypeName,
+    obligation_id: ID,
+) {
+    vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+
+    let obligations = vault.obligations.get_mut(&lending_market_type);
+
+    let target_idx = obligations.find_index!(|obl| obl.obligation_id == obligation_id).extract();
+
+    // Already at front, nothing to do
+    if (target_idx == 0) {
+        return
+    };
+
+    // Remove and insert at front
+    let target = obligations.remove(target_idx);
+    obligations.insert(target, 0);
+}
+
 // === User Functions ===
 
 /// Deposit base token and receive vault shares
@@ -1520,6 +1556,33 @@ fun cast_as_type<T: store, R: store>(t: T, ctx: &mut TxContext): R {
     let value: R = sui::dynamic_field::remove(&mut id, true);
     id.delete();
     value
+}
+
+fun move_pair_to_start<K: copy + drop, V>(map: &mut vec_map::VecMap<K, V>, key_to_shift: K) {
+    // Remove the pair to move
+    let (_k, value) = map.remove(&key_to_shift);
+
+    // Extract all remaining entries
+    let mut keys = vector::empty<K>();
+    let mut values = vector::empty<V>();
+
+    while (!map.is_empty()) {
+        let (k, v) = map.remove_entry_by_idx(0);
+        keys.push_back(k);
+        values.push_back(v);
+    };
+
+    // Now map is empty
+    // Insert the moved pair first
+    map.insert(key_to_shift, value);
+
+    // Insert all the other entries
+    while (!keys.is_empty()) {
+        map.insert(keys.remove(0), values.remove(0));
+    };
+
+    keys.destroy_empty();
+    values.destroy_empty();
 }
 
 // === Test Functions ===
