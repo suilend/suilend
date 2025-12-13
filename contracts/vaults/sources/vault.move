@@ -852,7 +852,7 @@ public fun deposit_swapped_rewards<V, T>(
 
 /// Begin vault value accumulation
 public fun create_vault_value_accumulator<V, T>(vault: &mut Vault<V, T>): VaultValueAccumulator<V> {
-    assert!(option::is_some(&vault.accumulator_cap), EAccumulationInProgress);
+    assert!(vault.accumulator_cap.is_some(), EAccumulationInProgress);
     let cap = option::extract(&mut vault.accumulator_cap);
 
     let obligation_ids = vault.extract_obligation_ids();
@@ -891,7 +891,7 @@ public fun create_vault_crank_accumulator<V, T>(
 
     let obligation_ids = vault.extract_obligation_ids();
 
-    assert!(option::is_some(&vault.accumulator_cap), EAccumulationInProgress);
+    assert!(vault.accumulator_cap.is_some(), EAccumulationInProgress);
     let cap = option::extract(&mut vault.accumulator_cap);
 
     cap.create_vault_crank_accumulator(obligation_ids, main_lending_market)
