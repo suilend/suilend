@@ -1155,21 +1155,19 @@ fun accrue_all_fees<V, T, L>(
     // Calculate management fee shares
     let management_fee_shares = calculate_management_fee_shares(vault, clock);
 
-    // Calculate performance fee accounting for management fee dilution
+    // Calculate performance fee shares
     let performance_fee_shares = calculate_performance_fee_shares(
         vault,
         total_value_usd,
         current_shares,
-        management_fee_shares,
         lending_market,
         clock,
     );
 
-    // Calculate redemption ratio after management fees but before performance fees
-    // This is the new high water mark if it exceeds the previous one
-    let redemption_ratio_after_mgmt_fees = calculate_redemption_ratio<L, T>(
+    // Calculate redemption ratio after fees
+    let redemption_ratio_after_fees = calculate_redemption_ratio<L, T>(
         total_value_usd,
-        current_shares + management_fee_shares,
+        current_shares + management_fee_shares + performance_fee_shares,
         lending_market,
         clock,
     );
@@ -1202,9 +1200,9 @@ fun accrue_all_fees<V, T, L>(
         });
     };
 
-    // Update high water mark to ratio after management fees (before performance fees)
-    if (redemption_ratio_after_mgmt_fees.gt(vault.redemption_ratio_high_water_mark)) {
-        vault.redemption_ratio_high_water_mark = redemption_ratio_after_mgmt_fees;
+    // Update high water mark if exceeds previous
+    if (redemption_ratio_after_fees.gt(vault.redemption_ratio_high_water_mark)) {
+        vault.redemption_ratio_high_water_mark = redemption_ratio_after_fees;
     };
 }
 
@@ -1213,7 +1211,6 @@ fun calculate_performance_fee_shares<V, T, L>(
     vault: &Vault<V, T>,
     total_value_usd: Decimal,
     current_shares: u64,
-    mgmt_shares_to_mint: u64,
     lending_market: &LendingMarket<L>,
     clock: &Clock,
 ): u64 {
@@ -1237,11 +1234,8 @@ fun calculate_performance_fee_shares<V, T, L>(
     // Calculate gain in base asset terms per share
     let gain_ratio = current_ratio.sub(vault.redemption_ratio_high_water_mark);
 
-    // Calculate total gain using shares after management fees
-    let shares_after_mgmt_decimal = decimal::from_u128(
-        (current_shares as u128) + (mgmt_shares_to_mint as u128),
-    );
-    let total_gain_in_base_asset = gain_ratio.mul(shares_after_mgmt_decimal);
+    // Calculate total gain
+    let total_gain_in_base_asset = gain_ratio.mul(decimal::from(current_shares));
 
     // Convert gain to USD for fee calculation
     let gain_usd = token_amount_to_usd<L, T>(
@@ -1253,18 +1247,15 @@ fun calculate_performance_fee_shares<V, T, L>(
     // Performance fee on the gain
     let perf_fee_value = gain_usd.mul(decimal::from_bps(vault.performance_fee_bps));
 
-    // Calculate shares accounting for management fee dilution
-    // NAV after mgmt fees = total_value / (current_shares + mgmt_shares)
-    let shares_after_mgmt = (current_shares as u128) + (mgmt_shares_to_mint as u128);
-    let nav_after_mgmt = calculate_nav_from_shares_and_value(
-        decimal::from_u128(shares_after_mgmt),
+    let new_nav = calculate_nav_from_shares_and_value(
+        decimal::from(current_shares),
         total_value_usd,
     );
 
-    // Convert performance fee value to shares at post-mgmt NAV
+    // Convert performance fee value to shares
     calculate_shares_from_usd_and_nav(
         perf_fee_value,
-        nav_after_mgmt,
+        new_nav,
     ).floor()
 }
 
