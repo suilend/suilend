@@ -57,18 +57,6 @@ public fun close_ltv_lt_one(reserve: &Reserve<DummyPool>): bool {
     reserve.config().close_ltv().lt(one)
 }
 
-fun safe_assumptions(obligation: &Obligation<DummyPool>, reserve: &Reserve<DummyPool>) {
-    cvlm_assume_msg(
-        weighted_borrow_leq_weighted_borrow_upper_bound(obligation),
-        b"Weighted borrow value is less than its upper bound",
-    );
-    cvlm_assume_msg(open_ltv_lt_close_ltv(reserve), b"Open LTV < Close LT");
-    cvlm_assume_msg(close_ltv_lt_one(reserve), b"Close LTV < 1");
-    cvlm_assume_msg(
-        allowed_borrow_value_leq_unhealthy_borrow_value(obligation),
-        b"Allowed borrow value less than unhealthy borrow value",
-    );
-}
 
 fun sound_reserve_state(reserve: &Reserve<DummyPool>){
     let one = decimal::from(1);
