@@ -1888,3 +1888,242 @@ fun test_token_usd_conversion_roundtrip() {
 
     runner.finish();
 }
+
+/// Ensures that cranking an empty vault followed by deposits
+/// does not incorrectly charge performance fees.
+///
+/// 1. Initialize HWM to 0
+/// 2. Skip performance fee calculation when HWM == 0
+/// 3. Only update HWM when current_shares > 0
+#[test]
+fun test_perf_fees_in_new_vault() {
+    let (mut prices, mut runner) = init_vault_scenario();
+
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let mut lending_market = runner.scenario_mut().take_shared<LendingMarket<MAIN_POOL>>();
+    let mut clock = runner.scenario_mut().take_shared<Clock>();
+
+    // === Step 1: Crank while vault is empty ===
+    // Advance time past MIN_REWARDS_STALENESS_MS (1 min)
+    clock.increment_for_testing(61_000);
+
+    // Refresh price after clock increment
+    prices.update_price<TEST_COIN>(1, 0, &clock);
+    lending_market.refresh_reserve_price(
+        TEST_COIN_MAIN_POOL_RESERVE_INDEX,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    // Crank empty vault
+    let crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
+
+    // Verify no shares exist and no fees were charged
+    let shares_after_empty_crank = vault.get_vault_share_supply_for_testing();
+    let fees_after_empty_crank = vault.get_manager_fees_for_testing();
+    assert!(shares_after_empty_crank == 0);
+    assert!(fees_after_empty_crank == 0);
+    assert!(vault.get_hwm_for_testing().eq(decimal::from(0)));
+
+    // === Step 2: User deposits ===
+    runner.set_sender(USER1);
+    let deposit_amount = 1_000_000;
+    let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let vault_shares = vault.deposit(
+        deposit_coin,
+        &lending_market,
+        &clock,
+        agg,
+        runner.ctx(),
+    );
+
+    let share_exp = 10u64.pow(VAULT_SHARE_DECIMALS);
+    let total_supply_after_deposit = vault.get_vault_share_supply_for_testing();
+    let deposit_fees = vault.get_manager_fees_for_testing();
+
+    // Verify deposit worked correctly with 5% deposit fee
+    let expected_deposit_fee_shares = deposit_amount * share_exp * DEPOSIT_FEE_BPS / BASIS_POINTS;
+    assert!(deposit_fees == expected_deposit_fee_shares);
+    assert!(total_supply_after_deposit == deposit_amount * share_exp);
+
+    // === Step 3: Crank after deposit - should only charge management fees, not performance fees ===
+    runner.set_sender(ADMIN);
+
+    // Advance time by 1 year for management fees
+    clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
+
+    // Refresh price (keep at $1)
+    prices.update_price<TEST_COIN>(1, 0, &clock);
+    lending_market.refresh_reserve_price(
+        TEST_COIN_MAIN_POOL_RESERVE_INDEX,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    let supply_before_second_crank = vault.get_vault_share_supply_for_testing();
+    let fees_before_second_crank = vault.get_manager_fees_for_testing();
+
+    // Crank: should not charge performance fees
+    let crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
+
+    let supply_after_second_crank = vault.get_vault_share_supply_for_testing();
+    let fees_after_second_crank = vault.get_manager_fees_for_testing();
+
+    let new_fee_shares = supply_after_second_crank - supply_before_second_crank;
+    let fee_delta = fees_after_second_crank - fees_before_second_crank;
+
+    // Verify fees were minted
+    assert!(fee_delta == new_fee_shares);
+
+    // Calculate fee rate in bps: (fee_shares * BASIS_POINTS) / supply_before
+    // For 1 year at 2% (200 bps), the rate is 204 bps due to the formula:
+    // shares_to_mint = supply * fee_factor / (1 - fee_factor)
+    let fee_rate_bps = (new_fee_shares * BASIS_POINTS) / supply_before_second_crank;
+
+    // Fee rate should be exactly 204 bps for 1 year at 2% management fee
+    assert!(fee_rate_bps == 204);
+
+    // === Step 4: Verify subsequent cranks work correctly (HWM now established) ===
+    // Advance another year
+    clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
+
+    prices.update_price<TEST_COIN>(1, 0, &clock);
+    lending_market.refresh_reserve_price(
+        TEST_COIN_MAIN_POOL_RESERVE_INDEX,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    let supply_before_third_crank = vault.get_vault_share_supply_for_testing();
+
+    let crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
+
+    let supply_after_third_crank = vault.get_vault_share_supply_for_testing();
+    let third_crank_fees = supply_after_third_crank - supply_before_third_crank;
+
+    // Third crank should also only have management fees (no alpha generated)
+    let third_fee_rate_bps = (third_crank_fees * BASIS_POINTS) / supply_before_third_crank;
+    assert!(third_fee_rate_bps == 204);
+
+    // === Step 5: Generate alpha through rewards and verify performance fees are collected ===
+    runner.set_sender(ADMIN);
+
+    // Create obligation and deploy funds
+    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
+        vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+        runner.keep(manager_cap);
+    });
+    let obligation_index = 0;
+
+    let deploy_amount = 500_000 * 10u64.pow(TEST_COIN_DECIMALS);
+    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
+        vault.deploy_funds(
+            &manager_cap,
+            &mut lending_market,
+            obligation_index,
+            deploy_amount,
+            &clock,
+            agg,
+            runner.ctx(),
+        );
+        runner.keep(manager_cap);
+    });
+
+    // Set up rewards pool
+    let reward_amount = 150_000;
+    let reward_coin = mint_test_coin(reward_amount, runner.ctx());
+    let start_time_ms = clock.timestamp_ms();
+    let end_time_ms = start_time_ms + (30 * 24 * 60 * 60 * 1000); // 30 days
+
+    let lm_cap = runner
+        .scenario_mut()
+        .take_from_sender<lending_market::LendingMarketOwnerCap<MAIN_POOL>>();
+
+    lm_cap.add_pool_reward<MAIN_POOL, TEST_COIN>(
+        &mut lending_market,
+        TEST_COIN_MAIN_POOL_RESERVE_INDEX,
+        true, // is_deposit_reward
+        reward_coin,
+        start_time_ms,
+        end_time_ms,
+        &clock,
+        runner.ctx(),
+    );
+
+    // Advance time to accrue rewards
+    clock.increment_for_testing(31 * 24 * 60 * 60 * 1000); // 31 days
+
+    // Refresh price
+    prices.update_price<TEST_COIN>(1, 0, &clock);
+    lending_market.refresh_reserve_price(
+        TEST_COIN_MAIN_POOL_RESERVE_INDEX,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    // Compound rewards
+    runner.set_sender(USER2);
+    vault.compound_rewards<VAULT_TESTS, TEST_COIN, MAIN_POOL>(
+        &mut lending_market,
+        obligation_index,
+        TEST_COIN_MAIN_POOL_RESERVE_INDEX,
+        0, // reward_index
+        true, // is_deposit_reward
+        &clock,
+        runner.ctx(),
+    );
+
+    // Advance 1 year for fees
+    clock.increment_for_testing(365 * 24 * 60 * 60 * 1000);
+
+    prices.update_price<TEST_COIN>(1, 0, &clock);
+    lending_market.refresh_reserve_price(
+        TEST_COIN_MAIN_POOL_RESERVE_INDEX,
+        &clock,
+        prices.get_price_obj<TEST_COIN>(),
+    );
+
+    let supply_before_perf_fee = vault.get_vault_share_supply_for_testing();
+
+    // Crank - should get both management and performance fees
+    runner.set_sender(ADMIN);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    crank_acc.process_lending_market_for_crank(&lending_market);
+    vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
+
+    let supply_after_perf_fee = vault.get_vault_share_supply_for_testing();
+    let total_fee_shares = supply_after_perf_fee - supply_before_perf_fee;
+
+    // Calculate baseline management fee
+    let baseline_mgmt_fee =
+        supply_before_perf_fee * MANAGEMENT_FEE_BPS / (BASIS_POINTS - MANAGEMENT_FEE_BPS);
+
+    // Total fees should exceed baseline (includes performance fee from alpha)
+    assert!(total_fee_shares > baseline_mgmt_fee);
+
+    // Performance fee component
+    let perf_fee_shares = total_fee_shares - baseline_mgmt_fee;
+    assert!(perf_fee_shares > 0);
+
+    // Performance fee as percentage of baseline management fee
+    // Higher than test_fees_collected (8%) because no price increase inflated HWM before rewards
+    let perf_fee_ratio_pct = (perf_fee_shares * 100) / baseline_mgmt_fee;
+    assert!(perf_fee_ratio_pct == 63);
+
+    {
+        test_runner::destroy(prices);
+        coin::burn_for_testing(vault_shares);
+        ts::return_shared(clock);
+        ts::return_shared(vault);
+        ts::return_shared(lending_market);
+        transfer::public_transfer(lm_cap, ADMIN);
+    };
+
+    runner.finish();
+}

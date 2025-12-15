@@ -248,7 +248,7 @@ public fun create_vault<V, T>(
         deposit_fee_bps,
         withdrawal_fee_bps,
         accumulator_cap: option::some(accumulator::create_accumulator_cap()),
-        redemption_ratio_high_water_mark: decimal::from(1), // Initial ratio is 1.0 (1 share = 1 base asset)
+        redemption_ratio_high_water_mark: decimal::from(0), // Will be set on first crank that vault has value
         last_cranked_ms: current_time_ms,
     };
 
@@ -1200,8 +1200,10 @@ fun accrue_all_fees<V, T, L>(
         });
     };
 
-    // Update high water mark if exceeds previous
-    if (redemption_ratio_after_fees.gt(vault.redemption_ratio_high_water_mark)) {
+    // Update high water mark if exceeds previous and vault is non-empty
+    if (
+        current_shares > 0 && redemption_ratio_after_fees.gt(vault.redemption_ratio_high_water_mark)
+    ) {
         vault.redemption_ratio_high_water_mark = redemption_ratio_after_fees;
     };
 }
@@ -1215,6 +1217,11 @@ fun calculate_performance_fee_shares<V, T, L>(
     clock: &Clock,
 ): u64 {
     if (vault.performance_fee_bps == 0 || current_shares == 0) {
+        return 0
+    };
+
+    // Skip performance fees if HWM not yet established
+    if (vault.redemption_ratio_high_water_mark.eq(decimal::from(0))) {
         return 0
     };
 
@@ -1234,8 +1241,11 @@ fun calculate_performance_fee_shares<V, T, L>(
     // Calculate gain in base asset terms per share
     let gain_ratio = current_ratio.sub(vault.redemption_ratio_high_water_mark);
 
-    // Calculate total gain
-    let total_gain_in_base_asset = gain_ratio.mul(decimal::from(current_shares));
+    // Calculate total gain: gain_ratio is per whole share, so divide by share_decimals_factor
+    // to convert current_shares (in base units) to whole shares
+    let total_gain_in_base_asset = gain_ratio
+        .mul(decimal::from(current_shares))
+        .div(share_decimals_factor_decimal());
 
     // Convert gain to USD for fee calculation
     let gain_usd = token_amount_to_usd<L, T>(
@@ -1261,7 +1271,8 @@ fun calculate_performance_fee_shares<V, T, L>(
 
 /// Calculate management fee shares based on time elapsed
 fun calculate_management_fee_shares<V, T>(vault: &Vault<V, T>, clock: &Clock): u64 {
-    if (vault.management_fee_bps == 0) {
+    let circulating_shares = vault.treasury_cap.total_supply();
+    if (vault.management_fee_bps == 0 || circulating_shares == 0) {
         return 0
     };
 
@@ -1288,8 +1299,6 @@ fun calculate_management_fee_shares<V, T>(vault: &Vault<V, T>, clock: &Clock): u
         fee_factor = max_fee_factor;
     };
 
-    let circulating_shares = vault.treasury_cap.total_supply();
-
     // Ensures fees represent exactly the correct percentage of total vault value
     let one_minus_fee = decimal::sub(decimal::from(1), fee_factor);
     let shares_to_mint = decimal::div(
@@ -1309,15 +1318,15 @@ fun share_decimals_factor_decimal(): Decimal {
 
 /// Calculate redemption ratio: vault value in base asset terms per share
 /// This is the key metric for performance fees
-/// ratio = total_vault_value_usd / base_asset_price / total_shares
+/// ratio = (total_vault_value_usd / base_asset_price) * share_decimals_factor / total_shares
 fun calculate_redemption_ratio<L, T>(
     total_value_usd: Decimal,
     total_shares: u64,
     lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
 ): Decimal {
-    if (total_shares == 0) {
-        decimal::from(1) // Initial ratio when vault is empty
+    if (total_shares == 0 || total_value_usd.eq(decimal::from(0))) {
+        decimal::from(0) // Initial ratio when vault is empty
     } else {
         let vault_value_in_base_asset = usd_to_token_amount<L, T>(
             total_value_usd,
@@ -1325,7 +1334,10 @@ fun calculate_redemption_ratio<L, T>(
             clock,
         );
 
-        vault_value_in_base_asset.div(decimal::from(total_shares))
+        // The share_decimals_factor scaling normalizes the ratio based on share decimals
+        vault_value_in_base_asset
+            .mul(share_decimals_factor_decimal())
+            .div(decimal::from(total_shares))
     }
 }
 
@@ -1623,4 +1635,9 @@ public fun get_deposit_for_testing<V, T>(vault: &Vault<V, T>): u64 {
 #[test_only]
 public fun get_vault_share_supply_for_testing<V, T>(vault: &Vault<V, T>): u64 {
     vault.treasury_cap.total_supply()
+}
+
+#[test_only]
+public fun get_hwm_for_testing<V, T>(vault: &Vault<V, T>): Decimal {
+    vault.redemption_ratio_high_water_mark
 }
