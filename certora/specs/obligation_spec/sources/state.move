@@ -12,6 +12,7 @@ use suilend::obligation::{Obligation};
 use suilend::reserve::{Reserve};
 use suilend::reserve_config::open_ltv;
 use sui::sui::SUI;
+use dummy_pool::obligation;
 
 public fun cvlm_manifest() {
     rule(b"liquidatable_implies_unhealthy_step_deposit");
@@ -415,9 +416,10 @@ public fun forgivable_only_if_unhealthy_or_debt_base(lending_market_id: ID, ctx:
 /// In other words, only unhealthy obligations may be liquidated.
 public fun forgivable_only_if_unhealthy_or_debt(obligation: &Obligation<DummyPool>): bool {
     let healthy = obligation.is_healthy();
-    let liquidatable = obligation.is_liquidatable();
-    // liquidatable -> unhealthy  <==> !liquidatable || unhealthy
-    return !liquidatable || !healthy
+    let forgivable = obligation.is_forgivable();
+    let no_debt = obligation.borrows().length() == 0;
+    // forgivable => unhealthy | no borrows
+    return !forgivable || !healthy || no_debt
 }
 
 public fun forgivable_only_if_unhealthy_or_debt_step_deposit(
