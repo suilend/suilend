@@ -1,0 +1,124 @@
+module health::summaries;
+
+use cvlm::manifest::summary;
+use cvlm::nondet::{nondet_with, nondet};
+use dummy_pool::dummy_pool::DummyPool;
+use sui::clock::Clock;
+use sui_system::sui_system::SuiSystemState;
+use suilend::decimal::Decimal;
+use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
+use suilend::obligation::Obligation;
+use suilend::rate_limiter::RateLimiter;
+use suilend::reserve::{Reserve, LiquidityRequest};
+use suilend::obligation::Borrow;
+
+public fun cvlm_manifest() {
+    //summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
+    summary(b"reserve_compound_interest", @suilend, b"reserve", b"compound_interest");
+    summary(b"reserve_borrow_liquidity", @suilend, b"reserve", b"borrow_liquidity");
+    summary(b"reserve_unstake_sui_from_staker", @suilend, b"reserve", b"unstake_sui_from_staker");
+    summary(b"reserve_rebalance_staker", @suilend, b"reserve", b"rebalance_staker");
+
+    summary(b"rate_limiter_process_qty", @suilend, b"rate_limiter", b"process_qty");
+
+    summary(b"max_borrow_amount", @suilend, b"lending_market", b"max_borrow_amount");
+
+    // summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
+    // summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
+    summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
+    summary(
+        b"obligation_find_or_add_user_reward_manager",
+        @suilend,
+        b"obligation",
+        b"find_or_add_user_reward_manager",
+    );
+    summary(
+        b"obligation_zero_out_rewards_if_looped",
+        @suilend,
+        b"obligation",
+        b"zero_out_rewards_if_looped",
+    );
+
+    summary(
+        b"mining_change_user_reward_manager_share",
+        @suilend,
+        b"liquidity_mining",
+        b"change_user_reward_manager_share",
+    );
+}
+
+public fun reserve_compound_borrow_rate(_: &mut Reserve<DummyPool>, _: u64): Decimal {
+    let val = nondet_with!(b"Borrow rate", |r| 1 <= r && r < 2);
+    suilend::decimal::from(val)
+}
+
+public fun reserve_compound_interest<P>(_: &mut Reserve<P>, _: &Clock) {}
+
+public fun reserve_borrow_liquidity<P, T>(
+    _reserve: &mut Reserve<P>,
+    _amount: u64,
+): LiquidityRequest<P, T> {
+    nondet()
+}
+
+public fun reserve_unstake_sui_from_staker<P, T>(
+    _reserve: &mut Reserve<P>,
+    _liquidity_request: &LiquidityRequest<P, T>,
+    _system_state: &mut SuiSystemState,
+    _ctx: &mut TxContext,
+) {}
+
+public fun reserve_rebalance_staker<P>(
+    _reserve: &mut Reserve<P>,
+    _system_state: &mut SuiSystemState,
+    _ctx: &mut TxContext,
+) {}
+
+public fun rate_limiter_process_qty(
+    _rate_limiter: &mut RateLimiter,
+    _cur_time: u64,
+    _qty: Decimal,
+) {} // noop
+
+public fun obligation_find_borrow_index<P>(_: &Obligation<P>, _: &Reserve<P>): u64 {
+    return nondet()
+}
+
+public fun max_borrow_amount<P>(
+        mut _rate_limiter: RateLimiter,
+        _obligation: &Obligation<P>,
+        _reserve: &Reserve<P>,
+        _clock: &Clock,
+    ): u64 {
+        nondet()
+    }
+
+public fun obligation_find_deposit_index<P>(_: &Obligation<P>, _: &Reserve<P>): u64 {
+    return nondet()
+}
+
+
+public fun mining_change_user_reward_manager_share(
+    _pool_reward_manager: &mut PoolRewardManager,
+    _user_reward_manager: &mut UserRewardManager,
+    _new_share: u64,
+    _clock: &Clock,
+) {}
+
+public fun obligation_log_obligation_data<P>(_obligation: &Obligation<P>) {} // no-op
+
+public(package) fun obligation_zero_out_rewards_if_looped<P>(
+    _obligation: &mut Obligation<P>,
+    _reserves: &mut vector<Reserve<P>>,
+    _clock: &Clock,
+) {} //noop
+
+public fun obligation_find_or_add_user_reward_manager<P>(
+    _obligation: &mut Obligation<P>,
+    _pool_reward_manager: &mut PoolRewardManager,
+    _clock: &Clock,
+): (u64, &mut UserRewardManager) {
+    let i = nondet();
+    let mnrg = vector::borrow_mut(_obligation.user_reward_managers_mut(), i);
+    (i, mnrg)
+}
