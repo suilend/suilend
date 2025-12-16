@@ -345,8 +345,8 @@ fun test_fees_collected() {
 
     // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
     runner.set_sender(ADMIN);
-    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
-    crank_acc.process_lending_market_for_crank(&lending_market);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let total_supply_after_mgmt = vault.get_vault_share_supply_for_testing();
@@ -381,8 +381,8 @@ fun test_fees_collected() {
     let manager_fees_before_round2 = vault.get_manager_fees_for_testing();
 
     // Crank again - should only get management fees, NOT performance fees
-    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
-    crank_acc.process_lending_market_for_crank(&lending_market);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_price_double_crank = vault.get_vault_share_supply_for_testing();
@@ -494,8 +494,8 @@ fun test_fees_collected() {
 
     // Crank - now should get BOTH management and performance fees
     runner.set_sender(ADMIN);
-    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
-    crank_acc.process_lending_market_for_crank(&lending_market);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_perf_fee = vault.get_vault_share_supply_for_testing();
@@ -889,7 +889,7 @@ fun test_nav_changes() {
 
     // Crank to apply fees
     {
-        let crank_acc = vault.create_vault_crank_accumulator(&main_pool_lm, &clock);
+        let crank_acc = vault.create_vault_crank_accumulator(&clock);
         vault.finalize_vault_crank(
             crank_acc,
             &lending_market,
@@ -1591,9 +1591,9 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         };
     };
 
-    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
 
-    crank_acc.process_lending_market_for_crank(&lending_market);
+    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
 
     vault.finalize_vault_crank(
         crank_acc,
@@ -1917,7 +1917,7 @@ fun test_perf_fees_in_new_vault() {
     );
 
     // Crank empty vault
-    let crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    let crank_acc = vault.create_vault_crank_accumulator(&clock);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     // Verify no shares exist and no fees were charged
@@ -1967,7 +1967,7 @@ fun test_perf_fees_in_new_vault() {
     let fees_before_second_crank = vault.get_manager_fees_for_testing();
 
     // Crank: should not charge performance fees
-    let crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    let crank_acc = vault.create_vault_crank_accumulator(&clock);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_second_crank = vault.get_vault_share_supply_for_testing();
@@ -2000,7 +2000,7 @@ fun test_perf_fees_in_new_vault() {
 
     let supply_before_third_crank = vault.get_vault_share_supply_for_testing();
 
-    let crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
+    let crank_acc = vault.create_vault_crank_accumulator(&clock);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_third_crank = vault.get_vault_share_supply_for_testing();
@@ -2093,8 +2093,8 @@ fun test_perf_fees_in_new_vault() {
 
     // Crank - should get both management and performance fees
     runner.set_sender(ADMIN);
-    let mut crank_acc = vault.create_vault_crank_accumulator(&lending_market, &clock);
-    crank_acc.process_lending_market_for_crank(&lending_market);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_perf_fee = vault.get_vault_share_supply_for_testing();

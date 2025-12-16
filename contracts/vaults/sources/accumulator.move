@@ -10,6 +10,10 @@ use suilend::{
 };
 use vaults::utils::token_amount_to_usd;
 
+// === Constants ===
+
+const MIN_REWARD_USD_SCALED: u256 = 1_000_000_000_000_000_000; // Minimum reward value where compounding is enforced: 1 USD (1 * 1e18)
+
 // === Errors ===
 
 #[error]
@@ -50,7 +54,6 @@ public struct VaultValueAggregate<phantom V> {
 /// Must be consumed in PTB
 public struct VaultCrankAccumulator<phantom V> {
     acc: VaultValueAccumulator<V>,
-    main_pool_reserves: vector<TypeName>,
 }
 
 /// For tracking obligation unwinds needed to satisfy a withdrawal
@@ -207,14 +210,9 @@ public(package) fun destroy_vault_value_aggregate<V>(
 public(package) fun create_vault_crank_accumulator<V>(
     cap: AccumulatorCap<V>,
     lm_obligations_map: vec_map::VecMap<TypeName, vector<ID>>,
-    main_lending_market: &LendingMarket<MAIN_POOL>,
 ): VaultCrankAccumulator<V> {
-    let main_pool_reserves = main_lending_market.reserves().map_ref!(|r| {
-        r.coin_type()
-    });
     VaultCrankAccumulator {
         acc: create_vault_value_accumulator(cap, lm_obligations_map),
-        main_pool_reserves,
     }
 }
 
@@ -224,6 +222,7 @@ public(package) fun create_vault_crank_accumulator<V>(
 public(package) fun process_lending_market_for_crank<V, L>(
     crank: &mut VaultCrankAccumulator<V>,
     lending_market: &LendingMarket<L>,
+    main_lending_market: &LendingMarket<MAIN_POOL>,
 ) {
     let lending_market_type = type_name::with_defining_ids<L>();
 
@@ -231,7 +230,11 @@ public(package) fun process_lending_market_for_crank<V, L>(
     let (_, obligation_ids) = crank.acc.pending_lending_markets.remove(&lending_market_type);
 
     obligation_ids.do!(|obligation_id| {
-        assert_no_claimable_rewards(lending_market, &crank.main_pool_reserves, obligation_id);
+        assert_no_claimable_rewards(
+            lending_market,
+            main_lending_market,
+            obligation_id,
+        );
     });
 
     let obligation_allocations = calculate_obligation_values(obligation_ids, lending_market);
@@ -252,7 +255,6 @@ public(package) fun finalize_crank_accumulator<V, T, L>(
 ): VaultValueAggregate<V> {
     let VaultCrankAccumulator {
         acc,
-        main_pool_reserves: _,
     } = crank;
 
     let agg = acc.finalize_vault_value_accumulator(deposit_asset, lending_market, clock);
@@ -369,7 +371,7 @@ public(package) fun get_next_unwind_targets<V, L>(
 /// Verify obligation has no unclaimed main pool rewards
 fun assert_no_claimable_rewards<V>(
     lending_market: &LendingMarket<V>,
-    main_pool_reserves: &vector<TypeName>,
+    main_lending_market: &LendingMarket<MAIN_POOL>,
     obligation_id: ID,
 ) {
     let reserves = lending_market.reserves();
@@ -379,50 +381,50 @@ fun assert_no_claimable_rewards<V>(
     obligation.deposits().do_ref!(|deposit| {
         let reserve_index = deposit.reserve_array_index();
         let reserve = reserves.borrow(reserve_index);
-        if (main_pool_reserves.contains(&reserve.coin_type())) {
-            let pool_reward_manager = reserve.deposits_pool_reward_manager();
-            let user_reward_manager_index = deposit.user_reward_manager_index();
-            let user_reward_manager = obligation
-                .user_reward_managers()
-                .borrow(user_reward_manager_index);
+        let pool_reward_manager = reserve.deposits_pool_reward_manager();
+        let user_reward_manager_index = deposit.user_reward_manager_index();
+        let user_reward_manager = obligation
+            .user_reward_managers()
+            .borrow(user_reward_manager_index);
 
-            let claimable_rewards = get_claimable_reward_indexes(
-                user_reward_manager,
-                pool_reward_manager,
-            );
+        let unclaimed_rewards = get_unclaimed_reward_indexes(
+            main_lending_market,
+            user_reward_manager,
+            pool_reward_manager,
+        );
 
-            assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
-        }
+        assert!(unclaimed_rewards.is_empty(), EUnclaimedRewards);
     });
 
     // Process borrow rewards
     obligation.borrows().do_ref!(|borrow| {
         let reserve_index = borrow.reserve_array_index();
         let reserve = reserves.borrow(reserve_index);
-        if (main_pool_reserves.contains(&reserve.coin_type())) {
-            let pool_reward_manager = reserve.borrows_pool_reward_manager();
-            let user_reward_manager_index = borrow.user_reward_manager_index();
-            let user_reward_manager = obligation
-                .user_reward_managers()
-                .borrow(user_reward_manager_index);
+        let pool_reward_manager = reserve.borrows_pool_reward_manager();
+        let user_reward_manager_index = borrow.user_reward_manager_index();
+        let user_reward_manager = obligation
+            .user_reward_managers()
+            .borrow(user_reward_manager_index);
 
-            let claimable_rewards = get_claimable_reward_indexes(
-                user_reward_manager,
-                pool_reward_manager,
-            );
+        let unclaimed_rewards = get_unclaimed_reward_indexes(
+            main_lending_market,
+            user_reward_manager,
+            pool_reward_manager,
+        );
 
-            assert!(claimable_rewards.is_empty(), EUnclaimedRewards);
-        }
+        assert!(unclaimed_rewards.is_empty(), EUnclaimedRewards);
     });
 }
 
-/// Get indexes of rewards with non-zero claimable amounts
-fun get_claimable_reward_indexes(
+/// Get indexes of rewards that are in MAIN_POOL and have a value > 1 USD
+fun get_unclaimed_reward_indexes(
+    main_lending_market: &LendingMarket<MAIN_POOL>,
     user_reward_manager: &liquidity_mining::UserRewardManager,
     pool_reward_manager: &liquidity_mining::PoolRewardManager,
 ): vector<u64> {
     let user_rewards = user_reward_manager.rewards();
     let pool_rewards = pool_reward_manager.pool_rewards();
+    let reserves = main_lending_market.reserves();
 
     let mut result = vector::empty();
     user_rewards.length().do!(|reward_index| {
@@ -435,7 +437,19 @@ fun get_claimable_reward_indexes(
             if (user_reward.earned_rewards().gt(decimal::from(0))) {
                 let optional_pool_reward = pool_rewards.borrow(reward_index);
                 if (optional_pool_reward.is_some()) {
-                    result.push_back(reward_index);
+                    let pool_reward = optional_pool_reward.borrow();
+                    let main_pool_reserve_index = reserves.find_index!(|r| {
+                        r.coin_type() == pool_reward.coin_type()
+                    });
+                    // Ignore rewards that aren't in MAIN_POOL
+                    if (main_pool_reserve_index.is_some()) {
+                        let reward_reserve = reserves.borrow(*main_pool_reserve_index.borrow());
+                        let reward_usd_value = reward_reserve.market_value(user_reward.earned_rewards());
+                        // Ignore rewards that are less than 1 USD
+                        if (reward_usd_value.ge(decimal::from_scaled_val(MIN_REWARD_USD_SCALED))) {
+                            result.push_back(reward_index);
+                        };
+                    }
                 };
             };
         };
