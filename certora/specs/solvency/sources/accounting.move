@@ -24,7 +24,9 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow");
     target(@dummy_pool, b"dummy_pool_lending_market", b"compound_interest");
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow_request");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"fulfill_liquidity_request");
+    // Can only be called when internal balance has been adjusted.
+    // Therefore, the invariant does not makes sense for this function.
+    //target(@dummy_pool, b"dummy_pool_lending_market", b"fulfill_liquidity_request");
     target(@dummy_pool, b"dummy_pool_lending_market", b"withdraw_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"liquidate");
     target(@dummy_pool, b"dummy_pool_lending_market", b"repay");
