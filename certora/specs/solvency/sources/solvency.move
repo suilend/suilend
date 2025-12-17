@@ -27,7 +27,6 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"withdraw_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"liquidate");
     target(@dummy_pool, b"dummy_pool_lending_market", b"repay");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"forgive");
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards");
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards_and_deposit");
     target(@dummy_pool, b"dummy_pool_lending_market", b"init_staker");
