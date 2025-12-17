@@ -7,8 +7,8 @@ suilend = { local = "../../../contracts/suilend" }
 # Cannot import this because conflicting summaries
 #obligation_spec = { local = "../obligation_spec" }
 dummy_pool = { local = "../dummy_pool"}
-cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm", rev = "0bc98f303006a17b7afa47401e84d4f0e7845f4a" }
-certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries",  rev = "0bc98f303006a17b7afa47401e84d4f0e7845f4a" }
+cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm", rev = "main" }
+certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries",  rev = "main" }
 
 [addresses]
 health = "0x0"
