@@ -47,7 +47,7 @@ public fun cvlm_manifest() {
     rule(b"obligation_col_increase_implies_reserve_asset_increase");
 }
 
-native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
+native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>, obligation_id: ID);
 
 
 /// Spurious cex in invalid states(?) and timeouts.
@@ -72,7 +72,7 @@ public fun obligation_col_increase_implies_reserve_asset_increase(
     let (ob_ctokens_pre, res_ctokens_pre) = get_ctoken_amounts(lending_market, i, ob_id);
 
 
-    invoke(target, lending_market);
+    invoke(target, lending_market, ob_id);
 
    let (ob_ctokens_post, res_ctokens_post) = get_ctoken_amounts(lending_market, i, ob_id);
    

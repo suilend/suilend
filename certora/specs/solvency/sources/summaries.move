@@ -14,6 +14,8 @@ use suilend::staker::Staker;
 use sui::balance::Balance;
 use sui::sui::SUI;
 use sui_system::sui_system::SuiSystemState;
+use cvlm::manifest::ghost;
+use cvlm::ghost::ghost_write;
 
 public fun cvlm_manifest() {
 
@@ -38,7 +40,15 @@ public fun cvlm_manifest() {
     summary(b"staker_deposit", @suilend, b"staker", b"deposit");
     summary(b"staker_rebalance", @suilend, b"staker", b"rebalance");
     summary(b"staker_withdraw", @suilend, b"staker", b"withdraw");
+    summary(b"staker_claim_fees", @suilend, b"staker", b"claim_fees");
+
+    ghost(b"staked_sui");
+    
+
+    
 }
+
+native public fun staked_sui(): &mut u64;
 
 
 public fun obligation_find_borrow_index<P>(_: &Obligation<P>, _: &Reserve<P>): u64 {
@@ -107,10 +117,28 @@ public fun rate_limiter_process_qty(
     _qty: Decimal,
 ) {} // noop
 
+public fun log<T>(_what: &T) {}
+
 public(package) fun staker_deposit<P>(_staker: &mut Staker<P>, sui: Balance<SUI>) {
+    let v = sui.value();
+    
+    let staked_pre = staked_sui();
+    log(staked_pre);
+    //ghost_write(&mut staked_sui(), staked_pre + v);
+    *staked_pre = *staked_pre + v;
+    log(staked_sui());
+
     ghost_destroy(sui);
 } // noop
 public(package) fun staker_rebalance<P: drop>(_staker: &mut Staker<P>, _system_state: &mut SuiSystemState, _ctx: &mut TxContext) {} // noop
 public(package) fun staker_withdraw<P: drop>(_staker: &mut Staker<P>, _withdraw_amount: u64, _system_state: &mut SuiSystemState, _ctx: &mut TxContext): Balance<SUI> {
+    nondet()
+}
+
+public(package) fun staker_claim_fees<P: drop>(
+        _staker: &mut Staker<P>,
+        _system_state: &mut SuiSystemState,
+        _ctx: &mut TxContext,
+    ): Balance<SUI> {
     nondet()
 }

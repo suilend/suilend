@@ -11,6 +11,7 @@ use suilend::lending_market::LendingMarket;
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
 use sui::sui::SUI;
+use solvency::summaries::staked_sui;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -61,10 +62,11 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 public fun available_balance_accounting_correct(reserve: &Reserve<DummyPool>): bool {
     let internal = reserve.available_amount();
     let onchain = reserve.balances<DummyPool, SUI>().available_amount().value();
+    let staked = *staked_sui();
     // This is <= because lending operations can return a liquidity request.
     // In that case, the internal balance is decreased but a second call to fulfill the request is required to decrease the on-chain balance.
     // Since such requests are not storable and have to redeemed in the same tx, the value in practice should be equal.
-    internal <= onchain
+    internal <= onchain + staked
 }
 
 /// The base case for the induction.
