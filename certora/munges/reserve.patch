@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/reserve.move b/contracts/suilend/sources/reserve.move
-index 644e0a8..b2a39e5 100644
+index 644e0a8..e8961d7 100644
 --- a/contracts/suilend/sources/reserve.move
 +++ b/contracts/suilend/sources/reserve.move
 @@ -178,7 +178,7 @@ module suilend::reserve {
@@ -33,6 +33,59 @@ index 644e0a8..b2a39e5 100644
      /// Gets the available amount of tokens in the reserve.
      ///
      /// # Arguments
+@@ -406,11 +414,11 @@ module suilend::reserve {
+     ): Decimal {
+         div(
+             mul(
+-                price(reserve),
+-                liquidity_amount
+-            ),
+-            decimal::from(std::u64::pow(10, reserve.mint_decimals))
+-        )
++                price(reserve), 
++                liquidity_amount 
++            ), 
++            decimal::from(std::u64::pow(10, reserve.mint_decimals()))
++        ) 
+     }
+ 
+     /// Calculates the lower bound market value of a given liquidity amount in USD.
+@@ -432,7 +440,7 @@ module suilend::reserve {
+                 price_lower_bound(reserve),
+                 liquidity_amount
+             ),
+-            decimal::from(std::u64::pow(10, reserve.mint_decimals))
++            decimal::from(std::u64::pow(10, reserve.mint_decimals()))
+         )
+     }
+ 
+@@ -455,7 +463,7 @@ module suilend::reserve {
+                 price_upper_bound(reserve),
+                 liquidity_amount
+             ),
+-            decimal::from(std::u64::pow(10, reserve.mint_decimals))
++            decimal::from(std::u64::pow(10, reserve.mint_decimals()))
+         )
+     }
+ 
+@@ -545,7 +553,7 @@ module suilend::reserve {
+     ): Decimal {
+         div(
+             mul(
+-                decimal::from(std::u64::pow(10, reserve.mint_decimals)),
++                decimal::from(std::u64::pow(10, reserve.mint_decimals())),
+                 usd_amount
+             ),
+             price_upper_bound(reserve)
+@@ -568,7 +576,7 @@ module suilend::reserve {
+     ): Decimal {
+         div(
+             mul(
+-                decimal::from(std::u64::pow(10, reserve.mint_decimals)),
++                decimal::from(std::u64::pow(10, reserve.mint_decimals())),
+                 usd_amount
+             ),
+             price_lower_bound(reserve)
 @@ -852,6 +860,11 @@ module suilend::reserve {
          &balances.available_amount
      }
@@ -45,6 +98,24 @@ index 644e0a8..b2a39e5 100644
      public use fun balances_ctoken_supply as Balances.ctoken_supply;
  
      /// Gets the ctoken supply from the reserve's balances.
+@@ -906,7 +919,7 @@ module suilend::reserve {
+     /// # Returns
+     ///
+     /// * `u64` - The amount in the liquidity request (includes fee).
+-    public(package) fun liquidity_request_amount<P, T>(request: &LiquidityRequest<P, T>): u64 {
++    public fun liquidity_request_amount<P, T>(request: &LiquidityRequest<P, T>): u64 {
+         request.amount
+     }
+ 
+@@ -919,7 +932,7 @@ module suilend::reserve {
+     /// # Returns
+     ///
+     /// * `u64` - The fee in the liquidity request.
+-    public(package) fun liquidity_request_fee<P, T>(request: &LiquidityRequest<P, T>): u64 {
++    public fun liquidity_request_fee<P, T>(request: &LiquidityRequest<P, T>): u64 {
+         request.fee
+     }
+ 
 @@ -984,7 +997,7 @@ module suilend::reserve {
      /// # Panics
      ///
@@ -178,7 +249,7 @@ index 644e0a8..b2a39e5 100644
          reserve: &mut Reserve<P>,
          treasury_cap: TreasuryCap<S>,
          ctx: &mut TxContext
-@@ -1404,7 +1423,7 @@ module suilend::reserve {
+@@ -1404,12 +1423,12 @@ module suilend::reserve {
      ///
      /// * If a staker is not initialized (`EStakerNotInitialized`).
      /// * If the `BalanceKey` dynamic field is not found.
@@ -187,6 +258,12 @@ index 644e0a8..b2a39e5 100644
          reserve: &mut Reserve<P>,
          system_state: &mut SuiSystemState,
          ctx: &mut TxContext
+     ) {
+-        assert!(dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerNotInitialized);
++        // assert!(dynamic_field::exists_(&reserve.id, StakerKey {}), EStakerNotInitialized);
+         let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
+             &mut reserve.id, 
+             BalanceKey {}
 @@ -1455,7 +1474,7 @@ module suilend::reserve {
      /// * If the reserve's coin type or liquidity request type is not SUI (`EWrongType`).
      /// * If the `BalanceKey` dynamic field is not found.
