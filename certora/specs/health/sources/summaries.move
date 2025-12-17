@@ -11,6 +11,8 @@ use suilend::obligation::Obligation;
 use suilend::rate_limiter::RateLimiter;
 use suilend::reserve::{Reserve, LiquidityRequest};
 use suilend::obligation::Borrow;
+use cvlm::asserts::cvlm_assume_msg;
+use suilend::lending_market::LiquidateEvent;
 
 public fun cvlm_manifest() {
     //summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
@@ -58,7 +60,12 @@ public fun reserve_borrow_liquidity<P, T>(
     _reserve: &mut Reserve<P>,
     _amount: u64,
 ): LiquidityRequest<P, T> {
-    nondet()
+    let lq: LiquidityRequest<P, T> = nondet();
+
+    let amount: u64 = lq.liquidity_request_amount();
+    let fees: u64 = lq.liquidity_request_fee();
+    cvlm_assume_msg(amount == _amount + fees, b"");
+    lq
 }
 
 public fun reserve_unstake_sui_from_staker<P, T>(
