@@ -1,4 +1,4 @@
-module obligation_spec::state;
+module obligation_spec::state2;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::ghost::ghost_destroy;
@@ -11,83 +11,40 @@ use suilend::decimal::{Self};
 use suilend::obligation::{Obligation};
 use suilend::reserve::{Reserve};
 use suilend::reserve_config::open_ltv;
-use sui::sui::SUI;
+use cvlm::manifest::target;
+use cvlm::manifest::invoker;
+use cvlm::function::Function;
 use dummy_pool::obligation;
+use suilend::obligation::Deposit;
+use suilend::obligation::Borrow;
+use sui::borrow;
+use wormhole::fee_collector::deposit;
 
 public fun cvlm_manifest() {
-    rule(b"liquidatable_implies_unhealthy_step_deposit");
-    rule(b"liquidatable_implies_unhealthy_step_borrow");
-    rule(b"liquidatable_implies_unhealthy_step_repay"); 
-    rule(b"liquidatable_implies_unhealthy_step_withdraw");
-    rule(b"liquidatable_implies_unhealthy_step_liquidate");
-    rule(b"liquidatable_implies_unhealthy_step_forgive");
-    rule(b"liquidatable_implies_unhealthy_step_claim_rewards");
 
-    rule(b"forgivable_only_if_unhealthy_or_debt_step_deposit");
-    rule(b"forgivable_only_if_unhealthy_or_debt_step_borrow");
-    rule(b"forgivable_only_if_unhealthy_or_debt_step_repay"); 
-    rule(b"forgivable_only_if_unhealthy_or_debt_step_withdraw");
-    rule(b"forgivable_only_if_unhealthy_or_debt_step_liquidate");
-    rule(b"forgivable_only_if_unhealthy_or_debt_step_forgive");
-    rule(b"forgivable_only_if_unhealthy_or_debt_step_claim_rewards");
-
-}
-
-public fun weighted_borrow_leq_weighted_borrow_upper_bound(
-    obligation: &Obligation<DummyPool>,
-): bool {
-    let weighted = obligation.weighted_borrowed_value_usd();
-    let weighted_ub = obligation.weighted_borrowed_value_upper_bound_usd();
-    weighted.le(weighted_ub)
-}
-
-public fun allowed_borrow_value_leq_unhealthy_borrow_value(
-    obligation: &Obligation<DummyPool>,
-): bool {
-    let allowed = obligation.allowed_borrow_value_usd();
-    let unhealthy = obligation.unhealthy_borrow_value_usd();
-    allowed.le(unhealthy)
-}
-
-public fun open_ltv_lt_close_ltv(reserve: &Reserve<DummyPool>): bool {
-    reserve.config().open_ltv().lt(reserve.config().close_ltv())
-}
-
-public fun close_ltv_lt_one(reserve: &Reserve<DummyPool>): bool {
-    let one = decimal::from_percent(100);
-    reserve.config().close_ltv().lt(one)
-}
+    target(@dummy_pool, b"obligation", b"deposit");
+    target(@dummy_pool, b"obligation", b"borrow");
+    target(@dummy_pool, b"obligation", b"withdraw");
+    target(@dummy_pool, b"obligation", b"repay");
+    target(@dummy_pool, b"obligation", b"liquidate");
+    target(@dummy_pool, b"obligation", b"forgive");
+    target(@dummy_pool, b"obligation", b"claim_rewards");
 
 
-fun sound_reserve_state(reserve: &Reserve<DummyPool>){
-    let one = decimal::from(1);
-    let zero = decimal::from(0);
-    let open_ltv = reserve.config().open_ltv();
-    let close_ltv = reserve.config().close_ltv();
-    cvlm_assume_msg(open_ltv.lt(close_ltv), b"");
-    cvlm_assume_msg(close_ltv.lt(one), b"");
+    invoker(b"invoke");
 
-    // otherwise we get spurious ces due to imprecisions.
-    // todo: check if a larger value works (18)
-    cvlm_assume_msg(reserve.mint_decimals() <= 5, b"bound decimals");
-    
-    // prices
-    // 0 < lower_bound <= spot <= upper_bound
-    cvlm_assume_msg(zero.lt(reserve.price_lower_bound()), b"0 < lb");
-    cvlm_assume_msg(reserve.price_lower_bound().le(reserve.price()), b"lb<=p");
-    cvlm_assume_msg(reserve.price().le(reserve.price_upper_bound()), b"p<=ub");
+    rule(b"lih_step");
+    rule(b"forg_step");
 
 }
+
+native fun invoke(target: Function, obligation: &mut Obligation<DummyPool>, reserve: &mut Reserve<DummyPool>, clock: &Clock);
+
+
+
 
 /* INVARIANT: liquidatable implies unhealthy */
 
-public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut TxContext) {
-    let obligation = create_obligation(lending_market_id, ctx);
-    cvlm_assert(liquidatable_implies_unhealthy(&obligation));
-    ghost_destroy(obligation);
-}
-
-/// If an obligation is liquidatable, then is also unhealthy.
 /// In other words, only unhealthy obligations may be liquidated.
 public fun liquidatable_implies_unhealthy(obligation: &Obligation<DummyPool>): bool {
     let healthy = obligation.is_healthy();
@@ -96,325 +53,75 @@ public fun liquidatable_implies_unhealthy(obligation: &Obligation<DummyPool>): b
     return !liquidatable || !healthy
 }
 
-public fun liquidatable_implies_unhealthy_step_deposit(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let amount = nondet();
-    obligation.deposit(reserve, clock, amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
-}
-
-public fun liquidatable_implies_unhealthy_step_borrow(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let amount = nondet();
-    obligation.borrow(reserve, clock, amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
-}
-
-public fun liquidatable_implies_unhealthy_step_repay(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let amount = nondet();
-    obligation.repay(reserve, clock, amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
-}
-
-public fun liquidatable_implies_unhealthy_step_withdraw(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let ctoken_amount = nondet();
-    let stale_oracles = nondet();
-    obligation.withdraw(reserve, clock, ctoken_amount, stale_oracles);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
-}
-
-public fun liquidatable_implies_unhealthy_step_liquidate(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-
-    // Perform action
-    let repay_reserve_array_index = nondet();
-    let withdraw_reserve_array_index = nondet();
-    cvlm_assume_msg(repay_reserve_array_index < reserves.length(), b"Index in range");
-    cvlm_assume_msg(withdraw_reserve_array_index < reserves.length(), b"Index in range");
-    cvlm_assume_msg(repay_reserve_array_index != withdraw_reserve_array_index, b"Distinct reserves");
-    let repay_amount = nondet();
-    
-    obligation.liquidate(reserves, repay_reserve_array_index, withdraw_reserve_array_index, clock, repay_amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
-}
-
-
-public fun liquidatable_implies_unhealthy_step_forgive(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let max_forgive_amount = nondet();
-    
-    obligation.forgive(reserve, clock, max_forgive_amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
-}
-
-
-public fun liquidatable_implies_unhealthy_step_claim_rewards(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    
-    let mut pool_reward_manager = nondet();
-    let reward_index = nondet();
-    
-    let ret = obligation.claim_rewards<DummyPool, SUI>(&mut pool_reward_manager, clock, reward_index);
-    ghost_destroy(ret);
-    ghost_destroy(pool_reward_manager);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
-}
-
-/* INVARIANT: Forgivable implies unhealthy or debt free */
-
-/// If an obligation is forgivable, then it either has no borrows or it is unhealthy.
-public fun forgivable_only_if_unhealthy_or_debt_free(obligation: &Obligation<DummyPool>): bool {
-    let unhealthy = !obligation.is_healthy();
-    let debt_free = obligation.borrows().length() == 0;
-
-    let deposits = obligation.deposits().length();
-
-    !(deposits == 0) || (unhealthy || debt_free)
-}
-
-public fun forgivable_only_if_unhealthy_or_debt_base(lending_market_id: ID, ctx: &mut TxContext) {
+public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut TxContext) {
     let obligation = create_obligation(lending_market_id, ctx);
-    cvlm_assert(forgivable_only_if_unhealthy_or_debt(&obligation));
+    cvlm_assert(liquidatable_implies_unhealthy(&obligation));
     ghost_destroy(obligation);
 }
 
+
+public fun lih_step(
+    obligation: &mut Obligation<DummyPool>,
+    reserves: &mut vector<Reserve<DummyPool>>,
+    clock: &Clock,
+    target: Function
+) {
+  
+    /* Restrict model size */
+    cvlm_assume_msg(reserves.length() <= 2, b"");
+    cvlm_assume_msg(obligation.borrows().length() <= 1, b"");
+    cvlm_assume_msg(obligation.deposits().length() <= 1, b"");
+
+    
+    // Assume fresh state
+    obligation.refresh(reserves, clock).destroy_none();
+    let allowed = obligation.allowed_borrow_value_usd(); 
+    let unhealthy = obligation.unhealthy_borrow_value_usd();
+    let borrowed = obligation.weighted_borrowed_value_usd();
+    let borrowed_upper = obligation.weighted_borrowed_value_upper_bound_usd();
+
+    // Sound state: 
+    // - allowed_borrow_value < unhealthy_borrow_value
+    // - borrowed_value <= borrowed_value_upper_bound
+    cvlm_assume_msg(allowed.lt(unhealthy), b"");
+    cvlm_assume_msg(borrowed.le(borrowed_upper), b"");
+
+
+    //  Require invariant in pre state 
+    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
+
+    // Pick a reserve 
+    let i = nondet();
+    cvlm_assume_msg(i < reserves.length(), b"");
+    let reserve = vector::borrow_mut(reserves, i);
+    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
+
+    // Perform action
+    invoke(target, obligation, reserve, clock);
+
+
+    // Make sure obligation is fresh
+    obligation.refresh(reserves, clock).destroy_none();
+
+    // Assert invariant in post state 
+    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
+}
+
+
+/* INVARIANT: Forgivable implies unhealthy or debt free */
+
 /// If an obligation is liquidatable, then is also unhealthy.
 /// In other words, only unhealthy obligations may be liquidated.
-public fun forgivable_only_if_unhealthy_or_debt(obligation: &Obligation<DummyPool>): bool {
+
+
+
+public fun forgivable_only_if_unhealthy_or_debt_free_base(lending_market_id: ID, ctx: &mut TxContext) {
+    let obligation = create_obligation(lending_market_id, ctx);
+    cvlm_assert(forgivable_only_if_unhealthy_or_debt_free(&obligation));
+    ghost_destroy(obligation);
+}
+
+public fun forgivable_only_if_unhealthy_or_debt_free(obligation: &Obligation<DummyPool>): bool {
     let healthy = obligation.is_healthy();
     let forgivable = obligation.is_forgivable();
     let no_debt = obligation.borrows().length() == 0;
@@ -422,10 +129,11 @@ public fun forgivable_only_if_unhealthy_or_debt(obligation: &Obligation<DummyPoo
     return !forgivable || !healthy || no_debt
 }
 
-public fun forgivable_only_if_unhealthy_or_debt_step_deposit(
+public fun forg_step(
     obligation: &mut Obligation<DummyPool>,
     reserves: &mut vector<Reserve<DummyPool>>,
     clock: &Clock,
+    target: Function
 ) {
 
     /* Restrict model size */
@@ -434,271 +142,43 @@ public fun forgivable_only_if_unhealthy_or_debt_step_deposit(
     cvlm_assume_msg(obligation.borrows().length() <= n, b"");
     cvlm_assume_msg(obligation.deposits().length() <= n, b"");
 
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
     
     // Assume fresh state
     obligation.refresh(reserves, clock).destroy_none();
+    let allowed = obligation.allowed_borrow_value_usd(); 
+    let unhealthy = obligation.unhealthy_borrow_value_usd();
+    let borrowed = obligation.weighted_borrowed_value_usd();
+    let borrowed_upper = obligation.weighted_borrowed_value_upper_bound_usd();
 
-    //  Require invariant in pre state 
-    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
+    // Sound state: 
+    // - allowed_borrow_value < unhealthy_borrow_value
+    // - borrowed_value <= borrowed_value_upper_bound
+    cvlm_assume_msg(allowed.lt(unhealthy), b"");
+    cvlm_assume_msg(borrowed.le(borrowed_upper), b"");
 
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let amount = nondet();
-    obligation.deposit(reserve, clock, amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-}
-
-public fun forgivable_only_if_unhealthy_or_debt_step_borrow(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
     let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
+    while (i < obligation.deposits().length()) {
+        let deposited = obligation.deposits()[i].deposited_ctoken_amount();
+        cvlm_assume_msg(deposited > 0, b"");
+        i = i+1;
     };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let amount = nondet();
-    obligation.borrow(reserve, clock, amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-}
-
-public fun forgivable_only_if_unhealthy_or_debt_step_repay(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
     let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
+    while (i < obligation.borrows().length()) {
+        let borrowed = obligation.borrows()[i].borrowed_amount();
+        cvlm_assume_msg(decimal::from(0).lt(borrowed), b"");
+        i = i+1;
     };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
+
+    if (obligation.borrows().length() > 0) {
+        cvlm_assume_msg(obligation.weighted_borrowed_value_usd().gt(decimal::from(0)), b"");
+    };
+
+    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"Require invariant");
+
+
 
     //  Require invariant in pre state 
-    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let amount = nondet();
-    obligation.repay(reserve, clock, amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-}
-
-public fun forgivable_only_if_unhealthy_or_debt_step_withdraw(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let ctoken_amount = nondet();
-    let stale_oracles = nondet();
-    obligation.withdraw(reserve, clock, ctoken_amount, stale_oracles);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-}
-
-public fun forgivable_only_if_unhealthy_or_debt_step_liquidate(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-
-    // Perform action
-    let repay_reserve_array_index = nondet();
-    let withdraw_reserve_array_index = nondet();
-    cvlm_assume_msg(repay_reserve_array_index < reserves.length(), b"Index in range");
-    cvlm_assume_msg(withdraw_reserve_array_index < reserves.length(), b"Index in range");
-    cvlm_assume_msg(repay_reserve_array_index != withdraw_reserve_array_index, b"Distinct reserves");
-    let repay_amount = nondet();
-    
-    obligation.liquidate(reserves, repay_reserve_array_index, withdraw_reserve_array_index, clock, repay_amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-}
-
-
-public fun forgivable_only_if_unhealthy_or_debt_step_forgive(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
-    let max_forgive_amount = nondet();
-    
-    obligation.forgive(reserve, clock, max_forgive_amount);
-
-    // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
-
-    // Assert invariant in post state 
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
-}
-
-
-public fun forgivable_only_if_unhealthy_or_debt_step_claim_rewards(
-    obligation: &mut Obligation<DummyPool>,
-    reserves: &mut vector<Reserve<DummyPool>>,
-    clock: &Clock,
-) {
-
-    /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
-
-    /* Reserve State */
-    let mut i = 0;
-    while (i < reserves.length()) {
-        let reserve = vector::borrow_mut(reserves, i);
-        sound_reserve_state(reserve);
-        i=i+1;
-    };
-    
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
-
-    //  Require invariant in pre state 
-    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
+    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt_free(obligation), b"");
 
     // Perform action
     let i = nondet();
@@ -706,16 +186,12 @@ public fun forgivable_only_if_unhealthy_or_debt_step_claim_rewards(
     let reserve = vector::borrow_mut(reserves, i);
     cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
     
-    let mut pool_reward_manager = nondet();
-    let reward_index = nondet();
-    
-    let ret = obligation.claim_rewards<DummyPool, SUI>(&mut pool_reward_manager, clock, reward_index);
-    ghost_destroy(ret);
-    ghost_destroy(pool_reward_manager);
+    invoke(target, obligation, reserve, clock);
 
     // Assume fresh state again
     obligation.refresh(reserves, clock).destroy_none();
 
+
     // Assert invariant in post state 
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt(obligation), b"");
+    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt_free(obligation), b"");
 }

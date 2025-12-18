@@ -1,19 +1,18 @@
-
 module obligation_spec::summaries;
 
+use cvlm::asserts::cvlm_assume_msg;
+use cvlm::manifest::summary;
+use cvlm::nondet::{nondet_with, nondet};
 use sui::clock::Clock;
 use suilend::decimal::Decimal;
-use suilend::liquidity_mining::PoolRewardManager;
-use suilend::obligation::{Obligation};
+use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
+use suilend::obligation::Obligation;
 use suilend::reserve::Reserve;
-use cvlm::nondet::nondet_with;
-use cvlm::manifest::summary;
-use suilend::liquidity_mining::UserRewardManager;
 use suilend::reserve_config::ReserveConfig;
+use cvlm::manifest::ghost;
+
 
 public fun cvlm_manifest() {
-
-
     // Summaries
     summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
     summary(
@@ -29,9 +28,24 @@ public fun cvlm_manifest() {
         b"liquidity_mining",
         b"change_user_reward_manager_share",
     );
-    summary(b"reserve_borrow_weight", @suilend, b"reserve_config", b"borrow_weight");
-}
+    ghost(b"reward_managers");
+    summary(
+        b"obligation_find_or_add_user_reward_manager",
+        @suilend,
+        b"obligation",
+        b"find_or_add_user_reward_manager",
+    );
 
+    //summary(b"reserve_borrow_weight", @suilend, b"reserve_config", b"borrow_weight");
+    summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
+    summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
+    summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
+
+    
+
+    summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
+    summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
+}
 
 public fun reserve_compound_borrow_rate<DummyPool>(_: &mut Reserve<DummyPool>, _: u64): Decimal {
     let val = nondet_with!(b"Borrow rate", |r| 1 <= r && r < 2);
@@ -56,3 +70,67 @@ public fun obligation_log_obligation_data<P>(_obligation: &Obligation<P>) {} // 
 public fun reserve_borrow_weight(_config: &ReserveConfig): Decimal {
     suilend::decimal::from(1)
 }
+
+public fun obligation_find_borrow_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
+    let i = nondet();
+    cvlm_assume_msg(i <= obligation.borrows().length(), b"");
+
+    if (i < obligation.borrows().length()) {
+        let borrow = &obligation.borrows()[i];
+        cvlm_assume_msg(borrow.reserve_array_index() == reserve.array_index(), b"");
+    };
+
+    i
+}
+
+public fun obligation_find_deposit_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
+    let i = nondet();
+    cvlm_assume_msg(i <= obligation.deposits().length(), b"");
+
+    if (i < obligation.deposits().length()) {
+        let deposit = &obligation.deposits()[i];
+        cvlm_assume_msg(deposit.reserve_array_index() == reserve.array_index(), b"");
+    };
+
+    i
+}
+
+native fun reward_managers<P>(
+    _: &mut Obligation<P>,
+    _: &mut PoolRewardManager,
+): &mut UserRewardManager;
+
+public fun obligation_find_or_add_user_reward_manager<P>(
+    obligation: &mut Obligation<P>,
+    pool_reward_manager: &mut PoolRewardManager,
+    _clock: &Clock,
+): (u64, &mut UserRewardManager) {
+    let i = nondet();
+    let urm = reward_managers(obligation, pool_reward_manager);
+    (i, urm)
+}
+
+
+
+public fun reserve_market_value<P>(
+        _reserve: &Reserve<P>, 
+        liquidity_amount: Decimal
+    ): Decimal {
+       liquidity_amount
+    }
+
+
+public fun reserve_market_value_upper_bound<P>(
+        _reserve: &Reserve<P>, 
+        liquidity_amount: Decimal
+    ): Decimal {
+        liquidity_amount
+    }
+
+ public fun reserve_market_value_lower_bound<P>(
+        _reserve: &Reserve<P>, 
+        liquidity_amount: Decimal
+    ): Decimal {
+       liquidity_amount
+    }
+
