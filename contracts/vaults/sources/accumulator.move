@@ -25,6 +25,8 @@ const EUnclaimedRewards: vector<u8> = b"All rewards must be claimed before crank
 #[error]
 const EInsufficientLiquidityForUnwind: vector<u8> =
     b"Enough liquidity to redeem shares was not found";
+#[error]
+const EObligationsNotRefreshed: vector<u8> = b"Obligations must be refreshed before proceeding";
 
 // === Structs ===
 
@@ -49,11 +51,15 @@ public struct VaultValueAggregate<phantom V> {
     lending_market_allocations: vec_map::VecMap<TypeName, LendingMarketAllocation>,
 }
 
-/// Accumulator for vault crank operations (validating rewards status then accumulating fees)
+/// Accumulator for vault crank operations (refreshing obligations, validating rewards status then accumulating fees)
 /// Processes all lending markets in the vault
 /// Must be consumed in PTB
 public struct VaultCrankAccumulator<phantom V> {
     acc: VaultValueAccumulator<V>,
+    // NOTE: refreshing must be separate from the reward crank processing as the
+    // reward checking requires 2 LendingMarket parameters (MAIN_POOL + other), which can be the same
+    // therefore it is not possible for one of them to be a mutable reference
+    pending_obligations_for_refresh: vec_map::VecMap<TypeName, vector<ID>>,
 }
 
 /// For tracking obligation unwinds needed to satisfy a withdrawal
@@ -213,18 +219,35 @@ public(package) fun create_vault_crank_accumulator<V>(
 ): VaultCrankAccumulator<V> {
     VaultCrankAccumulator {
         acc: create_vault_value_accumulator(cap, lm_obligations_map),
+        pending_obligations_for_refresh: lm_obligations_map,
     }
+}
+
+public(package) fun refresh_obligations_for_crank<V, L>(
+    crank: &mut VaultCrankAccumulator<V>,
+    lending_market: &mut LendingMarket<L>,
+    clock: &Clock,
+) {
+    let lending_market_type = type_name::with_defining_ids<L>();
+    let (_, obligation_ids) = crank.pending_obligations_for_refresh.remove(&lending_market_type);
+    obligation_ids.do_ref!(|obligation_id| {
+        lending_market.refresh_obligation(*obligation_id, clock);
+    });
 }
 
 /// This verifies none of the obligations for this LendingMarket have outstanding rewards to be compounded
 /// It also calculates the current obligation net values
 /// Removes the LendingMarket from acc.pending_lending_markets
+/// Obligations must be refreshed beforehand with refresh_obligations_for_crank
 public(package) fun process_lending_market_for_crank<V, L>(
     crank: &mut VaultCrankAccumulator<V>,
     lending_market: &LendingMarket<L>,
     main_lending_market: &LendingMarket<MAIN_POOL>,
 ) {
     let lending_market_type = type_name::with_defining_ids<L>();
+
+    // Ensure obligations have been refreshed
+    assert!(crank.pending_obligations_for_refresh.is_empty(), EObligationsNotRefreshed);
 
     // Enforce that this lending market is in the pending list and remove it
     let (_, obligation_ids) = crank.acc.pending_lending_markets.remove(&lending_market_type);
@@ -255,6 +278,7 @@ public(package) fun finalize_crank_accumulator<V, T, L>(
 ): VaultValueAggregate<V> {
     let VaultCrankAccumulator {
         acc,
+        pending_obligations_for_refresh: _,
     } = crank;
 
     let agg = acc.finalize_vault_value_accumulator(deposit_asset, lending_market, clock);

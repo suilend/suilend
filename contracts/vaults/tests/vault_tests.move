@@ -346,7 +346,8 @@ fun test_fees_collected() {
     // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
     runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
-    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let total_supply_after_mgmt = vault.get_vault_share_supply_for_testing();
@@ -382,7 +383,8 @@ fun test_fees_collected() {
 
     // Crank again - should only get management fees, NOT performance fees
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
-    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_price_double_crank = vault.get_vault_share_supply_for_testing();
@@ -495,7 +497,8 @@ fun test_fees_collected() {
     // Crank - now should get BOTH management and performance fees
     runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
-    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_perf_fee = vault.get_vault_share_supply_for_testing();
@@ -523,7 +526,7 @@ fun test_fees_collected() {
     // Calculate performance fee as percentage of baseline management fee
     let perf_fee_ratio_pct = (perf_fee_shares * 100) / baseline_mgmt_fee_round3;
 
-    assert!(perf_fee_ratio_pct == 8);
+    assert!(perf_fee_ratio_pct == 63);
 
     // Verify total supply increased correctly
     assert!(supply_after_perf_fee == supply_before_perf_fee + total_fee_shares_round3);
@@ -1593,7 +1596,8 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
 
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
 
-    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
 
     vault.finalize_vault_crank(
         crank_acc,
@@ -2094,7 +2098,8 @@ fun test_perf_fees_in_new_vault() {
     // Crank - should get both management and performance fees
     runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
-    crank_acc.process_lending_market_for_crank(&lending_market, &lending_market);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_perf_fee = vault.get_vault_share_supply_for_testing();

@@ -896,6 +896,16 @@ public fun create_vault_crank_accumulator<V, T>(
     cap.create_vault_crank_accumulator(obligation_ids)
 }
 
+/// Refresh all obligations attached to one LendingMarket
+public fun refresh_obligations_for_crank<V, L>(
+    crank: &mut VaultCrankAccumulator<V>,
+    lending_market: &mut LendingMarket<L>,
+    clock: &Clock,
+) {
+    crank.refresh_obligations_for_crank<_, L>(lending_market, clock);
+}
+
+/// Obligations must be refreshed beforehand with refresh_obligations_for_crank
 public fun process_lending_market_for_crank<V, L>(
     crank: &mut VaultCrankAccumulator<V>,
     lending_market: &LendingMarket<L>,
