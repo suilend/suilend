@@ -10,9 +10,8 @@ use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::Obligation;
 use suilend::rate_limiter::RateLimiter;
 use suilend::reserve::{Reserve, LiquidityRequest};
-use suilend::obligation::Borrow;
 use cvlm::asserts::cvlm_assume_msg;
-use suilend::lending_market::LiquidateEvent;
+
 
 public fun cvlm_manifest() {
     //summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
@@ -20,6 +19,7 @@ public fun cvlm_manifest() {
     summary(b"reserve_borrow_liquidity", @suilend, b"reserve", b"borrow_liquidity");
     summary(b"reserve_unstake_sui_from_staker", @suilend, b"reserve", b"unstake_sui_from_staker");
     summary(b"reserve_rebalance_staker", @suilend, b"reserve", b"rebalance_staker");
+    summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
 
     summary(b"rate_limiter_process_qty", @suilend, b"rate_limiter", b"process_qty");
 
@@ -129,3 +129,6 @@ public fun obligation_find_or_add_user_reward_manager<P>(
     let mnrg = vector::borrow_mut(_obligation.user_reward_managers_mut(), i);
     (i, mnrg)
 }
+
+
+public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}

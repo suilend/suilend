@@ -42,6 +42,7 @@ public fun cvlm_manifest() {
     summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
     summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
     summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
+    summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
 
     
     ghost(b"deposit_index");
@@ -147,3 +148,7 @@ public fun reserve_market_value_upper_bound<P>(
        liquidity_amount
     }
 
+
+
+
+public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}

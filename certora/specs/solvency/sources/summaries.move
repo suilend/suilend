@@ -34,6 +34,7 @@ public fun cvlm_manifest() {
     );
     // Reserve Summaries
     summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
+    summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
     // Rate Limiter
     summary(b"rate_limiter_process_qty", @suilend, b"rate_limiter", b"process_qty");
     // Staker
@@ -142,3 +143,6 @@ public(package) fun staker_claim_fees<P: drop>(
     ): Balance<SUI> {
     nondet()
 }
+
+
+public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}
