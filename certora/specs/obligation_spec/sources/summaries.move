@@ -10,6 +10,8 @@ use suilend::obligation::Obligation;
 use suilend::reserve::Reserve;
 use suilend::reserve_config::ReserveConfig;
 use cvlm::manifest::ghost;
+use dummy_pool::obligation;
+use suilend::reserve;
 
 
 public fun cvlm_manifest() {
@@ -42,7 +44,8 @@ public fun cvlm_manifest() {
     summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
 
     
-
+    ghost(b"deposit_index");
+    ghost(b"borrow_index");
     summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
     summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
 }
@@ -71,8 +74,14 @@ public fun reserve_borrow_weight(_config: &ReserveConfig): Decimal {
     suilend::decimal::from(1)
 }
 
+native fun deposit_index(ob_id: &UID, reserve_id: &UID): u64;
+native fun borrow_index(ob_id: &UID, reserve_id: &UID): u64;
+
 public fun obligation_find_borrow_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
-    let i = nondet();
+    let oid = obligation.id();
+    let rid = reserve.id();
+
+    let i = borrow_index(oid, rid);
     cvlm_assume_msg(i <= obligation.borrows().length(), b"");
 
     if (i < obligation.borrows().length()) {
@@ -83,8 +92,12 @@ public fun obligation_find_borrow_index<P>(obligation: &Obligation<P>, reserve: 
     i
 }
 
+
 public fun obligation_find_deposit_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
-    let i = nondet();
+    let oid = obligation.id();
+    let rid = reserve.id();
+
+    let i = deposit_index(oid, rid);
     cvlm_assume_msg(i <= obligation.deposits().length(), b"");
 
     if (i < obligation.deposits().length()) {

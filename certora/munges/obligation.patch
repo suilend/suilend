@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/obligation.move b/contracts/suilend/sources/obligation.move
-index df13b62..9c74eb2 100644
+index df13b62..538c829 100644
 --- a/contracts/suilend/sources/obligation.move
 +++ b/contracts/suilend/sources/obligation.move
 @@ -155,7 +155,7 @@ module suilend::obligation {
@@ -348,7 +348,7 @@ index df13b62..9c74eb2 100644
          obligation: &Obligation<P>,
          reserve: &Reserve<P>,
      ): u64 {
-@@ -1159,7 +1186,7 @@ module suilend::obligation {
+@@ -1159,11 +1186,15 @@ module suilend::obligation {
      /// # Panics
      ///
      /// * Panics with `EOraclesAreStale` if `exist_stale_oracles` is `Some`.
@@ -357,7 +357,15 @@ index df13b62..9c74eb2 100644
          assert!(option::is_none(&exist_stale_oracles), EOraclesAreStale);
          option::destroy_none(exist_stale_oracles);
      }
-@@ -1185,7 +1212,7 @@ module suilend::obligation {
+ 
++    public fun id<P>(obligation: &Obligation<P>): &UID {
++        &obligation.id
++    }
++
+     /// Checks if an obligation is in a "looped" state and zeroes out its liquidity mining
+     /// rewards if it is.
+     ///
+@@ -1185,7 +1216,7 @@ module suilend::obligation {
      ///   deposit or borrow in the obligation has an invalid `reserve_array_index` or
      ///   `user_reward_manager_index` that is out of bounds for the `reserves` or
      ///   `user_reward_managers` vectors, respectively.
@@ -366,7 +374,7 @@ index df13b62..9c74eb2 100644
          obligation: &mut Obligation<P>,
          reserves: &mut vector<Reserve<P>>,
          clock: &Clock,
-@@ -1206,7 +1233,7 @@ module suilend::obligation {
+@@ -1206,7 +1237,7 @@ module suilend::obligation {
      /// # Panics
      /// * If the internal `target_reserve_array_indices` and `disabled_pairings_map` vectors
      ///   have inconsistent lengths, leading to an out-of-bounds access.
@@ -375,7 +383,7 @@ index df13b62..9c74eb2 100644
          let target_reserve_array_indices = vector[1, 2, 5, 7, 19, 20, 3, 9];
  
          // The vector target_reserve_array_indices maps to disabled_pairings_map
-@@ -1402,29 +1429,29 @@ module suilend::obligation {
+@@ -1402,29 +1433,29 @@ module suilend::obligation {
          assert!(deposit_index < vector::length(&obligation.deposits), EDepositNotFound);
          let deposit = vector::borrow_mut(&mut obligation.deposits, deposit_index);
  
@@ -424,7 +432,7 @@ index df13b62..9c74eb2 100644
  
          let user_reward_manager = vector::borrow_mut(
              &mut obligation.user_reward_managers,
-@@ -1450,7 +1477,7 @@ module suilend::obligation {
+@@ -1450,7 +1481,7 @@ module suilend::obligation {
      }
  
      /// Compound the debt on a borrow object
@@ -433,7 +441,16 @@ index df13b62..9c74eb2 100644
          let new_cumulative_borrow_rate = reserve::cumulative_borrow_rate(reserve);
  
          let compounded_interest_rate = div(
-@@ -1498,7 +1525,7 @@ module suilend::obligation {
+@@ -1467,7 +1498,7 @@ module suilend::obligation {
+         borrow.cumulative_borrow_rate = new_cumulative_borrow_rate;
+     }
+ 
+-    fun find_deposit_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
++    public fun find_deposit_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
+         let mut i = 0;
+         while (i < vector::length(&obligation.deposits)) {
+             let deposit = vector::borrow(&obligation.deposits, i);
+@@ -1498,7 +1529,7 @@ module suilend::obligation {
          i
      }
  
@@ -442,7 +459,7 @@ index df13b62..9c74eb2 100644
          let mut i = 0;
          while (i < vector::length(&obligation.borrows)) {
              let borrow = vector::borrow(&obligation.borrows, i);
-@@ -1512,14 +1539,21 @@ module suilend::obligation {
+@@ -1512,14 +1543,21 @@ module suilend::obligation {
          i
      }
  
@@ -466,7 +483,7 @@ index df13b62..9c74eb2 100644
          obligation: &Obligation<P>,
          reserve: &Reserve<P>,
      ): &Deposit {
-@@ -1587,7 +1621,7 @@ module suilend::obligation {
+@@ -1587,7 +1625,7 @@ module suilend::obligation {
          vector::length(&obligation.deposits) - 1
      }
  
@@ -475,7 +492,7 @@ index df13b62..9c74eb2 100644
          obligation: &Obligation<P>,
          pool_reward_manager: &PoolRewardManager,
      ): u64 {
-@@ -1637,7 +1671,7 @@ module suilend::obligation {
+@@ -1637,7 +1675,7 @@ module suilend::obligation {
      }
  
      #[test_only]
