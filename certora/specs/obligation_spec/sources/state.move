@@ -10,15 +10,9 @@ use sui::clock::Clock;
 use suilend::decimal::{Self};
 use suilend::obligation::{Obligation};
 use suilend::reserve::{Reserve};
-use suilend::reserve_config::open_ltv;
 use cvlm::manifest::target;
 use cvlm::manifest::invoker;
 use cvlm::function::Function;
-use dummy_pool::obligation;
-use suilend::obligation::Deposit;
-use suilend::obligation::Borrow;
-use sui::borrow;
-use wormhole::fee_collector::deposit;
 
 public fun cvlm_manifest() {
 
@@ -33,8 +27,8 @@ public fun cvlm_manifest() {
 
     invoker(b"invoke");
 
-    rule(b"lih_step");
-    rule(b"forg_step");
+    rule(b"liquidatable_implies_unhealthy_step");
+    rule(b"forgivable_only_if_unhealthy_or_debt_free_step");
 
 }
 
@@ -60,7 +54,7 @@ public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut 
 }
 
 
-public fun lih_step(
+public fun liquidatable_implies_unhealthy_step(
     obligation: &mut Obligation<DummyPool>,
     reserves: &mut vector<Reserve<DummyPool>>,
     clock: &Clock,
@@ -129,7 +123,7 @@ public fun forgivable_only_if_unhealthy_or_debt_free(obligation: &Obligation<Dum
     return !forgivable || !healthy || no_debt
 }
 
-public fun forg_step(
+public fun forgivable_only_if_unhealthy_or_debt_free_step(
     obligation: &mut Obligation<DummyPool>,
     reserves: &mut vector<Reserve<DummyPool>>,
     clock: &Clock,
@@ -137,10 +131,9 @@ public fun forg_step(
 ) {
 
     /* Restrict model size */
-    let n = 2;
-    cvlm_assume_msg(reserves.length() <= n, b"");
-    cvlm_assume_msg(obligation.borrows().length() <= n, b"");
-    cvlm_assume_msg(obligation.deposits().length() <= n, b"");
+    cvlm_assume_msg(reserves.length() <= 2, b"");
+    cvlm_assume_msg(obligation.borrows().length() <= 1, b"");
+    cvlm_assume_msg(obligation.deposits().length() <= 1, b"");
 
     
     // Assume fresh state
