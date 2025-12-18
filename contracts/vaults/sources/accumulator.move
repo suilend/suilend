@@ -231,7 +231,11 @@ public(package) fun refresh_obligations_for_crank<V, L>(
     let lending_market_type = type_name::with_defining_ids<L>();
     let (_, obligation_ids) = crank.pending_obligations_for_refresh.remove(&lending_market_type);
     obligation_ids.do_ref!(|obligation_id| {
-        lending_market.refresh_obligation(*obligation_id, clock);
+        let obligation = lending_market.obligation(*obligation_id);
+        // Only refresh if there are deposits
+        if (!obligation.deposits().is_empty()) {
+            lending_market.refresh_obligation(*obligation_id, clock);
+        };
     });
 }
 
