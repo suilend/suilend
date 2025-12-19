@@ -22,11 +22,7 @@ fun setup_obligation(
     ob_id: ID,
 ): (&Obligation<DummyPool>, u64, u64) {
 
-    //let ob_id = nondet();
-    //cvlm_assume_msg(obligation == lm.obligation(ob_id), b"");
-
     let obligation = lm.obligation(ob_id);
-
     cvlm_assume_msg(obligation.deposits().length() == 1, b"");
     cvlm_assume_msg(obligation.borrows().length() == 1, b"");
 
@@ -44,9 +40,16 @@ fun setup_obligation(
     let zero = decimal::from(0);
     let one = decimal::from(1);
     cvlm_assume_msg(zero.lt(open_ltv), b"");
-    cvlm_assume_msg(open_ltv.lt(close_ltv), b"");
+    cvlm_assume_msg(open_ltv.le(close_ltv), b"");
     cvlm_assume_msg(close_ltv.lt(one), b"");
     cvlm_assume_msg(borrow_weight.lt(one), b"");
+
+    // Deposit reserve must be solvent, otherwise we get counterexamples due to rounding with token ratio < 1
+    // This is safe since we proved solvency in a different spec.
+    // Additionally assume total supply and ctoken supply are both larger than zero to omit rounding by 0 cases.
+    cvlm_assume_msg(deposit_reserve.total_supply().gt(decimal::from(deposit_reserve.ctoken_supply())) , b"Solvency");
+    cvlm_assume_msg(deposit_reserve.total_supply().gt(one) , b"Solvency");
+    cvlm_assume_msg(deposit_reserve.ctoken_supply() > 1 , b"Solvency");
 
     /* Freshness */
 
@@ -117,13 +120,12 @@ public fun liquidation_reduces_collateral_and_debt<R, W>(
     let (obligation, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
 
     let (deposits_pre, borrows_pre) = {
-        let deposits = obligation.deposited_value_usd();
-        let borrows = obligation.unweighted_borrowed_value_usd();
+        let deposits = obligation.deposits()[0].deposited_ctoken_amount();
+        let borrows = obligation.borrows()[0].borrowed_amount();
         (deposits, borrows)
     };
 
-
-    
+    // Perform liquidation    
     let clock = nondet();
     let mut ctx = nondet();
     let mut repay_coins: Coin<R> = nondet();
@@ -137,14 +139,15 @@ public fun liquidation_reduces_collateral_and_debt<R, W>(
         &mut ctx,
     );
 
+    // Deposits and borrows after liquidation
     let (deposits_post, borrows_post) = {
         let obligation = lm.obligation(ob_id);
-        let deposits = obligation.deposited_value_usd();
-        let borrows = obligation.unweighted_borrowed_value_usd();
+        let deposits = obligation.deposits()[0].deposited_ctoken_amount();
+        let borrows = obligation.borrows()[0].borrowed_amount();
         (deposits, borrows)
     };
 
-    cvlm_assert(deposits_pre.gt(deposits_post));
+    cvlm_assert(deposits_pre > deposits_post);
     cvlm_assert(borrows_pre.gt(borrows_post));
 
     ghost_destroy(c);

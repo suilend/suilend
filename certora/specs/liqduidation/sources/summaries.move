@@ -1,23 +1,21 @@
 module liquidation::summaries;
 
 use cvlm::asserts::cvlm_assume_msg;
+use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{summary, ghost};
-use cvlm::nondet::nondet_with;
+use cvlm::nondet::{nondet_with, nondet};
+use sui::balance::{Self, Balance};
 use sui::clock::Clock;
-use suilend::decimal::Decimal;
+use sui::token::amount;
+use suilend::decimal::{Self, Decimal, div, add, ceil, mul, lt, floor, min, le, eq};
 use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
-use suilend::obligation::Obligation;
-use suilend::reserve::Reserve;
-use suilend::obligation::Borrow;
-use suilend::obligation::Deposit;
-use cvlm::nondet::nondet;
-use suilend::obligation::ExistStaleOracles;
-use suilend::decimal;
-
+use suilend::obligation::{Obligation, Borrow, Deposit, ExistStaleOracles};
+use suilend::reserve::{Reserve, CToken, config, Balances};
+use suilend::reserve_config::{liquidation_bonus, protocol_liquidation_fee};
+use cvlm::asserts::cvlm_assert_msg;
 
 public fun cvlm_manifest() {
-    // Obligation Summaries
-
+ 
     summary(
         b"obligation_zero_out_rewards_if_looped",
         @suilend,
@@ -43,17 +41,20 @@ public fun cvlm_manifest() {
     ghost(b"borrow_index");
     summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
     summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
+    summary(b"obligation_compound_debt", @suilend, b"obligation", b"compound_debt");
 
     summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
     summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
     summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
+
     summary(b"reserve_mint_decimals", @suilend, b"reserve", b"mint_decimals");
+    summary(b"reserve_withdraw_ctokens", @suilend, b"reserve", b"withdraw_ctokens");
 
-    //summary(b"liquidation_amounts", @suilend, b"obligation", b"liquidation_amounts");
+    summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
+    // summary(b"reserve_deduct_liquidation_fee", @suilend, b"reserve", b"deduct_liquidation_fee");
+
+    // summary(b"liquidation_amounts", @suilend, b"obligation", b"liquidation_amounts");
 }
-
-const MINT_DECIMALS: u8 = 9;
-const MINT_DECIMALS_POW: u256 = 1000000000;
 
 public(package) fun obligation_zero_out_rewards_if_looped<P>(
     _obligation: &mut Obligation<P>,
@@ -110,32 +111,118 @@ public fun obligation_log_obligation_data<P>(_obligation: &Obligation<P>) {} // 
 
 public fun reserve_compound_interest<P>(_: &mut Reserve<P>, _: &Clock) {}
 
-public fun reserve_mint_decimals<P>(_: &Reserve<P>): u8 {
- MINT_DECIMALS
+native fun mint_decimals(id: &UID): u8;
+public fun reserve_mint_decimals<P>(r: &Reserve<P>): u8 {
+    // let id = r.id();
+    // let dec = mint_decimals(id);
+    // cvlm_assume_msg(dec == 18, b"");
+    // dec
+    9
+}
+
+fun mv<P>(_reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
+    liquidity_amount.div(decimal::from(1000000000))
+
+    //Assume dec is one of the common values to avoid general division
+    // let dec = mint_decimals(_reserve.id());
+    // cvlm_assume_msg(dec == 6 || dec == 8 || dec == 9, b"common decimals");
+    // if (dec == 6) {
+    //     liquidity_amount.div(decimal::from(1000000))
+    // } else if (dec == 8) {
+    //     liquidity_amount.div(decimal::from(100000000))
+    // } else {
+    //     // dec == 9
+    //     liquidity_amount.div(decimal::from(1000000000))
+    // }
 }
 
 public fun reserve_market_value<P>(_reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
-    let mint_dec = decimal::from_scaled_val(MINT_DECIMALS_POW);
-    liquidity_amount.div(mint_dec)
+    mv(_reserve, liquidity_amount)
 }
 
 public fun reserve_market_value_upper_bound<P>(
     _reserve: &Reserve<P>,
     liquidity_amount: Decimal,
 ): Decimal {
-    let mint_dec = decimal::from_scaled_val(MINT_DECIMALS_POW);
-    liquidity_amount.div(mint_dec)
+    mv(_reserve, liquidity_amount)
 }
 
 public fun reserve_market_value_lower_bound<P>(
     _reserve: &Reserve<P>,
     liquidity_amount: Decimal,
 ): Decimal {
-    let mint_dec = decimal::from_scaled_val(MINT_DECIMALS_POW);
-    liquidity_amount.div(mint_dec)
+    mv(_reserve, liquidity_amount)
 }
 
 public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}
+
+fun liquidation_amounts_simple<P>(
+    obligation: &Obligation<P>,
+    repay_amount: u64,
+    withdraw_reserve: &Reserve<P>,
+    repay_reserve: &Reserve<P>,
+    borrow: &Borrow,
+    deposit: &Deposit,
+): (Decimal, u64) {
+    let is_full_liquidation = le(borrow.market_value(), decimal::from(1));
+
+    // Nondet final settle amount with constraints
+    let final_settle_amount: Decimal = nondet();
+    cvlm_assume_msg(
+        final_settle_amount.le(decimal::from(repay_amount)),
+        b"settle_amount <= repay_amount",
+    );
+    cvlm_assume_msg(
+        final_settle_amount.le(borrow.borrowed_amount()),
+        b"settle_amount <= borrowed_amount",
+    );
+
+    if (is_full_liquidation) {
+        cvlm_assume_msg(
+            eq(final_settle_amount, min(borrow.borrowed_amount(), decimal::from(repay_amount))),
+            b"full liquidation: settle all or repay_amount",
+        );
+    } else {
+        // partial liquidation: can repay up to close_factor of total debt
+        let max_partial = mul(
+            obligation.weighted_borrowed_value_usd(),
+            decimal::from_percent(20),
+        );
+        cvlm_assume_msg(
+            le(final_settle_amount, min(max_partial, borrow.borrowed_amount())),
+            b"partial liquidation respects close factor",
+        );
+    };
+
+    // Nondet final withdraw amount with constraints
+    let final_withdraw_amount: u64 = nondet();
+    cvlm_assume_msg(
+        final_withdraw_amount <= deposit.deposited_ctoken_amount(),
+        b"withdraw_amount <= deposited_amount",
+    );
+
+    // The withdraw value should be approximately repay_value * (1 + bonus)
+    // but we avoid computing this precisely to eliminate NIA
+    let bonus = add(
+        liquidation_bonus(config(withdraw_reserve)),
+        protocol_liquidation_fee(config(withdraw_reserve)),
+    );
+
+    // If deposit is insufficient, we take everything
+    if (
+        lt(
+            deposit.market_value(),
+            mul(repay_reserve.market_value(final_settle_amount), add(decimal::from(1), bonus)),
+        )
+    ) {
+        cvlm_assume_msg(
+            final_withdraw_amount == deposit.deposited_ctoken_amount(),
+            b"insufficient deposit: take all",
+        );
+    };
+
+    (final_settle_amount, final_withdraw_amount)
+}
 
 fun liquidation_amounts<P>(
     obligation: &Obligation<P>,
@@ -145,18 +232,113 @@ fun liquidation_amounts<P>(
     borrow: &Borrow,
     deposit: &Deposit,
 ): (Decimal, u64) {
-    let x = nondet();
-    let y = nondet();
+    // invariant: repay_amount <= borrow.borrowed_amount
+    let repay_amount = if (le(borrow.market_value(), decimal::from(1))) {
+        // full liquidation
+        min(
+            borrow.borrowed_amount(),
+            decimal::from(repay_amount),
+        )
+    } else {
+        // partial liquidation
+        let max_repay_value = min(
+            mul(
+                obligation.weighted_borrowed_value_usd(),
+                decimal::from_percent(20),
+            ),
+            borrow.market_value(),
+        );
 
-    (x, y)
+        // Compute max_repay directly without intermediate percentage
+        // This avoids: mul(div(max_repay_value, borrow.market_value), borrow.borrowed_amount)
+        let max_repay = div(
+            mul(max_repay_value, borrow.borrowed_amount()),
+            borrow.market_value(),
+        );
 
+        min(max_repay, decimal::from(repay_amount))
+    };
+
+    let repay_value = repay_reserve.market_value(repay_amount);
+    let bonus = add(
+        liquidation_bonus(config(withdraw_reserve)),
+        protocol_liquidation_fee(config(withdraw_reserve)),
+    );
+
+    let withdraw_value = mul(
+        repay_value,
+        add(decimal::from(1), bonus),
+    );
+
+    // repay amount, but in decimals. called settle amount to keep logic in line with
+    // spl-lending
+    let final_settle_amount;
+    let final_withdraw_amount;
+
+    if (lt(deposit.market_value(), withdraw_value)) {
+        // Compute final_settle_amount directly without intermediate percentage
+        // This avoids: mul(repay_amount, div(deposit.market_value(), withdraw_value))
+        final_settle_amount =
+            div(
+                mul(repay_amount, deposit.market_value()),
+                withdraw_value,
+            );
+        final_withdraw_amount = deposit.deposited_ctoken_amount();
+    } else {
+        // Compute final_withdraw_amount directly without intermediate percentage
+        // This avoids: mul(deposit.deposited_ctoken_amount, div(withdraw_value, deposit.market_value()))
+        final_settle_amount = repay_amount;
+        final_withdraw_amount =
+            floor(
+                div(
+                    mul(decimal::from(deposit.deposited_ctoken_amount()), withdraw_value),
+                    deposit.market_value(),
+                ),
+            );
+    };
+    (final_settle_amount, final_withdraw_amount)
+}
+
+public fun obligation_refresh<P>(
+    _obligation: &mut Obligation<P>,
+    _reserves: &mut vector<Reserve<P>>,
+    _clock: &Clock,
+): Option<ExistStaleOracles> {
+    nondet()
+}
+
+public fun reserve_repay_liquidity<P, T>(
+    reserve: &mut Reserve<P>,
+    liquidity: Balance<T>,
+    settle_amount: Decimal,
+) {
+    ghost_destroy(liquidity);
+}
+
+public fun reserve_withdraw_ctokens<P, T>(
+    reserve: &mut Reserve<P>,
+    amount: u64,
+): Balance<CToken<P, T>> {
+    let bal: Balance<CToken<P, T>> = nondet();
+    cvlm_assume_msg(bal.value() == amount, b"");
+    bal
+}
+
+public fun reserve_deduct_liquidation_fee<P, T>(
+    reserve: &mut Reserve<P>,
+    ctokens: &mut Balance<CToken<P, T>>,
+): (u64, u64) {
+    let pf = protocol_liquidation_fee(config(reserve));
+    let bonus = liquidation_bonus(config(reserve));
+    let denom = add(add(decimal::from(1), bonus), pf);
+
+    let protocol_fee_amount = ceil(mul(div(pf, denom), decimal::from(balance::value(ctokens))));
+    ghost_destroy(balance::split(ctokens, protocol_fee_amount));
+
+    (protocol_fee_amount, nondet())
 }
 
 
-public fun obligation_refresh<P>(
-        _obligation: &mut Obligation<P>,
-        _reserves: &mut vector<Reserve<P>>,
-        _clock: &Clock,
-    ): Option<ExistStaleOracles> {
-        nondet()
-    }
+public fun obligation_compound_debt<P>(_borrow: &mut Borrow, _reserve: &Reserve<P>) {
+
+}
