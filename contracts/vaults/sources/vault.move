@@ -62,6 +62,8 @@ const EInsufficientRewardSwap: vector<u8> =
     b"An insufficent amount of base token was returned for swapped reward";
 #[error]
 const EReserveExists: vector<u8> = b"A reserve exists for this type, so oracle swap must be used";
+#[error]
+const EUntrustedLendingMarket: vector<u8> = b"LendingMarket must have vault obligations";
 
 // === Constants ===
 
@@ -529,6 +531,7 @@ public fun deposit<V, T, L>(
     ctx: &mut TxContext,
 ): Coin<V> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.assert_trusted_lending_market<V, T, L>();
     vault.assert_vault_state_fresh<V, T>(clock);
 
     let deposit_amount = deposit.value();
@@ -609,6 +612,7 @@ public fun withdraw<V, T, L>(
     ctx: &mut TxContext,
 ): Coin<T> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
+    vault.assert_trusted_lending_market<V, T, L>();
     assert!(shares.value() > 0, EInsufficientShares);
 
     // Calculate withdrawal fee in shares
@@ -655,6 +659,7 @@ public fun withdraw_with_unwind<V, T, L>(
     ctx: &mut TxContext,
 ): Coin<T> {
     vault.version.assert_version(CURRENT_VERSION);
+    vault.assert_trusted_lending_market<V, T, L>();
 
     let (shares, base_token_value_of_shares, agg) = acc.finalize_unwind_accumulator(
         &vault.deposit_asset,
@@ -849,6 +854,7 @@ public fun finalize_vault_value_accumulator<V, T, L>(
     lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
 ): VaultValueAggregate<V> {
+    vault.assert_trusted_lending_market<V, T, L>();
     acc.finalize_vault_value_accumulator(&vault.deposit_asset, lending_market, clock)
 }
 
@@ -899,6 +905,7 @@ public fun finalize_vault_crank<V, T, L>(
     clock: &Clock,
 ) {
     vault.version.assert_version(CURRENT_VERSION);
+    vault.assert_trusted_lending_market<V, T, L>();
 
     let agg = acc.finalize_crank_accumulator(&vault.deposit_asset, lending_market, clock);
 
@@ -923,6 +930,7 @@ public fun create_unwind_accumulator<V, T, L>(
     clock: &Clock,
 ): VaultUnwindAccumulator<V> {
     vault.version.assert_version(CURRENT_VERSION);
+    vault.assert_trusted_lending_market<V, T, L>();
 
     let shares_amount = shares.value();
     assert!(shares_amount > 0, EInsufficientShares);
@@ -1463,6 +1471,12 @@ fun assert_vault_state_fresh<V, T>(vault: &Vault<V, T>, clock: &Clock) {
     let current_time = clock.timestamp_ms();
 
     assert!(current_time - vault.last_cranked_ms <= MAX_REWARDS_STALENESS_MS, ERewardsStale);
+}
+
+/// Verify the lending market is one the vault has obligations in
+fun assert_trusted_lending_market<V, T, L>(vault: &Vault<V, T>) {
+    let lm_type = type_name::with_defining_ids<L>();
+    assert!(vault.obligations.contains(&lm_type), EUntrustedLendingMarket);
 }
 
 /// Get reserve index if exists in lending market

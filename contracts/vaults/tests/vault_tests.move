@@ -81,6 +81,19 @@ fun init_vault_scenario(): (mock_pyth::PriceState, TestRunner) {
         runner.ctx(),
     );
 
+    // Share clock and lending_market, then create obligation in TEST_LENDING_MARKET
+    clock.share_for_testing();
+    transfer::public_share_object(lending_market);
+
+    runner.set_sender(ADMIN);
+    let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
+    let mut lending_market = runner
+        .scenario_mut()
+        .take_shared<LendingMarket<TEST_LENDING_MARKET>>();
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+    ts::return_shared(lending_market);
+    ts::return_shared(vault);
+
     // Create Steamm CPMM pool for B_TEST_USDC <-> B_TEST_SUI swaps
     let mut pool = steamm::cpmm_tests::setup_pool(100, 0, runner.scenario_mut());
 
@@ -104,9 +117,7 @@ fun init_vault_scenario(): (mock_pyth::PriceState, TestRunner) {
     coin::burn_for_testing(lp_coins);
     test_runner::destroy(pool_liquidity_sui);
     test_runner::destroy(pool_liquidity_usdc);
-    clock.share_for_testing();
     transfer::public_share_object(pool);
-    transfer::public_share_object(lending_market);
     test_runner::destroy(vault_share_currency);
     test_runner::destroy(bag);
     transfer::public_transfer(lm_cap, ADMIN);
@@ -271,13 +282,25 @@ fun test_fees_collected() {
     runner.set_sender(ADMIN);
     let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let mut lending_market = runner.scenario_mut().take_shared<LendingMarket<MAIN_POOL>>();
+    let mut test_lm = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
     let mut clock = runner.scenario_mut().take_shared<Clock>();
+
+    // Manager creates obligation in MAIN_POOL (index 1, since TEST_LENDING_MARKET is index 0)
+    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
+        vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+        runner.keep(manager_cap);
+    });
+    let obligation_index = 0; // First obligation in MAIN_POOL
 
     // User deposits 1,000,000 tokens
     runner.set_sender(USER1);
     let deposit_amount = 1_000_000;
     let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    // Process both LMs for value aggregate
+    let mut acc = vault.create_vault_value_accumulator();
+    vault::process_lending_market_for_value_accumulator(&mut acc, &test_lm);
+    vault::process_lending_market_for_value_accumulator(&mut acc, &lending_market);
+    let agg = vault.finalize_vault_value_accumulator(acc, &lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -305,16 +328,14 @@ fun test_fees_collected() {
     // Total supply = user shares + fee shares
     assert!(initial_total_supply == deposit_amount * share_exp);
 
-    // Manager creates obligation and deploys funds
+    // Manager deploys funds
     runner.set_sender(ADMIN);
-    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
-        vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
-        runner.keep(manager_cap);
-    });
-    let obligation_index = 0;
 
     let deploy_amount = 500_000 * 10u64.pow(TEST_COIN_DECIMALS);
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let mut acc = vault.create_vault_value_accumulator();
+    vault::process_lending_market_for_value_accumulator(&mut acc, &test_lm);
+    vault::process_lending_market_for_value_accumulator(&mut acc, &lending_market);
+    let agg = vault.finalize_vault_value_accumulator(acc, &lending_market, &clock);
     runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
         vault.deploy_funds(
             &manager_cap,
@@ -346,7 +367,9 @@ fun test_fees_collected() {
     // Crank to apply management fees (no performance fee yet since ratio hasn't increased)
     runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut test_lm, &clock);
     vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &test_lm, &lending_market);
     vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -383,7 +406,9 @@ fun test_fees_collected() {
 
     // Crank again - should only get management fees, NOT performance fees
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut test_lm, &clock);
     vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &test_lm, &lending_market);
     vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -434,10 +459,10 @@ fun test_fees_collected() {
     );
 
     // Get vault value before rewards
-    let agg_before_rewards = vault.create_vault_value_aggregate_for_testing(
-        &lending_market,
-        &clock,
-    );
+    let mut acc = vault.create_vault_value_accumulator();
+    vault::process_lending_market_for_value_accumulator(&mut acc, &test_lm);
+    vault::process_lending_market_for_value_accumulator(&mut acc, &lending_market);
+    let agg_before_rewards = vault.finalize_vault_value_accumulator(acc, &lending_market, &clock);
     let liquid_before = agg_before_rewards.liquid_asset_value_usd();
     let obligation_before = agg_before_rewards.total_obligation_value_usd();
     let total_value_before_rewards = liquid_before.add(obligation_before);
@@ -467,7 +492,10 @@ fun test_fees_collected() {
     );
 
     // Get vault value after rewards to verify alpha was generated
-    let agg_after_rewards = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let mut acc = vault.create_vault_value_accumulator();
+    vault::process_lending_market_for_value_accumulator(&mut acc, &test_lm);
+    vault::process_lending_market_for_value_accumulator(&mut acc, &lending_market);
+    let agg_after_rewards = vault.finalize_vault_value_accumulator(acc, &lending_market, &clock);
     let liquid_after = agg_after_rewards.liquid_asset_value_usd();
     let obligation_after = agg_after_rewards.total_obligation_value_usd();
     let total_value_after_rewards = liquid_after.add(obligation_after);
@@ -497,7 +525,9 @@ fun test_fees_collected() {
     // Crank - now should get BOTH management and performance fees
     runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut test_lm, &clock);
     vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &test_lm, &lending_market);
     vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -541,6 +571,7 @@ fun test_fees_collected() {
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
+        ts::return_shared(test_lm);
         transfer::public_transfer(lm_cap, ADMIN);
     };
 
@@ -781,11 +812,7 @@ fun test_allocate_and_divest() {
 
     runner.set_sender(ADMIN);
 
-    vault.create_obligation(
-        &manager_cap,
-        &mut lending_market,
-        runner.ctx(),
-    );
+    // Use existing obligation from init_vault_scenario
     let obligation_index = 0;
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
     let _ctokens_amt = vault.deploy_funds(
@@ -892,12 +919,10 @@ fun test_nav_changes() {
 
     // Crank to apply fees
     {
-        let crank_acc = vault.create_vault_crank_accumulator(&clock);
-        vault.finalize_vault_crank(
-            crank_acc,
-            &lending_market,
-            &clock,
-        );
+        let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+        vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+        vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &main_pool_lm);
+        vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
     };
 
     // Total shares should have increased due to fee shares being minted
@@ -952,9 +977,8 @@ fun test_compound_rewards() {
         runner.ctx(),
     );
 
-    // Manager creates obligation and deploys funds
+    // Use existing obligation from init_vault_scenario and deploy funds
     runner.set_sender(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
     let obligation_index = 0;
 
     let deploy_amount = 500000;
@@ -1076,7 +1100,9 @@ fun test_compound_rewards_with_swap() {
         runner.ctx(),
     );
 
-    runner.set_sender(ADMIN);
+    // Manager creates obligation before any deposits (so vault trusts this lending market)
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+    let obligation_index = 0;
 
     // User deposits B_TEST_SUI into vault
     runner.set_sender(USER1);
@@ -1090,10 +1116,8 @@ fun test_compound_rewards_with_swap() {
         runner.ctx(),
     );
 
-    // Manager creates obligation and deploys funds to lending market
+    // Manager deploys funds to lending market
     runner.set_sender(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
-    let obligation_index = 0;
 
     let deploy_amount = 500_000_000_000; // 500 SUI (with 9 decimals)
     let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
@@ -1409,7 +1433,11 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         runner.ctx(),
     );
 
-    runner.set_sender(ADMIN);
+    // Create two obligations before any deposits (so vault trusts this lending market)
+    let obligation_0 = 0;
+    let obligation_1 = 1;
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
 
     // User deposits into vault
     runner.set_sender(USER1);
@@ -1423,12 +1451,7 @@ fun test_vault_crank_with_multiple_obligations_and_rewards() {
         runner.ctx(),
     );
 
-    // Create two obligations
     runner.set_sender(ADMIN);
-    let obligation_0 = 0;
-    let obligation_1 = 1;
-    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
-    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
 
     // Deploy funds to both obligations
     let deploy_amount = 500_000_000_000;
@@ -1677,9 +1700,8 @@ fun test_withdraw_insufficient_liquidity_failure() {
         runner.ctx(),
     );
 
-    // Manager deploys most of the funds, leaving insufficient liquid assets
+    // Use existing obligation from init_vault_scenario, deploy most funds leaving insufficient liquid
     runner.set_sender(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
     let obligation_index = 0;
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
     let liquid_assets_left = 100 * exp;
@@ -1740,9 +1762,8 @@ fun test_unwind_withdrawal_success() {
         runner.ctx(),
     );
 
-    // Manager deploys most of the funds, leaving insufficient liquid assets
+    // Use existing obligation from init_vault_scenario, deploy most funds leaving insufficient liquid
     runner.set_sender(ADMIN);
-    vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
     let obligation_index = 0;
     let exp = 10u64.pow(TEST_COIN_DECIMALS);
     let liquid_assets_left = 100 * exp;
@@ -1906,7 +1927,14 @@ fun test_perf_fees_in_new_vault() {
     runner.set_sender(ADMIN);
     let mut vault = runner.scenario_mut().take_shared<Vault<VAULT_TESTS, TEST_COIN>>();
     let mut lending_market = runner.scenario_mut().take_shared<LendingMarket<MAIN_POOL>>();
+    let mut test_lm = runner.scenario_mut().take_shared<LendingMarket<TEST_LENDING_MARKET>>();
     let mut clock = runner.scenario_mut().take_shared<Clock>();
+
+    // Create obligation in MAIN_POOL (index 1, since TEST_LENDING_MARKET is index 0)
+    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
+        vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
+        runner.keep(manager_cap);
+    });
 
     // === Step 1: Crank while vault is empty ===
     // Advance time past MIN_REWARDS_STALENESS_MS (1 min)
@@ -1920,8 +1948,12 @@ fun test_perf_fees_in_new_vault() {
         prices.get_price_obj<TEST_COIN>(),
     );
 
-    // Crank empty vault
-    let crank_acc = vault.create_vault_crank_accumulator(&clock);
+    // Crank empty vault - process both LMs
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut test_lm, &clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &test_lm, &lending_market);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     // Verify no shares exist and no fees were charged
@@ -1935,7 +1967,11 @@ fun test_perf_fees_in_new_vault() {
     runner.set_sender(USER1);
     let deposit_amount = 1_000_000;
     let deposit_coin = mint_test_coin(deposit_amount, runner.ctx());
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    // Process both LMs for value aggregate
+    let mut acc = vault.create_vault_value_accumulator();
+    vault::process_lending_market_for_value_accumulator(&mut acc, &test_lm);
+    vault::process_lending_market_for_value_accumulator(&mut acc, &lending_market);
+    let agg = vault.finalize_vault_value_accumulator(acc, &lending_market, &clock);
     let vault_shares = vault.deposit(
         deposit_coin,
         &lending_market,
@@ -1970,8 +2006,12 @@ fun test_perf_fees_in_new_vault() {
     let supply_before_second_crank = vault.get_vault_share_supply_for_testing();
     let fees_before_second_crank = vault.get_manager_fees_for_testing();
 
-    // Crank: should not charge performance fees
-    let crank_acc = vault.create_vault_crank_accumulator(&clock);
+    // Crank: should not charge performance fees - process both LMs
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut test_lm, &clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &test_lm, &lending_market);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_second_crank = vault.get_vault_share_supply_for_testing();
@@ -2004,7 +2044,11 @@ fun test_perf_fees_in_new_vault() {
 
     let supply_before_third_crank = vault.get_vault_share_supply_for_testing();
 
-    let crank_acc = vault.create_vault_crank_accumulator(&clock);
+    let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut test_lm, &clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &test_lm, &lending_market);
+    vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
     let supply_after_third_crank = vault.get_vault_share_supply_for_testing();
@@ -2017,15 +2061,14 @@ fun test_perf_fees_in_new_vault() {
     // === Step 5: Generate alpha through rewards and verify performance fees are collected ===
     runner.set_sender(ADMIN);
 
-    // Create obligation and deploy funds
-    runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
-        vault.create_obligation(&manager_cap, &mut lending_market, runner.ctx());
-        runner.keep(manager_cap);
-    });
+    // Use MAIN_POOL obligation (index 0 within MAIN_POOL's obligations)
     let obligation_index = 0;
 
     let deploy_amount = 500_000 * 10u64.pow(TEST_COIN_DECIMALS);
-    let agg = vault.create_vault_value_aggregate_for_testing(&lending_market, &clock);
+    let mut acc = vault.create_vault_value_accumulator();
+    vault::process_lending_market_for_value_accumulator(&mut acc, &test_lm);
+    vault::process_lending_market_for_value_accumulator(&mut acc, &lending_market);
+    let agg = vault.finalize_vault_value_accumulator(acc, &lending_market, &clock);
     runner.owned_tx!<VaultManagerCap<VAULT_TESTS>>(|manager_cap| {
         vault.deploy_funds(
             &manager_cap,
@@ -2098,7 +2141,9 @@ fun test_perf_fees_in_new_vault() {
     // Crank - should get both management and performance fees
     runner.set_sender(ADMIN);
     let mut crank_acc = vault.create_vault_crank_accumulator(&clock);
+    vault::refresh_obligations_for_crank(&mut crank_acc, &mut test_lm, &clock);
     vault::refresh_obligations_for_crank(&mut crank_acc, &mut lending_market, &clock);
+    vault::process_lending_market_for_crank(&mut crank_acc, &test_lm, &lending_market);
     vault::process_lending_market_for_crank(&mut crank_acc, &lending_market, &lending_market);
     vault.finalize_vault_crank(crank_acc, &lending_market, &clock);
 
@@ -2127,6 +2172,7 @@ fun test_perf_fees_in_new_vault() {
         ts::return_shared(clock);
         ts::return_shared(vault);
         ts::return_shared(lending_market);
+        ts::return_shared(test_lm);
         transfer::public_transfer(lm_cap, ADMIN);
     };
 
