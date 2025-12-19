@@ -24,6 +24,8 @@ const EIncompleteAccumulation: vector<u8> = b"VaultValueAccumulator processing i
 const EUnclaimedRewards: vector<u8> = b"All rewards must be claimed before cranking";
 #[error]
 const EObligationsNotRefreshed: vector<u8> = b"Obligations must be refreshed before proceeding";
+#[error]
+const EBorrowedBalanceExists: vector<u8> = b"Obligation should not have a borrowed balance";
 
 // === Structs ===
 
@@ -513,10 +515,10 @@ fun calculate_obligation_values<L>(
         let deposited_value_usd_decimal = obligation.deposited_value_usd();
         let unweighted_borrowed_value_usd_decimal = obligation.unweighted_borrowed_value_usd();
 
-        // TODO: handle negative balances if borrowing is enabled
-        let net_value_decimal = deposited_value_usd_decimal.saturating_sub(
-            unweighted_borrowed_value_usd_decimal,
-        );
+        // Borrowing is not supported
+        assert!(unweighted_borrowed_value_usd_decimal.eq(decimal::from(0)), EBorrowedBalanceExists);
+
+        let net_value_decimal = deposited_value_usd_decimal;
 
         allocations.push_back(ObligationAllocation {
             obligation_id,
