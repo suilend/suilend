@@ -138,6 +138,8 @@ public fun liquidation_reduces_collateral_and_debt<R, W>(
         &mut repay_coins,
         &mut ctx,
     );
+    // Uncommenting this will make the rule pass. 
+    // cvlm_assume_msg(c.value() > 0, b"Assume at least one coin was withdrawn");
 
     // Deposits and borrows after liquidation
     let (deposits_post, borrows_post) = {
