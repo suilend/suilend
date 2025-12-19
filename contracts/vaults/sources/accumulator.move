@@ -23,9 +23,6 @@ const EIncompleteAccumulation: vector<u8> = b"VaultValueAccumulator processing i
 #[error]
 const EUnclaimedRewards: vector<u8> = b"All rewards must be claimed before cranking";
 #[error]
-const EInsufficientLiquidityForUnwind: vector<u8> =
-    b"Enough liquidity to redeem shares was not found";
-#[error]
 const EObligationsNotRefreshed: vector<u8> = b"Obligations must be refreshed before proceeding";
 
 // === Structs ===
@@ -67,8 +64,10 @@ public struct VaultCrankAccumulator<phantom V> {
 public struct VaultUnwindAccumulator<phantom V> {
     // vault shares to redeem
     shares: Balance<V>,
-    // Keyed by lending market type -> vector of unwind targets in FIFO order
-    pending_unwinds: vec_map::VecMap<TypeName, vector<UnwindTarget>>,
+    // base token value that shares entitle user to (net of withdrawal fee)
+    base_token_value_of_shares: u64,
+    // Keyed by lending market type -> obligation IDs (removed as each LM is processed)
+    pending_unwinds: vec_map::VecMap<TypeName, vector<ID>>,
     agg: VaultValueAggregate<V>,
 }
 
@@ -88,12 +87,6 @@ public struct ObligationAllocation has copy, drop, store {
     net_value_usd: Decimal,
 }
 
-/// Specifies an obligation position planned for unwind
-public struct UnwindTarget has drop {
-    obligation_index: u64,
-    usd_to_recover: Decimal,
-}
-
 // === Public functions ===
 
 /// Total USD value of all obligations across all lending markets
@@ -106,21 +99,15 @@ public fun liquid_asset_value_usd<V>(self: &VaultValueAggregate<V>): Decimal {
     self.liquid_asset_value_usd
 }
 
-/// Obligation index for this unwind target
-public fun obligation_index(self: &UnwindTarget): u64 {
-    self.obligation_index
-}
-
-/// USD amount to recover from this unwind
-public fun usd_to_recover(self: &UnwindTarget): Decimal {
-    self.usd_to_recover
-}
-
 /// Allocation data for each lending market
 public fun lending_market_allocations<V>(
     self: &VaultValueAggregate<V>,
 ): vec_map::VecMap<TypeName, LendingMarketAllocation> {
     self.lending_market_allocations
+}
+
+public fun base_token_value_of_shares<V>(self: &VaultUnwindAccumulator<V>): u64 {
+    self.base_token_value_of_shares
 }
 
 // === Package functions ===
@@ -290,31 +277,39 @@ public(package) fun finalize_crank_accumulator<V, T, L>(
     agg
 }
 
-/// Create accumulator with unwind plan to cover withdrawal shortfall
+/// Create accumulator for unwind withdrawal
+/// Client controls unwind order by calling process_unwinds_for_lending_market in desired sequence
 public(package) fun create_unwind_accumulator<V>(
     agg: VaultValueAggregate<V>,
-    shortfall_usd: Decimal,
+    base_token_value_of_shares: u64,
     shares: Balance<V>,
 ): VaultUnwindAccumulator<V> {
-    let pending_unwinds = agg.calculate_unwind_plan(shortfall_usd);
+    let (lm_keys, lm_vals) = agg.lending_market_allocations.into_keys_values();
+
+    let ids = lm_vals.map!(|allocation| {
+        let obligation_ids = allocation.obligations.map_ref!(|obl| obl.obligation_id);
+        obligation_ids
+    });
+
+    let pending_unwinds = vec_map::from_keys_values(lm_keys, ids);
 
     VaultUnwindAccumulator {
+        base_token_value_of_shares,
         pending_unwinds,
         shares,
         agg,
     }
 }
 
-/// Complete unwind accumulation and return shares and updated aggregate
+/// Complete unwind accumulation and return shares, base_token_value_of_shares, and updated aggregate
 public(package) fun finalize_unwind_accumulator<V, T, L>(
     acc: VaultUnwindAccumulator<V>,
     deposit_asset: &Balance<T>,
     lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
-): (Balance<V>, VaultValueAggregate<V>) {
-    assert!(acc.pending_unwinds.is_empty(), EIncompleteAccumulation);
-
+): (Balance<V>, u64, VaultValueAggregate<V>) {
     let VaultUnwindAccumulator {
+        base_token_value_of_shares,
         pending_unwinds: _,
         shares,
         mut agg,
@@ -323,7 +318,7 @@ public(package) fun finalize_unwind_accumulator<V, T, L>(
     // Update liquid value as unwinds will have increased it
     agg.refresh_liquid_asset_value(deposit_asset, lending_market, clock);
 
-    (shares, agg)
+    (shares, base_token_value_of_shares, agg)
 }
 
 /// Recalculates aggregate values for a specific lending market
@@ -370,28 +365,12 @@ public(package) fun refresh_liquid_asset_value<V, T, L>(
     agg.liquid_asset_value_usd = updated_liquid_asset_value_usd;
 }
 
-/// Get next unwind targets for lending market
-public(package) fun get_next_unwind_targets<V, L>(
-    acc: &mut VaultUnwindAccumulator<V>,
-): option::Option<vector<UnwindTarget>> {
-    let lending_market_type = type_name::with_defining_ids<L>();
-
-    if (!acc.pending_unwinds.contains(&lending_market_type)) {
-        return option::none()
-    };
-
-    let unwind_targets = {
-        // Ensure order is maintained
-        let (lm_type, unwind_targets) = acc.pending_unwinds.remove_entry_by_idx(0);
-        assert!(lm_type == lending_market_type, EIncorrectOrder);
-        unwind_targets
-    };
-
-    if (unwind_targets.is_empty()) {
-        return option::none()
-    };
-
-    option::some(unwind_targets)
+/// Get and remove obligation IDs for next lending market in configured order
+/// Aborts if LM was already processed or is out of order
+public(package) fun get_next_unwind_targets<V, L>(acc: &mut VaultUnwindAccumulator<V>): vector<ID> {
+    let (lm_type, obligation_ids) = acc.pending_unwinds.remove_entry_by_idx(0);
+    assert!(lm_type == type_name::with_defining_ids<L>(), EIncorrectOrder);
+    obligation_ids
 }
 
 // === Private functions ===
@@ -484,65 +463,6 @@ fun get_unclaimed_reward_indexes(
     });
 
     result
-}
-
-/// Calculate which obligations need to be unwound to cover a shortfall
-/// Uses FIFO strategy: processes obligations in order of creation (by LM type, then index)
-/// Returns a map of lending market type -> vector of UnwindTargets
-fun calculate_unwind_plan<V>(
-    agg: &VaultValueAggregate<V>,
-    shortfall_usd: Decimal,
-): vec_map::VecMap<TypeName, vector<UnwindTarget>> {
-    let mut unwind_map = vec_map::empty<TypeName, vector<UnwindTarget>>();
-    let mut remaining_shortfall = shortfall_usd;
-
-    // Iterate through lending markets in order
-    let lm_keys = agg.lending_market_allocations.keys();
-
-    let mut i = 0;
-    while (i < lm_keys.length() && remaining_shortfall.gt(decimal::from(0))) {
-        let lm_type = lm_keys.borrow(i);
-        let mut unwind_targets = vector::empty<UnwindTarget>();
-
-        let lm_allocation = agg.lending_market_allocations.get(lm_type);
-        let obl_allocations = &lm_allocation.obligations;
-
-        // Process obligations in FIFO order (index 0, 1, 2, ...)
-        let mut obl_idx = 0;
-        while (
-            obl_idx < obl_allocations.length()
-                && remaining_shortfall.gt(decimal::from(0))
-        ) {
-            // Find corresponding obligation allocation
-            let obl_data = obl_allocations.borrow(obl_idx);
-            let obl_net_value = obl_data.net_value_usd;
-
-            if (obl_net_value.gt(decimal::from(0))) {
-                // Calculate how much to unwind from this obligation
-                // Take minimum of remaining shortfall and obligation's net value
-                let unwind_usd = remaining_shortfall.min(obl_net_value);
-
-                unwind_targets.push_back(UnwindTarget {
-                    obligation_index: obl_idx,
-                    usd_to_recover: unwind_usd,
-                });
-
-                remaining_shortfall = remaining_shortfall.saturating_sub(unwind_usd);
-            };
-
-            obl_idx = obl_idx + 1;
-        };
-
-        if (!unwind_targets.is_empty()) {
-            unwind_map.insert(*lm_type, unwind_targets);
-        };
-
-        i = i + 1;
-    };
-
-    assert!(remaining_shortfall.eq(decimal::from(0)), EInsufficientLiquidityForUnwind);
-
-    unwind_map
 }
 
 /// Aggregate obligation allocations into lending market totals

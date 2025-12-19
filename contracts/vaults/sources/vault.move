@@ -605,19 +605,14 @@ public fun withdraw<V, T, L>(
     shares: Coin<V>,
     lending_market: &LendingMarket<L>, // Must contain reserve for T (price source)
     clock: &Clock,
-    mut agg: VaultValueAggregate<V>,
+    agg: VaultValueAggregate<V>,
     ctx: &mut TxContext,
 ): Coin<T> {
     vault.version.assert_version_and_upgrade(CURRENT_VERSION);
-    vault.assert_vault_state_fresh<V, T>(clock);
     assert!(shares.value() > 0, EInsufficientShares);
 
-    let shares_amount = shares.value();
-    let user = ctx.sender();
-    let current_time = clock.timestamp_ms();
-
     // Calculate withdrawal fee in shares
-    let (net_shares, withdrawal_fee_shares) = split_amount(shares_amount, vault.withdrawal_fee_bps);
+    let (net_shares, _) = split_amount(shares.value(), vault.withdrawal_fee_bps);
 
     // Calculate total USD value of net shares being redeemed
     let current_nav_per_share = vault.calculate_nav_per_share(&agg);
@@ -633,54 +628,25 @@ public fun withdraw<V, T, L>(
     // Check if vault has sufficient liquidity for withdrawal
     let available_amount = vault.deposit_asset.value();
     assert!(withdraw_amount <= available_amount, EInsufficientLiquidity);
-
     assert!(withdraw_amount > 0, EInsufficientShares);
 
-    // Split shares into user portion (to burn) and fee portion (to manager)
-    let mut shares_balance = shares.into_balance();
-
-    if (withdrawal_fee_shares > 0) {
-        let fee_balance = shares_balance.split(withdrawal_fee_shares);
-        // Transfer fee shares to manager
-        vault.manager_fees.join(fee_balance);
-        event::emit(FeesAccruedEvent {
-            vault_id: object::id(vault),
-            fee_type: b"withdraw".to_string(),
-            fee_shares: withdrawal_fee_shares,
-            timestamp_ms: current_time,
-        });
-    };
-
-    // Burn user's shares
-    vault.treasury_cap.burn(coin::from_balance(shares_balance, ctx));
-
-    let withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
-
-    let coins = coin::from_balance(withdrawn_balance, ctx);
-
-    event::emit(VaultWithdrawEvent {
-        vault_id: object::id(vault),
-        user: user,
-        amount: withdraw_amount,
-        shares_burned: shares_amount,
-        timestamp_ms: current_time,
-    });
-
-    {
-        agg.refresh_liquid_asset_value(&vault.deposit_asset, lending_market, clock);
-
-        vault.emit_stats_event(&agg);
-        absorb_vault_value_aggregate(agg, vault);
-    };
-
-    coins
+    vault.process_withdrawal(
+        shares.into_balance(),
+        withdraw_amount,
+        agg,
+        lending_market,
+        clock,
+        ctx,
+    )
 }
 
 /// For withdrawals requiring obligation unwinding:
-///   1. Call create_unwind_accumulator() to calculate unwind plan
-///   2. Call process_unwinds_for_lending_market() for each LM
-///   3. Call withdraw_with_unwind()
-/// All pending unwinds must be processed before calling
+///   1. Call create_unwind_accumulator() to create accumulator with target withdrawal amount
+///   2. Call process_unwinds_for_lending_market() for each LM in configured order
+///   3. Call withdraw_with_unwind() to complete withdrawal
+///
+/// User receives: min(base_token_value_of_shares, available_liquid_assets)
+/// If unwinds don't fully cover the target, user receives what was recovered.
 public fun withdraw_with_unwind<V, T, L>(
     vault: &mut Vault<V, T>,
     acc: VaultUnwindAccumulator<V>,
@@ -690,13 +656,22 @@ public fun withdraw_with_unwind<V, T, L>(
 ): Coin<T> {
     vault.version.assert_version(CURRENT_VERSION);
 
-    let (shares, agg) = acc.finalize_unwind_accumulator(
+    let (shares, base_token_value_of_shares, agg) = acc.finalize_unwind_accumulator(
         &vault.deposit_asset,
         lending_market,
         clock,
     );
 
-    withdraw(vault, coin::from_balance(shares, ctx), lending_market, clock, agg, ctx)
+    let withdraw_amount = base_token_value_of_shares.min(vault.deposit_asset.value());
+
+    vault.process_withdrawal(
+        shares,
+        withdraw_amount,
+        agg,
+        lending_market,
+        clock,
+        ctx,
+    )
 }
 
 // === Vault Rewards Functions ===
@@ -935,8 +910,8 @@ public fun finalize_vault_crank<V, T, L>(
 }
 
 /// Create an unwind accumulator for withdrawals that require unwinding obligations
-/// Calculate which obligations need to be unwound to satisfy withdrawal liquidity needs
-/// Each LendingMarket must be processed by process_unwinds_for_lending_market()
+/// Each LendingMarket must be processed by process_unwinds_for_lending_market() in configured order
+/// Manager controls unwind priority via move_lending_market_to_front / move_obligation_to_front
 /// A VaultValueAggregate must first be created
 public fun create_unwind_accumulator<V, T, L>(
     vault: &Vault<V, T>,
@@ -968,25 +943,21 @@ public fun create_unwind_accumulator<V, T, L>(
 
     assert!(withdraw_amount_base_token > 0, EInsufficientShares);
 
-    let available_amount = vault.deposit_asset.value();
-
     // Check if vault has sufficient liquidity for withdrawal
-    assert!(available_amount < withdraw_amount_base_token, EUnwindNotNeeded);
+    let liquid_allocation = vault.deposit_asset.value();
+    assert!(liquid_allocation < withdraw_amount_base_token, EUnwindNotNeeded);
 
-    // Calculate shortfall in USD terms
-    let shortfall_tokens = withdraw_amount_base_token - available_amount;
-    let shortfall_usd = token_amount_to_usd<_, T>(
-        shortfall_tokens,
-        lending_market,
-        clock,
-    );
-
-    agg.create_unwind_accumulator(shortfall_usd, shares.into_balance())
+    agg.create_unwind_accumulator(
+        withdraw_amount_base_token,
+        shares.into_balance(),
+    )
 }
 
 /// Process unwinding for a specific lending market
-/// Withdraws and redeems ctokens from obligations, adding funds to vault.deposit_asset
-/// Removes the lending market from pending_unwinds
+/// Withdraws and redeems ctokens from obligations in configured order, adding funds to vault.deposit_asset
+/// Early exits when sufficient funds have been recovered
+/// Each LM must be processed exactly once in order; calling twice or out of order aborts
+/// VaultUnwindAccumulator must be consumed in withdraw_with_unwind()
 public fun process_unwinds_for_lending_market<V, T, L>(
     vault: &mut Vault<V, T>,
     acc: &mut VaultUnwindAccumulator<V>,
@@ -997,24 +968,46 @@ public fun process_unwinds_for_lending_market<V, T, L>(
 ) {
     vault.version.assert_version(CURRENT_VERSION);
 
-    let unwind_targets = acc.get_next_unwind_targets<_, L>();
-    if (unwind_targets.is_none()) {
+    // Skip if enough liquidity exists
+    if (vault.deposit_asset.value() >= acc.base_token_value_of_shares()) {
         return
     };
 
-    let reserve_index = extract_reserve_array_index<T, _>(lending_market);
+    // Get obligation IDs for this LM (aborts if already processed or out of order)
+    let obligation_ids = acc.get_next_unwind_targets<_, L>();
 
-    // Process each unwind target
-    unwind_targets.borrow().do_ref!(|target| {
-        // Calculate ctoken amount needed - ceil() to add a small buffer
-        let ctoken_amount = convert_usd_amount_to_ctoken<L, T>(
-            target.usd_to_recover(),
+    let reserve_index = extract_reserve_array_index<T, _>(lending_market);
+    let lm_type = type_name::with_defining_ids<L>();
+
+    // Process each obligation in configured order, redeeming only what's needed
+    obligation_ids.length().do!(|obl_idx| {
+        let current_liquid = vault.deposit_asset.value();
+        let target = acc.base_token_value_of_shares();
+
+        // Skip if enough liquidity exists
+        if (current_liquid >= target) {
+            return
+        };
+
+        // Calculate remaining shortfall and convert to ctokens
+        let remaining_tokens_needed = target - current_liquid;
+        let ctoken_amount_needed = convert_token_amount_to_ctoken<L, T>(
+            remaining_tokens_needed,
             lending_market,
             clock,
         ).ceil();
 
-        let lm_type = type_name::with_defining_ids<L>();
-        let obligation_cap = vault.get_obligation_cap(&lm_type, target.obligation_index());
+        let obligation_cap = vault.get_obligation_cap(&lm_type, obl_idx);
+
+        // Cap at obligation's available ctoken balance
+        let obligation = lending_market.obligation(obligation_cap.obligation_id());
+        let available_ctokens = obligation.deposited_ctoken_amount<L, T>();
+        let ctoken_amount = ctoken_amount_needed.min(available_ctokens);
+
+        // Skip if no ctokens available in this obligation
+        if (ctoken_amount == 0) {
+            return
+        };
 
         let withdrawn_coin = redeem_ctokens(
             lending_market,
@@ -1034,7 +1027,7 @@ public fun process_unwinds_for_lending_market<V, T, L>(
         event::emit(ObligationUnwindEvent {
             vault_id: object::id(vault),
             lending_market_id: object::id(lending_market),
-            obligation_index: target.obligation_index(),
+            obligation_index: obl_idx,
             reserve_index,
             ctoken_amount,
             token_amount: withdrawn_amount,
@@ -1043,10 +1036,7 @@ public fun process_unwinds_for_lending_market<V, T, L>(
     });
 
     // Refresh obligation values for this lending market
-    {
-        let obligation_ids = vault.get_obligation_ids<_, _, L>();
-        acc.refresh_unwind_aggregate_for_lending_market(obligation_ids, lending_market);
-    };
+    acc.refresh_unwind_aggregate_for_lending_market(obligation_ids, lending_market);
 }
 
 // === Public Helpers ===
@@ -1410,24 +1400,17 @@ fun emit_stats_event<V, T>(vault: &Vault<V, T>, agg: &VaultValueAggregate<V>) {
     });
 }
 
-/// Calculate the ctoken amount needed to obtain a given USD value
-/// Uses reserve exchange rate to convert USD -> token amount -> ctoken amount
-fun convert_usd_amount_to_ctoken<L, T>(
-    usd_value: Decimal,
+/// Calculate the ctoken amount needed to obtain a given token amount
+fun convert_token_amount_to_ctoken<L, T>(
+    token_amount: u64,
     lending_market: &LendingMarket<L>,
     clock: &Clock,
 ): Decimal {
     let reserve = lending_market.reserve<_, T>();
     reserve.assert_price_is_fresh(clock);
 
-    let token_amount = reserve.usd_to_token_amount(usd_value);
-
-    // Get ctoken exchange rate and calculate ctokens needed
-    // ctoken_amount = token_amount / exchange_rate
     let ctoken_ratio = reserve.ctoken_ratio();
-    let ctoken_amount = token_amount.div(ctoken_ratio);
-
-    ctoken_amount
+    decimal::from(token_amount).div(ctoken_ratio)
 }
 
 /// Split amount into net and fee portions
@@ -1597,6 +1580,61 @@ fun move_pair_to_start<K: copy + drop, V>(map: &mut vec_map::VecMap<K, V>, key_t
 
     keys.destroy_empty();
     values.destroy_empty();
+}
+
+/// Common withdrawal logic: handle fees, burn shares, withdraw tokens, emit events
+fun process_withdrawal<V, T, L>(
+    vault: &mut Vault<V, T>,
+    mut shares: Balance<V>,
+    withdraw_amount: u64,
+    mut agg: VaultValueAggregate<V>,
+    lending_market: &LendingMarket<L>,
+    clock: &Clock,
+    ctx: &mut TxContext,
+): Coin<T> {
+    vault.assert_vault_state_fresh<V, T>(clock);
+
+    let shares_amount = shares.value();
+    let user = ctx.sender();
+    let current_time = clock.timestamp_ms();
+
+    // Calculate withdrawal fee in shares
+    let (net_shares, withdrawal_fee_shares) = split_amount(shares_amount, vault.withdrawal_fee_bps);
+    assert!(net_shares > 0, EInsufficientShares);
+
+    // Accrue withdrawal fee to manager
+    if (withdrawal_fee_shares > 0) {
+        let fee_balance = shares.split(withdrawal_fee_shares);
+        vault.manager_fees.join(fee_balance);
+        event::emit(FeesAccruedEvent {
+            vault_id: object::id(vault),
+            fee_type: b"withdraw".to_string(),
+            fee_shares: withdrawal_fee_shares,
+            timestamp_ms: current_time,
+        });
+    };
+
+    // Burn user's shares
+    vault.treasury_cap.burn(coin::from_balance(shares, ctx));
+
+    // Withdraw tokens
+    let withdrawn_balance = vault.deposit_asset.split(withdraw_amount);
+    let coins = coin::from_balance(withdrawn_balance, ctx);
+
+    event::emit(VaultWithdrawEvent {
+        vault_id: object::id(vault),
+        user,
+        amount: withdraw_amount,
+        shares_burned: shares_amount,
+        timestamp_ms: current_time,
+    });
+
+    // Update aggregate and emit stats
+    agg.refresh_liquid_asset_value(&vault.deposit_asset, lending_market, clock);
+    vault.emit_stats_event(&agg);
+    absorb_vault_value_aggregate(agg, vault);
+
+    coins
 }
 
 // === Test Functions ===
