@@ -778,6 +778,8 @@ public fun swap_reward_for_base_token_w_oracle<V, T, RewardType>(
             .div(decimal::from(BASIS_POINTS)))
         .floor();
 
+    assert!(min_amount_out > 0, EInsufficientRewardSwap);
+
     (
         SwapTicket<V, T> { min_amount_out: option::some(min_amount_out) },
         coin::from_balance(reward, ctx),
