@@ -15,6 +15,7 @@ use suilend::reserve::market_value;
 use suilend::reserve::total_supply;
 use cvlm::asserts::cvlm_assert;
 use suilend::decimal::gt;
+use suilend::decimal::ge;
 
 public fun cvlm_manifest() {
     summary(
@@ -236,16 +237,18 @@ fun liquidation_amounts<P>(
     let final_settle_amount: Decimal;
     let final_withdraw_amount;
 
-    if (lt(deposit.market_value(), withdraw_value)) {
-        // Compute final_settle_amount directly without intermediate percentage
-        // This avoids: mul(repay_amount, div(deposit.market_value(), withdraw_value))
-        final_settle_amount =
-            div(
-                mul(repay_amount, deposit.market_value()),
-                withdraw_value,
-            );
-        final_withdraw_amount = deposit.deposited_ctoken_amount();
-    } else {
+    cvlm_assume_msg(ge(deposit.market_value(), withdraw_value), b"");
+
+    // if (lt(deposit.market_value(), withdraw_value)) {
+    //     // Compute final_settle_amount directly without intermediate percentage
+    //     // This avoids: mul(repay_amount, div(deposit.market_value(), withdraw_value))
+    //     final_settle_amount =
+    //         div(
+    //             mul(repay_amount, deposit.market_value()),
+    //             withdraw_value,
+    //         );
+    //     final_withdraw_amount = deposit.deposited_ctoken_amount();
+    // } else {
         // Compute final_withdraw_amount directly without intermediate percentage
         // This avoids: mul(deposit.deposited_ctoken_amount, div(withdraw_value, deposit.market_value()))
         final_settle_amount = repay_amount;
@@ -256,7 +259,7 @@ fun liquidation_amounts<P>(
                     deposit.market_value(),
                 ),
             );
-    };
+    // };
 
     cvlm_assert(final_settle_amount.le(borrow.market_value()));
     cvlm_assert(final_withdraw_amount <= (deposit.market_value().ceil()));

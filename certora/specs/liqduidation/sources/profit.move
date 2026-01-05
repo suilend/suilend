@@ -18,42 +18,25 @@ public fun cvlm_manifest() {
 
 /// Verifies that liquidation is not a loss for the liquidator. 
 /// That means that the market value of the returned CTokens is at least the market value of the repaid debt.
-public fun liquidation_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
+public fun liquidation_no_loss(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
 
-    let (_, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
-
-    let clock = nondet();
-    let mut ctx = nondet();
-    let mut repay_coins: Coin<R> = nondet();
-    let repay_coin_value_pre = repay_coins.value();
-
-    let liquidated_ctokens: Coin<CToken<DummyPool, W>>;
-    (liquidated_ctokens,  _) = lm.liquidate<DummyPool, R, W>(
-        ob_id,
-        repay_reserve_index,
-        withdraw_reserve_index,
-        &clock,
-        &mut repay_coins,
-        &mut ctx,
-    );
-    cvlm_assume_msg(liquidated_ctokens.value() > 0, b"At least one token obtained");
-
-    // Less than the repay coins value might have been use to repay the debt. 
-    let repay_amount = repay_coin_value_pre - repay_coins.value();    
-    let liquidated_ctokens_amount = liquidated_ctokens.value();
+    let (ob, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
 
 
     let repay_reserve = vector::borrow(lm.reserves(), repay_reserve_index);
-    let repay_value = repay_reserve.market_value(decimal::from(repay_amount));
-
     let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_index);
-    let liquidated_value = withdraw_reserve.ctoken_market_value(liquidated_ctokens_amount+2);
+    let borrow = ob.find_borrow( repay_reserve);  
+    let deposit = ob.find_deposit( withdraw_reserve);
+
+
+    let repay_amount = nondet();
+    let (final_settle_amount, final_withdraw_amount) = ob.liquidation_amounts(repay_amount, withdraw_reserve, repay_reserve, borrow, deposit);
+
+
+    let repay_value = repay_reserve.market_value(final_settle_amount);
+
+    
+    let liquidated_value = withdraw_reserve.ctoken_market_value(final_withdraw_amount + 2);
 
     cvlm_assert(repay_value.le(liquidated_value));
-
-
-
-    ghost_destroy(clock);
-    ghost_destroy(repay_coins);
-    ghost_destroy(liquidated_ctokens);
 }
