@@ -6,8 +6,8 @@ use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
-use cvlm::manifest::summary;
-use suilend::reserve::Reserve;
+use health::utils::setup_obligation;
+use health::utils::get_obligation_fresh;
 
 
 
@@ -53,13 +53,10 @@ public fun cvlm_manifest() {
     rule(b"obligation_health_base");
     rule(b"obligation_health_step");
 
-    summary(b"reserve_mint_decimals",@suilend, b"reserve", b"mint_decimals");
+
 }
 
 
-public fun reserve_mint_decimals<P>(_reserve: &Reserve<P>): u8 {
-    9
-}
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>, obligation_id: ID);
 
@@ -85,7 +82,8 @@ public fun obligation_health_step(
     target: Function,
 ) {
 
-    let obligation = lending_market.obligation(id);
+    //let obligation = lending_market.obligation(id);
+    let obligation = setup_obligation(lending_market, id);
 
     // We store the cumulative borrow rates of all borrows in the obligation.
     // This allows to require that, after a call to a function, none of them changed,
@@ -112,7 +110,8 @@ public fun obligation_health_step(
 
     invoke(target, lending_market, id);
 
-    let obligation = lending_market.obligation(id);
+
+    let obligation = get_obligation_fresh(lending_market, id);
 
     // Require that no debt has been accumulated
     let mut i = 0;

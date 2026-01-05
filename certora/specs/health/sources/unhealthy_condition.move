@@ -1,6 +1,6 @@
-module health::no_col_decrease;
+module health::unhealthy_condition;
 
-use cvlm::asserts::{cvlm_assert};
+use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
@@ -24,6 +24,8 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"compound_interest");
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow_request");
     target(@dummy_pool, b"dummy_pool_lending_market", b"fulfill_liquidity_request");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"withdraw_ctokens");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"liquidate");
     target(@dummy_pool, b"dummy_pool_lending_market", b"repay");
     target(@dummy_pool, b"dummy_pool_lending_market", b"forgive");
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards");
@@ -45,26 +47,31 @@ public fun cvlm_manifest() {
 
     invoker(b"invoke");
 
-    rule(b"no_col_decrease");
+    rule(b"unhealthy_only_if_borrow_increases");
 }
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>, obligation_id: ID);
 
-public fun no_col_decrease(
+/* Obligation only becomes unhealthy due to increasing borrow value */
+
+public fun unhealthy_only_if_borrow_increases(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
 ) {
     let obligation = setup_obligation(lending_market, id);
-    let col_pre = obligation.total_deposited_ctokens();
 
-    
+    cvlm_assume_msg(obligation.is_healthy(), b"Require invariant: obligation is healthy");
+
+    let borrow_value_pre = obligation.weighted_borrowed_value_upper_bound_usd();
+
     invoke(target, lending_market, id);
-    
+
     let obligation = get_obligation_fresh(lending_market, id);
-    let col_post = obligation.total_deposited_ctokens();
 
+    let borrow_value_post = obligation.weighted_borrowed_value_upper_bound_usd();
 
-    cvlm_assert(col_pre <= col_post);   
-    
+    if (!obligation.is_healthy()) {
+        cvlm_assert(borrow_value_pre.le(borrow_value_post));
+    }
 }

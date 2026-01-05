@@ -1,8 +1,16 @@
 diff --git a/contracts/suilend/sources/lending_market.move b/contracts/suilend/sources/lending_market.move
-index c90807d..a4d7a20 100644
+index c90807d..2dd7770 100644
 --- a/contracts/suilend/sources/lending_market.move
 +++ b/contracts/suilend/sources/lending_market.move
-@@ -1236,6 +1236,11 @@ module suilend::lending_market {
+@@ -16,6 +16,7 @@ module suilend::lending_market {
+     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
+     use suilend::reserve::{Self, Reserve, CToken, LiquidityRequest};
+     use suilend::reserve_config::{ReserveConfig, borrow_fee};
++    use suilend::obligation::ExistStaleOracles;
+ 
+     // === Errors ===
+     const EIncorrectVersion: u64 = 1;
+@@ -1236,6 +1237,11 @@ module suilend::lending_market {
          &lending_market.reserves
      }
  
@@ -14,7 +22,7 @@ index c90807d..a4d7a20 100644
      fun max_borrow_amount<P>(
          mut rate_limiter: RateLimiter,
          obligation: &Obligation<P>,
-@@ -1351,6 +1356,11 @@ module suilend::lending_market {
+@@ -1351,6 +1357,11 @@ module suilend::lending_market {
          object_table::borrow(&lending_market.obligations, obligation_id)
      }
  

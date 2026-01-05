@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/obligation.move b/contracts/suilend/sources/obligation.move
-index df13b62..d1e1747 100644
+index df13b62..6648c0a 100644
 --- a/contracts/suilend/sources/obligation.move
 +++ b/contracts/suilend/sources/obligation.move
 @@ -155,7 +155,7 @@ module suilend::obligation {
@@ -294,7 +294,7 @@ index df13b62..d1e1747 100644
 +        (final_withdraw_amount, final_settle_amount)
 +    }
 +
-+    fun liquidation_amounts<P>(obligation: &Obligation<P>, repay_amount: u64, withdraw_reserve: &Reserve<P>, repay_reserve: &Reserve<P>, borrow: &Borrow, deposit: &Deposit): (Decimal, u64) {
++    public fun liquidation_amounts<P>(obligation: &Obligation<P>, repay_amount: u64, withdraw_reserve: &Reserve<P>, repay_reserve: &Reserve<P>, borrow: &Borrow, deposit: &Deposit): (Decimal, u64) {
          // invariant: repay_amount <= borrow.borrowed_amount
          let repay_amount = if (le(borrow.market_value, decimal::from(1))) {
              // full liquidation
@@ -377,7 +377,7 @@ index df13b62..d1e1747 100644
 +    public fun total_borrowed_amount<P>(obligation: &Obligation<P>): Decimal {
 +        let mut v = decimal::from(0);
 +        let mut i = 0;
-+        while (i < vector::length(&obligation.deposits)) {
++        while (i < vector::length(&obligation.borrows)) {
 +            let borrow = vector::borrow(&obligation.borrows, i);
 +            v = v.add(borrow.borrowed_amount);
 +            i = i + 1;
