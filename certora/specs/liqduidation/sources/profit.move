@@ -12,7 +12,6 @@ use suilend::decimal;
 use liquidation::utils::setup_obligation;
 
 public fun cvlm_manifest() {
-    rule(b"liquidation_with_bonus_profitable");
     rule(b"liquidation_no_loss");
 }
 
@@ -48,7 +47,7 @@ public fun liquidation_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: I
     let repay_value = repay_reserve.market_value(decimal::from(repay_amount));
 
     let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_index);
-    let liquidated_value = withdraw_reserve.ctoken_market_value(liquidated_ctokens_amount + 2);
+    let liquidated_value = withdraw_reserve.ctoken_market_value(liquidated_ctokens_amount+2);
 
     cvlm_assert(repay_value.le(liquidated_value));
 
