@@ -26,7 +26,7 @@ public fun cvlm_manifest() {
 
     summary(b"max_borrow_amount", @suilend, b"lending_market", b"max_borrow_amount");
 
-    summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
+    // summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
     ghost(b"deposit_index");
     ghost(b"borrow_index");
     summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");

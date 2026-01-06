@@ -5,8 +5,8 @@ use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
-use health::utils::get_obligation_fresh;
 use health::utils::setup_obligation;
+use sui::clock::Clock;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -54,6 +54,7 @@ public fun no_col_decrease(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
+    clock: &Clock
 ) {
     let obligation = setup_obligation(lending_market, id);
     let col_pre = obligation.total_deposited_ctokens();
@@ -61,7 +62,9 @@ public fun no_col_decrease(
     
     invoke(target, lending_market, id);
     
-    let obligation = get_obligation_fresh(lending_market, id);
+    
+    lending_market.refresh_obligation(id, clock);
+    let obligation = lending_market.obligation_mut(id);
     let col_post = obligation.total_deposited_ctokens();
 
 

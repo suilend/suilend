@@ -11,7 +11,6 @@ use suilend::decimal;
 use sui::clock::Clock;
 use health::utils::{require_freshness, setup_obligation};
 use suilend::lending_market;
-use health::utils::get_obligation_fresh;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -77,6 +76,7 @@ fun ltv_increases_with_debt(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
+    clock: &Clock
 ) {
   let obligation = setup_obligation(lending_market, id);
   let debt_pre = obligation.weighted_borrowed_value_usd();
@@ -84,7 +84,9 @@ fun ltv_increases_with_debt(
 
   invoke(target, lending_market, id);
 
-  let obligation = get_obligation_fresh(lending_market, id);
+  
+  lending_market.refresh_obligation(id, clock);
+  let obligation = lending_market.obligation_mut(id);
   let debt_post = obligation.weighted_borrowed_value_usd();
   let ltv_post = ltv(obligation);
 
@@ -99,7 +101,8 @@ fun ltv_increases_with_debt(
 fun ltv_decreases_with_collateral(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
-    target: Function
+    target: Function,
+    clock: &Clock
 ) {
 
   let obligation = setup_obligation(lending_market, id);
@@ -109,7 +112,9 @@ fun ltv_decreases_with_collateral(
 
   invoke(target, lending_market, id);
 
-  let obligation = get_obligation_fresh(lending_market, id);
+  
+  lending_market.refresh_obligation(id, clock);
+  let obligation = lending_market.obligation_mut(id);
   let coll_post = obligation.deposited_value_usd();
   let ltv_post = ltv(obligation);
 
@@ -143,6 +148,7 @@ fun increasing_collateral_stays_healthy(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
+    clock: &Clock
 ){
   let obligation = setup_obligation(lending_market, id);
   let coll_pre = obligation.deposited_value_usd();
@@ -150,7 +156,9 @@ fun increasing_collateral_stays_healthy(
 
   invoke(target, lending_market, id);
 
-  let obligation = get_obligation_fresh(lending_market, id);
+  
+  lending_market.refresh_obligation(id, clock);
+  let obligation = lending_market.obligation_mut(id);
   let coll_post = obligation.deposited_value_usd();
 
   let coll_increase = coll_post.gt(coll_pre);

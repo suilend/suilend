@@ -11,18 +11,10 @@ public fun setup_obligation(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligati
     cvlm_assume_msg(obligation.deposits().length() <= 1, b"");
     cvlm_assume_msg(obligation.borrows().length() <= 1, b"");
     require_freshness(lm, ob_id);
-
-
     obligation
 }
 
-public fun get_obligation_fresh(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligation<DummyPool>  {
-    require_freshness(lm, ob_id);
-    lm.obligation(ob_id)
-}
-
-
-public fun require_freshness(lm: &LendingMarket<DummyPool>, ob_id: ID) {
+fun require_freshness(lm: &LendingMarket<DummyPool>, ob_id: ID) {
     let obligation = lm.obligation(ob_id);
 
     let deposits = obligation.deposits().length();

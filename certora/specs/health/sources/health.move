@@ -7,7 +7,8 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use health::utils::setup_obligation;
-use health::utils::get_obligation_fresh;
+use cvlm::nondet::nondet;
+use sui::clock::Clock;
 
 
 
@@ -80,6 +81,7 @@ public fun obligation_health_step(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
+    clock: &Clock
 ) {
 
     //let obligation = lending_market.obligation(id);
@@ -111,7 +113,8 @@ public fun obligation_health_step(
     invoke(target, lending_market, id);
 
 
-    let obligation = get_obligation_fresh(lending_market, id);
+    lending_market.refresh_obligation(id, clock);
+    let obligation = lending_market.obligation_mut(id);
 
     // Require that no debt has been accumulated
     let mut i = 0;

@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/lending_market.move b/contracts/suilend/sources/lending_market.move
-index c90807d..2dd7770 100644
+index c90807d..c67cf5f 100644
 --- a/contracts/suilend/sources/lending_market.move
 +++ b/contracts/suilend/sources/lending_market.move
 @@ -16,6 +16,7 @@ module suilend::lending_market {
@@ -10,7 +10,27 @@ index c90807d..2dd7770 100644
  
      // === Errors ===
      const EIncorrectVersion: u64 = 1;
-@@ -1236,6 +1237,11 @@ module suilend::lending_market {
+@@ -265,6 +266,19 @@ module suilend::lending_market {
+         cap
+     }
+ 
++    public fun refresh_obligation<P>(
++        lending_market: &mut LendingMarket<P>,
++        id: ID,
++        clock: &Clock
++    ) {
++        let obligation = object_table::borrow_mut(
++            &mut lending_market.obligations,
++            id,
++        );
++        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
++        obligation::assert_no_stale_oracles(exist_stale_oracles);
++    }
++
+     /// Deposits liquidity into a reserve and mints cTokens in return.
+     ///
+     /// This function allows a user to deposit a certain amount of a token into a reserve
+@@ -1236,6 +1250,11 @@ module suilend::lending_market {
          &lending_market.reserves
      }
  
@@ -22,7 +42,7 @@ index c90807d..2dd7770 100644
      fun max_borrow_amount<P>(
          mut rate_limiter: RateLimiter,
          obligation: &Obligation<P>,
-@@ -1351,6 +1357,11 @@ module suilend::lending_market {
+@@ -1351,6 +1370,11 @@ module suilend::lending_market {
          object_table::borrow(&lending_market.obligations, obligation_id)
      }
  

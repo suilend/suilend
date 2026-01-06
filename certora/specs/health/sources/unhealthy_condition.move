@@ -5,8 +5,11 @@ use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
-use health::utils::get_obligation_fresh;
 use health::utils::setup_obligation;
+use suilend::lending_market;
+use dummy_pool::obligation;
+use cvlm::nondet::nondet;
+use sui::clock::Clock;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -58,6 +61,7 @@ public fun unhealthy_only_if_borrow_increases(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
+    clock: &Clock
 ) {
     let obligation = setup_obligation(lending_market, id);
 
@@ -67,7 +71,8 @@ public fun unhealthy_only_if_borrow_increases(
 
     invoke(target, lending_market, id);
 
-    let obligation = get_obligation_fresh(lending_market, id);
+    lending_market.refresh_obligation(id, clock);
+    let obligation = lending_market.obligation_mut(id);
 
     let borrow_value_post = obligation.weighted_borrowed_value_upper_bound_usd();
 
