@@ -67,3 +67,15 @@ jobs:
           certora-key: ${{ secrets.CERTORAKEY }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit liquidation rules to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          ecosystem: sui
+          working-directory: certora/specs/liquidation
+          configurations: |-
+            confs/integrity.conf
+            confs/profit.conf
+          job-name: "Verify Liquidation  Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
