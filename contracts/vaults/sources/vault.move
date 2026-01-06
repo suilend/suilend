@@ -63,7 +63,7 @@ const EInsufficientRewardSwap: vector<u8> =
 #[error]
 const EReserveExists: vector<u8> = b"A reserve exists for this type, so oracle swap must be used";
 #[error]
-const EUntrustedLendingMarket: vector<u8> = b"LendingMarket must have vault obligations";
+const EUntrustedLendingMarket: vector<u8> = b"LendingMarket must be the trusted price source";
 
 // === Constants ===
 
@@ -106,6 +106,7 @@ public struct Vault<phantom V, phantom T> has key, store {
     accumulator_cap: Option<AccumulatorCap<V>>,
     redemption_ratio_high_water_mark: Decimal, // Highest redemption ratio achieved (vault_value_in_base_asset / shares) for performance fees
     last_cranked_ms: u64, // timestamp_ms when rewards were last compounded and fees were last accrued
+    trusted_market: TypeName,
 }
 
 /// Capability to manage vault operations
@@ -206,9 +207,10 @@ public struct ObligationUnwindEvent has copy, drop {
 
 // === Vault Manager Functions ===
 
-public fun create_vault<V, T>(
+public fun create_vault<V, T, L>(
     vault_share_treasury_cap: TreasuryCap<V>,
     vault_share_currency: &coin_registry::Currency<V>,
+    trusted_lending_market: &LendingMarket<L>,
     management_fee_bps: u64,
     performance_fee_bps: u64,
     deposit_fee_bps: u64,
@@ -216,6 +218,8 @@ public fun create_vault<V, T>(
     clock: &Clock,
     ctx: &mut tx_context::TxContext,
 ): VaultManagerCap<V> {
+    assert_reserve_exists<T, _>(trusted_lending_market);
+
     assert!(vault_share_currency.is_metadata_cap_deleted(), EMetadataCapExists);
     assert!(vault_share_currency.decimals() == VAULT_SHARE_DECIMALS, EInvalidShareCurrency);
     assert!(vault_share_currency.name() == VAULT_SHARE_NAME.to_string(), EInvalidShareCurrency);
@@ -252,6 +256,7 @@ public fun create_vault<V, T>(
         accumulator_cap: option::some(accumulator::create_accumulator_cap()),
         redemption_ratio_high_water_mark: decimal::from(0), // Will be set on first crank that vault has value
         last_cranked_ms: current_time_ms,
+        trusted_market: type_name::with_defining_ids<L>(),
     };
 
     let vault_manager_cap = VaultManagerCap {
@@ -1473,10 +1478,10 @@ fun assert_vault_state_fresh<V, T>(vault: &Vault<V, T>, clock: &Clock) {
     assert!(current_time - vault.last_cranked_ms <= MAX_REWARDS_STALENESS_MS, ERewardsStale);
 }
 
-/// Verify the lending market is one the vault has obligations in
+/// Verify the lending market is the trusted price source for this vault
 fun assert_trusted_lending_market<V, T, L>(vault: &Vault<V, T>) {
     let lm_type = type_name::with_defining_ids<L>();
-    assert!(vault.obligations.contains(&lm_type), EUntrustedLendingMarket);
+    assert!(vault.trusted_market == &lm_type, EUntrustedLendingMarket);
 }
 
 /// Get reserve index if exists in lending market
@@ -1651,6 +1656,11 @@ fun process_withdrawal<V, T, L>(
     absorb_vault_value_aggregate(agg, vault);
 
     coins
+}
+
+fun assert_reserve_exists<T, L>(lending_market: &LendingMarket<L>) {
+    let reserve_index = get_reserve_array_index<T, L>(lending_market);
+    assert!(reserve_index.is_some(), EMissingReserve);
 }
 
 // === Test Functions ===
