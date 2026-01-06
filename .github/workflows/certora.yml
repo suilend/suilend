@@ -3,11 +3,9 @@ name: Certora Prover
 on:
   push:
     branches:
-      - certora
-  pull_request:
-    branches:
       - kel/specs
       - certora
+  pull_request:
   workflow_dispatch:
 
 jobs:
