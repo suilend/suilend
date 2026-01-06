@@ -55,9 +55,10 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 
 /// Returns whether given reserve is solvent, i.e., whether the total supply of assets is equal to or greater than the amount of cTokens.
 public fun is_solvent(reserve: &Reserve<DummyPool>): bool {
-    let assets = reserve.total_supply();
-    let shares = decimal::from(reserve.ctoken_supply());
-    assets.ge(shares)
+    let one = decimal::from(1);
+    let ratio = reserve.ctoken_ratio();
+    ratio.ge(one)
+    
 }
 
 /// The base case for the induction.

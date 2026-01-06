@@ -12,6 +12,7 @@ use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::{Obligation, ExistStaleOracles};
 use suilend::rate_limiter::RateLimiter;
 use suilend::reserve::{Reserve, LiquidityRequest};
+use cvlm::manifest::ghost;
 
 public fun cvlm_manifest() {
     //summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
@@ -26,6 +27,8 @@ public fun cvlm_manifest() {
     summary(b"max_borrow_amount", @suilend, b"lending_market", b"max_borrow_amount");
 
     summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
+    ghost(b"deposit_index");
+    ghost(b"borrow_index");
     summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
     summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
     summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
