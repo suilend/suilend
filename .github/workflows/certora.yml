@@ -1,0 +1,72 @@
+name: Certora Prover 
+
+on:
+  push:
+    branches:
+      - certora
+  pull_request:
+    branches:
+      - kel/specs
+      - certora
+  workflow_dispatch:
+
+jobs:
+  certora_run_health:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install sui
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          suiup install -y sui@testnet
+      - name: Apply patch
+        run: ./certora/munges/munge.sh
+      - name: Submit health jobs to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          ecosystem: sui
+          working-directory: certora/specs/health
+          configurations: |-
+            confs/health.conf
+            confs/integrity.conf
+            confs/no_col_decrease.conf
+            confs/no_dep_no_borrow.conf
+            confs/unhealthy_condition.conf
+          job-name: "Verify Obligation Health Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit solvency jobs to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          ecosystem: sui
+          working-directory: certora/specs/solvency
+          configurations: |-
+            confs/accounting.conf
+            confs/col_increase.conf
+            confs/ratios.conf
+            confs/solvency.conf
+          job-name: "Verify Reserve Solvency Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit obligation integrity rules to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          ecosystem: sui
+          working-directory: certora/specs/obligation_spec
+          configurations: |-
+            confs/state.conf
+          job-name: "Verify Obligation Integrity Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
