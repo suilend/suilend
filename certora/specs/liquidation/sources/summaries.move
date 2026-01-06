@@ -6,19 +6,17 @@ use cvlm::manifest::{summary, ghost};
 use cvlm::nondet::{nondet_with, nondet};
 use sui::balance::{Balance};
 use sui::clock::Clock;
-use suilend::decimal::{Self, Decimal, div, ceil, mul, lt, floor, min, le};
+use suilend::decimal::{Self, Decimal, div, ceil, mul,  floor, min, le};
 use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::{Obligation, Borrow, Deposit, ExistStaleOracles};
 use suilend::reserve::{Reserve, CToken, config};
 use suilend::reserve_config::{protocol_liquidation_fee, ReserveConfig};
 use suilend::reserve::market_value;
-use suilend::reserve::total_supply;
 use cvlm::asserts::cvlm_assert;
 use suilend::decimal::gt;
 use suilend::decimal::ge;
-use dummy_pool::obligation;
-use cvlm::asserts::cvlm_assert_msg;
 use suilend::reserve::ctoken_ratio;
+use cvlm::asserts::cvlm_assert_msg;
 
 public fun cvlm_manifest() {
     summary(
@@ -53,17 +51,17 @@ public fun cvlm_manifest() {
     summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
     summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
     summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
+    
     summary(b"reserve_ctoken_market_value", @suilend, b"reserve", b"ctoken_market_value");
+
     summary(b"reserve_borrow_weight", @suilend, b"reserve_config", b"borrow_weight");
 
     summary(b"reserve_mint_decimals", @suilend, b"reserve", b"mint_decimals");
-    summary(b"reserve_withdraw_ctokens", @suilend, b"reserve", b"withdraw_ctokens");
-
-    summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
-    summary(b"reserve_deduct_liquidation_fee", @suilend, b"reserve", b"deduct_liquidation_fee");
-
     
-
+    summary(b"reserve_withdraw_ctokens", @suilend, b"reserve", b"withdraw_ctokens");
+    summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
+    
+    summary(b"reserve_deduct_liquidation_fee", @suilend, b"reserve", b"deduct_liquidation_fee");
     summary(b"liquidation_amounts", @suilend, b"obligation", b"liquidation_amounts");
 }
 
@@ -177,7 +175,8 @@ public fun reserve_ctoken_market_value<P>(
         reserve: &Reserve<P>, 
         ctoken_amount: u64
     ): Decimal {        
-        cvlm_assume_msg(reserve.ctoken_ratio().eq(decimal::from(1)), b"ctr = 1");
+        //cvlm_assume_msg(reserve.ctoken_ratio().eq(decimal::from(1)), b"ctr = 1");
+        cvlm_assert(reserve.ctoken_ratio().eq(decimal::from(1)));
         mv(reserve, decimal::from(ctoken_amount))
     }
 
@@ -342,13 +341,15 @@ public fun obligation_repay<P>(
         max_repay_amount: Decimal,
     ): Decimal {
         let borrow_index = obligation.find_borrow_index(reserve);
-        cvlm_assert(borrow_index <= obligation.borrows().length()); // sanity
-        let borrow = &obligation.borrows()[borrow_index];   
+        cvlm_assert(borrow_index < obligation.borrows().length()); // sanity
+        let borrow = &mut obligation.borrows_mut()[borrow_index];   
 
 
         let repay_amount = min(max_repay_amount, borrow.borrowed_amount());
 
-        cvlm_assume_msg(borrow.borrowed_amount() == borrow.borrowed_amount().sub(repay_amount), b"Assume correct repay");
+        //cvlm_assume_msg(borrow.borrowed_amount() == borrow.borrowed_amount().sub(repay_amount), b"Assume correct repay");
+        *(borrow.borrowed_amount_mut()) = borrow.borrowed_amount().sub(repay_amount);
+
     
         repay_amount
     }
@@ -361,8 +362,11 @@ public fun obligation_withdraw_unchecked<P>(
         ctoken_amount: u64,
     ) {
         let deposit_index = obligation.find_deposit_index(reserve);
-        cvlm_assert(deposit_index <= obligation.deposits().length()); // sanity
-        let deposit = &obligation.deposits()[deposit_index];   
+        cvlm_assert(deposit_index < obligation.deposits().length()); // sanity
+        
+        let deposit = &mut obligation.deposits_mut()[deposit_index];   
         let new_deposited_amount = deposit.deposited_ctoken_amount() - ctoken_amount;
-        cvlm_assume_msg(deposit.deposited_ctoken_amount() == new_deposited_amount, b"Update deposited amount");        
+
+        //cvlm_assume_msg(deposit.deposited_ctoken_amount() == new_deposited_amount, b"Update deposited amount");
+        *deposit.deposited_ctoken_amount_mut() = new_deposited_amount;
     }

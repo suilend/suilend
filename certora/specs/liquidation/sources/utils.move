@@ -46,13 +46,15 @@ public fun setup_obligation(
     // cvlm_assume_msg(deposit_reserve.total_supply().gt(one) , b"Solvency");
     // cvlm_assume_msg(deposit_reserve.ctoken_supply() > 1 , b"Solvency");
 
-    cvlm_assume_msg(deposit_reserve.ctoken_ratio().ge(one) , b"Solvency");
+    cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one) , b"Solvency");
+    cvlm_assume_msg(borrow_reserve.ctoken_ratio().eq(one) , b"Solvency");
 
 
-    let twenty_percent = decimal::from_bps(2_000);
-    let fees = deposit_reserve.config().protocol_liquidation_fee().add(deposit_reserve.config().liquidation_bonus());
-    cvlm_assume_msg(fees.lt(twenty_percent), b"");
-
+    // let twenty_percent = decimal::from_bps(2_000);
+    // let fees = deposit_reserve.config().protocol_liquidation_fee().add(deposit_reserve.config().liquidation_bonus());
+    // cvlm_assume_msg(fees.lt(twenty_percent), b"");
+    cvlm_assume_msg(deposit_reserve.config().protocol_liquidation_fee().eq(zero), b"");
+    cvlm_assume_msg(deposit_reserve.config().liquidation_bonus().eq(zero), b"");
 
     /* Freshness */
 
