@@ -16,22 +16,20 @@ use sui::sui::SUI;
 use sui_system::sui_system::SuiSystemState;
 use cvlm::manifest::ghost;
 use cvlm::ghost::ghost_write;
+use cvlm::asserts::cvlm_assume_msg;
+use suilend::liquidity_mining::PoolRewardManager;
+use suilend::liquidity_mining::UserRewardManager;
 
 public fun cvlm_manifest() {
 
     // Obligation Summaries
-    summary(b"obligation_repay", @suilend, b"obligation", b"repay");
+    
+
+    ghost(b"deposit_index");
+    ghost(b"borrow_index");
     summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
+    summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
     summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
-    summary(b"obligation_borrow", @suilend, b"obligation", b"borrow");
-    summary(b"obligation_deposit", @suilend, b"obligation", b"deposit");
-    summary(b"obligation_liquidate", @suilend, b"obligation", b"liquidate");
-    summary(
-        b"obligation_zero_out_rewards_if_looped",
-        @suilend,
-        b"obligation",
-        b"zero_out_rewards_if_looped",
-    );
     // Reserve Summaries
     summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
     summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
@@ -45,15 +43,64 @@ public fun cvlm_manifest() {
 
     ghost(b"staked_sui");
     
+    summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
+    summary(
+        b"obligation_find_or_add_user_reward_manager",
+        @suilend,
+        b"obligation",
+        b"find_or_add_user_reward_manager",
+    );
+    summary(
+        b"obligation_zero_out_rewards_if_looped",
+        @suilend,
+        b"obligation",
+        b"zero_out_rewards_if_looped",
+    );
+    summary(
+        b"mining_change_user_reward_manager_share",
+        @suilend,
+        b"liquidity_mining",
+        b"change_user_reward_manager_share",
+    );
+    summary(b"mining_claim_rewards", @suilend, b"liquidity_mining", b"claim_rewards");
+    
 
     
 }
 
 native public fun staked_sui(): &mut u64;
 
+native fun deposit_index(ob_id: &UID, reserve_id: &UID): u64;
+native fun borrow_index(ob_id: &UID, reserve_id: &UID): u64;
 
-public fun obligation_find_borrow_index<P>(_: &Obligation<P>, _: &Reserve<P>): u64 {
-    return nondet()
+public fun obligation_find_borrow_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
+    let oid = obligation.id();
+    let rid = reserve.id();
+
+    let i = borrow_index(oid, rid);
+    cvlm_assume_msg(i <= obligation.borrows().length(), b"");
+
+    if (i < obligation.borrows().length()) {
+        let borrow = &obligation.borrows()[i];
+        cvlm_assume_msg(borrow.reserve_array_index() == reserve.array_index(), b"");
+    };
+
+    i
+}
+
+public fun obligation_find_deposit_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
+    let oid = obligation.id();
+    let rid = reserve.id();
+
+    let i = deposit_index(oid, rid);
+    cvlm_assume_msg(i <= obligation.deposits().length(), b"");
+
+    if (i < obligation.deposits().length()) {
+        let deposit = &obligation.deposits()[i];
+        cvlm_assume_msg(deposit.reserve_array_index() == reserve.array_index(), b"");
+    };
+
+    i
 }
 
 public fun obligation_repay<DummyPool>(
@@ -146,3 +193,33 @@ public(package) fun staker_claim_fees<P: drop>(
 
 
 public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}
+
+
+public fun mining_change_user_reward_manager_share(
+    _pool_reward_manager: &mut PoolRewardManager,
+    _user_reward_manager: &mut UserRewardManager,
+    _new_share: u64,
+    _clock: &Clock,
+) {}
+
+public(package) fun mining_claim_rewards<T>(
+    pool_reward_manager: &mut PoolRewardManager,
+    user_reward_manager: &mut UserRewardManager,
+    clock: &Clock,
+    reward_index: u64,
+): Balance<T> {
+    nondet()
+}
+
+public fun obligation_log_obligation_data<P>(_obligation: &Obligation<P>) {} // no-op
+
+
+public fun obligation_find_or_add_user_reward_manager<P>(
+    _obligation: &mut Obligation<P>,
+    _pool_reward_manager: &mut PoolRewardManager,
+    _clock: &Clock,
+): (u64, &mut UserRewardManager) {
+    let i = nondet();
+    let mnrg = vector::borrow_mut(_obligation.user_reward_managers_mut(), i);
+    (i, mnrg)
+}
