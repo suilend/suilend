@@ -7,9 +7,9 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use suilend::lending_market;
 use suilend::decimal;
-use liquid_staking::weight;
+use health::utils::setup_obligation;
+use health::utils::get_obligation_fresh;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -86,7 +86,7 @@ public fun no_deposits_no_borrow_step(
     id: ID,
     target: Function,
 ) {
-    let obligation = lending_market.obligation(id);
+    let obligation = setup_obligation(lending_market, id);
     cvlm_assume_msg(no_deposit_no_borrow(obligation), b"Assume invariant in pre-state");
 
     let mut i = 0;
@@ -102,7 +102,7 @@ public fun no_deposits_no_borrow_step(
 
     invoke(target, lending_market, id);
 
-    let obligation = lending_market.obligation(id);
+    let obligation = get_obligation_fresh(lending_market, id);
 
     cvlm_assert_msg(no_deposit_no_borrow(obligation), b"Assert invariant in post-state");
 }
