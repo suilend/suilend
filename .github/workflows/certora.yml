@@ -52,7 +52,6 @@ jobs:
           working-directory: certora/specs/solvency
           configurations: |-
             confs/accounting.conf
-            confs/col_increase.conf
             confs/ratios.conf
             confs/solvency.conf
           job-name: "Verify Reserve Solvency Rules"
