@@ -93,6 +93,11 @@ module suilend::liquidity_mining {
         pool_reward.end_time_ms
     }
 
+    /// Retrieves the pool reward token type.
+    public fun coin_type(pool_reward: &PoolReward): TypeName {
+        pool_reward.coin_type
+    }
+
     /// Retrieves the rewards from a UserRewardManager reference
     public fun rewards(self: &UserRewardManager): &vector<Option<UserReward>> {
         &self.rewards
