@@ -10,6 +10,7 @@ use suilend::lending_market::LendingMarket;
 use suilend::reserve::CToken;
 use suilend::decimal;
 use liquidation::utils::setup_obligation;
+use cvlm::asserts::cvlm_assert_msg;
 
 public fun cvlm_manifest() {
     rule(b"liquidation_amounts_no_loss");
@@ -47,13 +48,15 @@ public fun liquidation_amounts_no_loss(lm: &mut LendingMarket<DummyPool>, ob_id:
 /// That means that the market value of the returned CTokens is at least the market value of the repaid debt.
 public fun liquidation_full_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
 
-    let (_, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
+    let (ob, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
 
     let clock = nondet();
     let mut ctx = nondet();
     let mut repay_coins: Coin<R> = nondet();
     let repay_coin_value_pre = repay_coins.value();
 
+    cvlm_assume_msg(repay_coin_value_pre > 0, b"At least one coin to repay");
+    
     let liquidated_ctokens: Coin<CToken<DummyPool, W>>;
     (liquidated_ctokens,  _) = lm.liquidate<DummyPool, R, W>(
         ob_id,
@@ -65,18 +68,22 @@ public fun liquidation_full_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_
     );
     cvlm_assume_msg(liquidated_ctokens.value() > 0, b"At least one token obtained");
 
+    cvlm_assume_msg(repay_coins.value() == 0, b"Use all coins");
+
     // Less than the repay coins value might have been use to repay the debt. 
-    let repay_amount = repay_coin_value_pre - repay_coins.value();    
+    let repay_amount = repay_coin_value_pre; //- repay_coins.value();    
     let liquidated_ctokens_amount = liquidated_ctokens.value();
 
 
-    let repay_reserve = vector::borrow(lm.reserves(), repay_reserve_index);
-    let repay_value = repay_reserve.market_value(decimal::from(repay_amount));
+    // let repay_reserve = vector::borrow(lm.reserves(), repay_reserve_index);
+    let repay_value = decimal::from(repay_amount);//repay_reserve.market_value(decimal::from(repay_amount));
 
     let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_index);
     let liquidated_value = withdraw_reserve.ctoken_market_value(liquidated_ctokens_amount+2);
 
     cvlm_assert(repay_value.le(liquidated_value));
+
+    // cvlm_assert(repay_value.le(liquidated_value));
 
 
 

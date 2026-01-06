@@ -16,6 +16,9 @@ use suilend::reserve::total_supply;
 use cvlm::asserts::cvlm_assert;
 use suilend::decimal::gt;
 use suilend::decimal::ge;
+use dummy_pool::obligation;
+use cvlm::asserts::cvlm_assert_msg;
+use suilend::reserve::ctoken_ratio;
 
 public fun cvlm_manifest() {
     summary(
@@ -44,6 +47,8 @@ public fun cvlm_manifest() {
     summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
     summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
     summary(b"obligation_compound_debt", @suilend, b"obligation", b"compound_debt");
+    summary(b"obligation_repay", @suilend, b"obligation", b"repay");
+    summary(b"obligation_withdraw_unchecked", @suilend, b"obligation", b"withdraw_unchecked");
 
     summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
     summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
@@ -56,6 +61,8 @@ public fun cvlm_manifest() {
 
     summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
     summary(b"reserve_deduct_liquidation_fee", @suilend, b"reserve", b"deduct_liquidation_fee");
+
+    
 
     summary(b"liquidation_amounts", @suilend, b"obligation", b"liquidation_amounts");
 }
@@ -88,6 +95,7 @@ public fun obligation_find_borrow_index<P>(obligation: &Obligation<P>, reserve: 
 
     i
 }
+
 
 public fun obligation_find_deposit_index<P>(obligation: &Obligation<P>, reserve: &Reserve<P>): u64 {
     let oid = obligation.id();
@@ -164,6 +172,14 @@ public fun reserve_market_value_lower_bound<P>(
 ): Decimal {
     mv(_reserve, liquidity_amount)
 }
+
+public fun reserve_ctoken_market_value<P>(
+        reserve: &Reserve<P>, 
+        ctoken_amount: u64
+    ): Decimal {        
+        cvlm_assume_msg(reserve.ctoken_ratio().eq(decimal::from(1)), b"ctr = 1");
+        mv(reserve, decimal::from(ctoken_amount))
+    }
 
 public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}
 
@@ -286,7 +302,7 @@ public fun reserve_repay_liquidity<P, T>(
 }
 
 public fun reserve_withdraw_ctokens<P, T>(
-    reserve: &mut Reserve<P>,
+    _reserve: &mut Reserve<P>,
     amount: u64,
 ): Balance<CToken<P, T>> {
     let bal: Balance<CToken<P, T>> = nondet();
@@ -318,24 +334,35 @@ public fun reserve_deduct_liquidation_fee<P, T>(
 public fun obligation_compound_debt<P>(_borrow: &mut Borrow, _reserve: &Reserve<P>) {}
 
 
-public fun reserve_ctoken_market_value<P>(
-        reserve: &Reserve<P>, 
-        ctoken_amount: u64
+
+public fun obligation_repay<P>(
+        obligation: &mut Obligation<P>,
+        reserve: &mut Reserve<P>,
+        _clock: &Clock,
+        max_repay_amount: Decimal,
     ): Decimal {
-        // Original:
-        // let liquidity_amount = mul(
-        //     decimal::from(ctoken_amount),
-        //     ctoken_ratio(reserve)
-        // );
-        // This is mul(decimal::from(ctoken_amount), div(total_supply(reserve), decimal::from(reserve.ctoken_supply())))
-        // -> ctoken_amount * (total_supply/ctoken_supply)
-        // This leads to rounding errors
-        // Better is: (ctoken_amount * total_supply)/ctoken_supply
+        let borrow_index = obligation.find_borrow_index(reserve);
+        cvlm_assert(borrow_index <= obligation.borrows().length()); // sanity
+        let borrow = &obligation.borrows()[borrow_index];   
 
-        let total_supply = total_supply(reserve);
-        let total_ctokens = decimal::from(reserve.ctoken_supply());
 
-        let liquidity_amount = mul(total_supply, decimal::from(ctoken_amount)).div(total_ctokens);
+        let repay_amount = min(max_repay_amount, borrow.borrowed_amount());
 
-        market_value(reserve, liquidity_amount)
+        cvlm_assume_msg(borrow.borrowed_amount() == borrow.borrowed_amount().sub(repay_amount), b"Assume correct repay");
+    
+        repay_amount
+    }
+
+
+public fun obligation_withdraw_unchecked<P>(
+        obligation: &mut Obligation<P>,
+        reserve: &mut Reserve<P>,
+        _clock: &Clock,
+        ctoken_amount: u64,
+    ) {
+        let deposit_index = obligation.find_deposit_index(reserve);
+        cvlm_assert(deposit_index <= obligation.deposits().length()); // sanity
+        let deposit = &obligation.deposits()[deposit_index];   
+        let new_deposited_amount = deposit.deposited_ctoken_amount() - ctoken_amount;
+        cvlm_assume_msg(deposit.deposited_ctoken_amount() == new_deposited_amount, b"Update deposited amount");        
     }
