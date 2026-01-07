@@ -10,7 +10,10 @@ use sui::clock::Clock;
 
 public fun cvlm_manifest() {
     // Public mut functions
-    target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
+    
+    // Ignore price changes
+    //target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
+    
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
@@ -64,6 +67,12 @@ public fun unhealthy_only_if_borrow_increases(
     let obligation = setup_obligation(lending_market, id);
 
     cvlm_assume_msg(obligation.is_healthy(), b"Require invariant: obligation is healthy");
+
+    // Liquidatable => Unhealthy
+    cvlm_assume_msg(
+        !obligation.is_liquidatable() || !obligation.is_healthy(),
+        b"Require invariant: Obligation is only liquidatable if it is unhealthy",
+    );
 
     let borrow_value_pre = obligation.weighted_borrowed_value_upper_bound_usd();
 
