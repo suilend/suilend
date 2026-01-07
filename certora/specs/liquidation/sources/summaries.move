@@ -16,29 +16,13 @@ use cvlm::asserts::cvlm_assert;
 use suilend::decimal::gt;
 use suilend::decimal::ge;
 use suilend::reserve::ctoken_ratio;
-use cvlm::asserts::cvlm_assert_msg;
 
 public fun cvlm_manifest() {
-    summary(
-        b"obligation_zero_out_rewards_if_looped",
-        @suilend,
-        b"obligation",
-        b"zero_out_rewards_if_looped",
-    );
-    // Reserve Summaries
-    summary(b"reserve_compound_interest", @suilend, b"reserve", b"compound_interest");
-    summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
-    summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
-
+    /* Obligation Summaries */
+    
+    summary(b"liquidation_amounts", @suilend, b"obligation", b"liquidation_amounts");
     summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
     summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
-
-    summary(
-        b"mining_change_user_reward_manager_share",
-        @suilend,
-        b"liquidity_mining",
-        b"change_user_reward_manager_share",
-    );
 
     ghost(b"deposit_index");
     ghost(b"borrow_index");
@@ -48,21 +32,34 @@ public fun cvlm_manifest() {
     summary(b"obligation_repay", @suilend, b"obligation", b"repay");
     summary(b"obligation_withdraw_unchecked", @suilend, b"obligation", b"withdraw_unchecked");
 
+    summary(
+        b"obligation_zero_out_rewards_if_looped",
+        @suilend,
+        b"obligation",
+        b"zero_out_rewards_if_looped",
+    );
+    summary(
+        b"mining_change_user_reward_manager_share",
+        @suilend,
+        b"liquidity_mining",
+        b"change_user_reward_manager_share",
+    );
+
+
+
+    /*  Reserve Summaries */
+    summary(b"reserve_compound_interest", @suilend, b"reserve", b"compound_interest");
+    summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
+    summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
     summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
     summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
     summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
-    
     summary(b"reserve_ctoken_market_value", @suilend, b"reserve", b"ctoken_market_value");
-
     summary(b"reserve_borrow_weight", @suilend, b"reserve_config", b"borrow_weight");
-
     summary(b"reserve_mint_decimals", @suilend, b"reserve", b"mint_decimals");
-    
     summary(b"reserve_withdraw_ctokens", @suilend, b"reserve", b"withdraw_ctokens");
     summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
-    
     summary(b"reserve_deduct_liquidation_fee", @suilend, b"reserve", b"deduct_liquidation_fee");
-    summary(b"liquidation_amounts", @suilend, b"obligation", b"liquidation_amounts");
 }
 
 public(package) fun obligation_zero_out_rewards_if_looped<P>(
@@ -127,30 +124,11 @@ public fun reserve_compound_interest<P>(_: &mut Reserve<P>, _: &Clock) {}
 
 native fun mint_decimals(id: &UID): u8;
 public fun reserve_mint_decimals<P>(r: &Reserve<P>): u8 {
-    // let id = r.id();
-    // let dec = mint_decimals(id);
-    // cvlm_assume_msg(dec == 18, b"");
-    // dec
-    //18
     0
 }
 
 fun mv<P>(_reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
-    //liquidity_amount.div(decimal::from(1000000000))
     liquidity_amount
-    //liquidity_amount.div(decimal::from(1000000000000000000))
-
-    //Assume dec is one of the common values to avoid general division
-    // let dec = mint_decimals(_reserve.id());
-    // cvlm_assume_msg(dec == 6 || dec == 8 || dec == 9, b"common decimals");
-    // if (dec == 6) {
-    //     liquidity_amount.div(decimal::from(1000000))
-    // } else if (dec == 8) {
-    //     liquidity_amount.div(decimal::from(100000000))
-    // } else {
-    //     // dec == 9
-    //     liquidity_amount.div(decimal::from(1000000000))
-    // }
 }
 
 public fun reserve_market_value<P>(_reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
@@ -330,9 +308,8 @@ public fun reserve_deduct_liquidation_fee<P, T>(
     // (protocol_fee_amount, nondet())
 }
 
+// no nothing
 public fun obligation_compound_debt<P>(_borrow: &mut Borrow, _reserve: &Reserve<P>) {}
-
-
 
 public fun obligation_repay<P>(
         obligation: &mut Obligation<P>,
@@ -343,14 +320,8 @@ public fun obligation_repay<P>(
         let borrow_index = obligation.find_borrow_index(reserve);
         cvlm_assert(borrow_index < obligation.borrows().length()); // sanity
         let borrow = &mut obligation.borrows_mut()[borrow_index];   
-
-
         let repay_amount = min(max_repay_amount, borrow.borrowed_amount());
-
-        //cvlm_assume_msg(borrow.borrowed_amount() == borrow.borrowed_amount().sub(repay_amount), b"Assume correct repay");
         *(borrow.borrowed_amount_mut()) = borrow.borrowed_amount().sub(repay_amount);
-
-    
         repay_amount
     }
 
@@ -363,10 +334,7 @@ public fun obligation_withdraw_unchecked<P>(
     ) {
         let deposit_index = obligation.find_deposit_index(reserve);
         cvlm_assert(deposit_index < obligation.deposits().length()); // sanity
-        
         let deposit = &mut obligation.deposits_mut()[deposit_index];   
         let new_deposited_amount = deposit.deposited_ctoken_amount() - ctoken_amount;
-
-        //cvlm_assume_msg(deposit.deposited_ctoken_amount() == new_deposited_amount, b"Update deposited amount");
         *deposit.deposited_ctoken_amount_mut() = new_deposited_amount;
     }
