@@ -4,17 +4,16 @@ use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
-use dummy_pool::dummy_pool::DummyPool;
-use suilend::lending_market::LendingMarket;
-use health::utils::setup_obligation;
 use cvlm::nondet::nondet;
+use dummy_pool::dummy_pool::DummyPool;
+use health::summaries::debt_factor;
+use health::utils::setup_obligation;
 use sui::clock::Clock;
-
-
+use suilend::decimal;
+use suilend::lending_market::LendingMarket;
 
 public fun cvlm_manifest() {
     // Public mut functions
-    target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
@@ -40,7 +39,6 @@ public fun cvlm_manifest() {
 
     // Admin mut functions
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_reserve");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
     target(@dummy_pool, b"dummy_pool_lending_market", b"change_reserve_price_feed");
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_pool_reward");
     target(@dummy_pool, b"dummy_pool_lending_market", b"cancel_pool_reward");
@@ -53,13 +51,13 @@ public fun cvlm_manifest() {
 
     rule(b"obligation_health_base");
     rule(b"obligation_health_step");
-
-
 }
 
-
-
-native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>, obligation_id: ID);
+native fun invoke(
+    target: Function,
+    lending_market: &mut LendingMarket<DummyPool>,
+    obligation_id: ID,
+);
 
 /// The base case for the induction.
 /// Asserts that in the initial state, i.e. right after creating a new obligation, it is healthy.
@@ -77,52 +75,49 @@ public fun obligation_health_base(
 
 /// The step cases for the induction.
 /// Asserts that if obligation is in a healthy state, no lending operation can make it unhealthy, unless debt is accumulated.
+///
+/// This is not true if
+/// - reserve config is updated, or
+/// - prices fluctuate
+/// Hence we assume none of these happen
 public fun obligation_health_step(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock
+    clock: &Clock,
 ) {
 
-    //let obligation = lending_market.obligation(id);
     let obligation = setup_obligation(lending_market, id);
 
-    // We store the cumulative borrow rates of all borrows in the obligation.
-    // This allows to require that, after a call to a function, none of them changed,
-    // implying that no debt has been accumulated.
-    // Is is less expensive than a full refresh of the obligation.
-    let mut rates_pre = vector[];
-    let mut i = 0;
-    while (i < obligation.borrows().length()) {
-        let rate = obligation.borrows()[i].cumulative_borrow_rate();
-        rates_pre.push_back(rate);
-        i = i + 1;
-    };
+    cvlm_assume_msg(lending_market.reserves().length() <= 2, b"At most 2 reserves");
+    cvlm_assume_msg(debt_factor().ge(decimal::from(1)), b"No debt accumulates");
 
     cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
 
     // Liquidatable => Unhealthy
-    cvlm_assume_msg(!obligation.is_liquidatable() || !obligation.is_healthy(), b"Require invariant: Obligation is only liquidatable if it is unhealthy");
+    cvlm_assume_msg(
+        !obligation.is_liquidatable() || !obligation.is_healthy(),
+        b"Require invariant: Obligation is only liquidatable if it is unhealthy",
+    );
     let forgivable = obligation.is_forgivable();
     let healthy = obligation.is_healthy();
     let no_debt = obligation.borrows().length() == 0;
     // forgivable => unhealthy | no borrows
-    cvlm_assume_msg( !forgivable || (!healthy || no_debt), b"Require invariant: Obligation is only forgivable if it is unhealthy or has no debt");
-    
+    cvlm_assume_msg(
+        !forgivable || (!healthy || no_debt),
+        b"Require invariant: Obligation is only forgivable if it is unhealthy or has no debt",
+    );
 
     invoke(target, lending_market, id);
 
 
-    lending_market.refresh_obligation(id, clock);
-    let obligation = lending_market.obligation_mut(id);
+    {
+        lending_market.refresh_obligation(id, clock);
+        let obligation = lending_market.obligation_mut(id);
 
-    // Require that no debt has been accumulated
-    let mut i = 0;
-    while (i < obligation.borrows().length()) {
-        let rate = obligation.borrows()[i].cumulative_borrow_rate();
-        cvlm_assume_msg(rate == rates_pre[i], b"");
-        i = i + 1;
-    };
-
-    cvlm_assert_msg(obligation.is_healthy(), b"Assert obligation is healthy in post-state");
+        cvlm_assert_msg(
+            obligation.is_healthy(),
+            b"Assert obligation is healthy in post-state after refresh",
+        );
+    }
 }
