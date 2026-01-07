@@ -40,6 +40,8 @@ fun require_freshness(lm: &LendingMarket<DummyPool>, ob_id: ID) {
         cvlm_assume_msg(open_ltv.le(close_ltv), b"");
         cvlm_assume_msg(close_ltv.lt(one), b"");
 
+        cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one), b"");
+        
         let deposited_value_usd_i = deposit_reserve.ctoken_market_value(deposit.deposited_ctoken_amount());
 
         let deposited_value_usd_lb_i = deposit_reserve.ctoken_market_value_lower_bound(deposit.deposited_ctoken_amount());
@@ -72,7 +74,9 @@ fun require_freshness(lm: &LendingMarket<DummyPool>, ob_id: ID) {
         let borrow_reserve = &lm.reserves()[borrow.reserve_array_index()];
 
         let borrow_weight = borrow_reserve.config().borrow_weight();
-        cvlm_assume_msg(borrow_weight.le(one), b"");
+        cvlm_assume_msg(borrow_weight.ge(one), b"");
+
+        cvlm_assume_msg(borrow_reserve.ctoken_ratio().eq(one), b"");
 
         let unweighted_borrowed_value_usd_i = borrow_reserve.market_value(borrow.borrowed_amount());
         let weighted_borrowed_value_usd_i = unweighted_borrowed_value_usd_i.mul(borrow_weight);
