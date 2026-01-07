@@ -37,15 +37,12 @@ export const VaultValueAggregate = new MoveStruct({ name: `${$moduleName}::Vault
     } });
 export const VaultCrankAccumulator = new MoveStruct({ name: `${$moduleName}::VaultCrankAccumulator`, fields: {
         acc: VaultValueAccumulator,
-        main_pool_reserves: bcs.vector(type_name.TypeName)
-    } });
-export const UnwindTarget = new MoveStruct({ name: `${$moduleName}::UnwindTarget`, fields: {
-        obligation_index: bcs.u64(),
-        usd_to_recover: decimal.Decimal
+        pending_obligations_for_refresh: vec_map.VecMap(type_name.TypeName, bcs.vector(bcs.Address))
     } });
 export const VaultUnwindAccumulator = new MoveStruct({ name: `${$moduleName}::VaultUnwindAccumulator`, fields: {
         shares: balance.Balance,
-        pending_unwinds: vec_map.VecMap(type_name.TypeName, bcs.vector(UnwindTarget)),
+        base_token_value_of_shares: bcs.u64(),
+        pending_unwinds: vec_map.VecMap(type_name.TypeName, bcs.vector(bcs.Address)),
         agg: VaultValueAggregate
     } });
 export interface TotalObligationValueUsdArguments {
@@ -102,52 +99,6 @@ export function liquidAssetValueUsd(options: LiquidAssetValueUsdOptions) {
         typeArguments: options.typeArguments
     });
 }
-export interface ObligationIndexArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface ObligationIndexOptions {
-    package?: string;
-    arguments: ObligationIndexArguments | [
-        self: RawTransactionArgument<string>
-    ];
-}
-/** Obligation index for this unwind target */
-export function obligationIndex(options: ObligationIndexOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        `${packageAddress}::accumulator::UnwindTarget`
-    ] satisfies string[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'accumulator',
-        function: 'obligation_index',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
-export interface UsdToRecoverArguments {
-    self: RawTransactionArgument<string>;
-}
-export interface UsdToRecoverOptions {
-    package?: string;
-    arguments: UsdToRecoverArguments | [
-        self: RawTransactionArgument<string>
-    ];
-}
-/** USD amount to recover from this unwind */
-export function usdToRecover(options: UsdToRecoverOptions) {
-    const packageAddress = options.package ?? '@local-pkg/vault';
-    const argumentsTypes = [
-        `${packageAddress}::accumulator::UnwindTarget`
-    ] satisfies string[];
-    const parameterNames = ["self"];
-    return (tx: Transaction) => tx.moveCall({
-        package: packageAddress,
-        module: 'accumulator',
-        function: 'usd_to_recover',
-        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
-    });
-}
 export interface LendingMarketAllocationsArguments {
     self: RawTransactionArgument<string>;
 }
@@ -171,6 +122,32 @@ export function lendingMarketAllocations(options: LendingMarketAllocationsOption
         package: packageAddress,
         module: 'accumulator',
         function: 'lending_market_allocations',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface BaseTokenValueOfSharesArguments {
+    self: RawTransactionArgument<string>;
+}
+export interface BaseTokenValueOfSharesOptions {
+    package?: string;
+    arguments: BaseTokenValueOfSharesArguments | [
+        self: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string
+    ];
+}
+export function baseTokenValueOfShares(options: BaseTokenValueOfSharesOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::accumulator::VaultUnwindAccumulator<${options.typeArguments[0]}>`
+    ] satisfies string[];
+    const parameterNames = ["self"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'accumulator',
+        function: 'base_token_value_of_shares',
         arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
         typeArguments: options.typeArguments
     });

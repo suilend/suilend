@@ -1,13 +1,13 @@
 [package]
 name = "vaults"
 edition = "2024"
-published-at = "0x9192993bed97d5ed295310b589d9ddbd51682facee68ec5ef8d6b34d4b5f7cf9"
+published-at = "0x9a12d642c9bde0e39176948f1447b36469011c473a5edfb101109c20596e2597"
 
 [dependencies]
-suilend = { local = "../suilend", override = true } 
+suilend = { local = "../suilend", override = true }
 
 [addresses]
-vaults = "0x9192993bed97d5ed295310b589d9ddbd51682facee68ec5ef8d6b34d4b5f7cf9"
+vaults = "0x9a12d642c9bde0e39176948f1447b36469011c473a5edfb101109c20596e2597"
 
 [dev-dependencies]
 steamm = { git = "https://github.com/suilend/steamm-public.git", subdir = "contracts/steamm", rev = "main" }

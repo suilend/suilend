@@ -32,7 +32,8 @@ export const Vault = new MoveStruct({ name: `${$moduleName}::Vault`, fields: {
         withdrawal_fee_bps: bcs.u64(),
         accumulator_cap: bcs.option(accumulator.AccumulatorCap),
         redemption_ratio_high_water_mark: decimal.Decimal,
-        last_cranked_ms: bcs.u64()
+        last_cranked_ms: bcs.u64(),
+        trusted_market: type_name.TypeName
     } });
 export const VaultManagerCap = new MoveStruct({ name: `${$moduleName}::VaultManagerCap`, fields: {
         id: object.UID,
@@ -113,6 +114,7 @@ export const ObligationUnwindEvent = new MoveStruct({ name: `${$moduleName}::Obl
 export interface CreateVaultArguments {
     vaultShareTreasuryCap: RawTransactionArgument<string>;
     vaultShareCurrency: RawTransactionArgument<string>;
+    trustedLendingMarket: RawTransactionArgument<string>;
     managementFeeBps: RawTransactionArgument<number | bigint>;
     performanceFeeBps: RawTransactionArgument<number | bigint>;
     depositFeeBps: RawTransactionArgument<number | bigint>;
@@ -123,12 +125,14 @@ export interface CreateVaultOptions {
     arguments: CreateVaultArguments | [
         vaultShareTreasuryCap: RawTransactionArgument<string>,
         vaultShareCurrency: RawTransactionArgument<string>,
+        trustedLendingMarket: RawTransactionArgument<string>,
         managementFeeBps: RawTransactionArgument<number | bigint>,
         performanceFeeBps: RawTransactionArgument<number | bigint>,
         depositFeeBps: RawTransactionArgument<number | bigint>,
         withdrawalFeeBps: RawTransactionArgument<number | bigint>
     ];
     typeArguments: [
+        string,
         string,
         string
     ];
@@ -138,13 +142,14 @@ export function createVault(options: CreateVaultOptions) {
     const argumentsTypes = [
         `0x0000000000000000000000000000000000000000000000000000000000000002::coin::TreasuryCap<${options.typeArguments[0]}>`,
         `0x0000000000000000000000000000000000000000000000000000000000000002::coin_registry::Currency<${options.typeArguments[0]}>`,
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[2]}>`,
         'u64',
         'u64',
         'u64',
         'u64',
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
     ] satisfies string[];
-    const parameterNames = ["vaultShareTreasuryCap", "vaultShareCurrency", "managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
+    const parameterNames = ["vaultShareTreasuryCap", "vaultShareCurrency", "trustedLendingMarket", "managementFeeBps", "performanceFeeBps", "depositFeeBps", "withdrawalFeeBps"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -384,6 +389,83 @@ export function unsetMetadata(options: UnsetMetadataOptions) {
         typeArguments: options.typeArguments
     });
 }
+export interface MoveLendingMarketToFrontArguments {
+    vault: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
+    lendingMarketType: RawTransactionArgument<string>;
+}
+export interface MoveLendingMarketToFrontOptions {
+    package?: string;
+    arguments: MoveLendingMarketToFrontArguments | [
+        vault: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
+        lendingMarketType: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string
+    ];
+}
+/**
+ * Move a specified lending market + associated obligations to the front of the
+ * VecMap This lending market will be be prioritised for unwinds
+ */
+export function moveLendingMarketToFront(options: MoveLendingMarketToFrontOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
+        `${packageAddress}::vault::VaultManagerCap<${options.typeArguments[0]}>`,
+        '0x0000000000000000000000000000000000000000000000000000000000000001::type_name::TypeName'
+    ] satisfies string[];
+    const parameterNames = ["vault", "VaultManagerCap", "lendingMarketType"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'move_lending_market_to_front',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface MoveObligationToFrontArguments {
+    vault: RawTransactionArgument<string>;
+    VaultManagerCap: RawTransactionArgument<string>;
+    lendingMarketType: RawTransactionArgument<string>;
+    obligationId: RawTransactionArgument<string>;
+}
+export interface MoveObligationToFrontOptions {
+    package?: string;
+    arguments: MoveObligationToFrontArguments | [
+        vault: RawTransactionArgument<string>,
+        VaultManagerCap: RawTransactionArgument<string>,
+        lendingMarketType: RawTransactionArgument<string>,
+        obligationId: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string
+    ];
+}
+/**
+ * Move an obligation to the front within its lending market's obligations vector
+ * This obligation will be be prioritised for unwinds
+ */
+export function moveObligationToFront(options: MoveObligationToFrontOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
+        `${packageAddress}::vault::VaultManagerCap<${options.typeArguments[0]}>`,
+        '0x0000000000000000000000000000000000000000000000000000000000000001::type_name::TypeName',
+        '0x0000000000000000000000000000000000000000000000000000000000000002::object::ID'
+    ] satisfies string[];
+    const parameterNames = ["vault", "VaultManagerCap", "lendingMarketType", "obligationId"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'move_obligation_to_front',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
 export interface DepositArguments {
     vault: RawTransactionArgument<string>;
     deposit: RawTransactionArgument<string>;
@@ -483,10 +565,13 @@ export interface WithdrawWithUnwindOptions {
 /**
  * For withdrawals requiring obligation unwinding:
  *
- * 1.  Call create_unwind_accumulator() to calculate unwind plan
- * 2.  Call process_unwinds_for_lending_market() for each LM
- * 3.  Call withdraw_with_unwind() All pending unwinds must be processed before
- *     calling
+ * 1.  Call create_unwind_accumulator() to create accumulator with target
+ *     withdrawal amount
+ * 2.  Call process_unwinds_for_lending_market() for each LM in configured order
+ * 3.  Call withdraw_with_unwind() to complete withdrawal
+ *
+ * User receives: min(base_token_value_of_shares, available_liquid_assets) If
+ * unwinds don't fully cover the target, user receives what was recovered.
  */
 export function withdrawWithUnwind(options: WithdrawWithUnwindOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
@@ -801,13 +886,11 @@ export function finalizeVaultValueAccumulator(options: FinalizeVaultValueAccumul
 }
 export interface CreateVaultCrankAccumulatorArguments {
     vault: RawTransactionArgument<string>;
-    mainLendingMarket: RawTransactionArgument<string>;
 }
 export interface CreateVaultCrankAccumulatorOptions {
     package?: string;
     arguments: CreateVaultCrankAccumulatorArguments | [
-        vault: RawTransactionArgument<string>,
-        mainLendingMarket: RawTransactionArgument<string>
+        vault: RawTransactionArgument<string>
     ];
     typeArguments: [
         string,
@@ -823,10 +906,9 @@ export function createVaultCrankAccumulator(options: CreateVaultCrankAccumulator
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
         `${packageAddress}::vault::Vault<${options.typeArguments[0]}, ${options.typeArguments[1]}>`,
-        '0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::suilend::MAIN_POOL>',
         '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
     ] satisfies string[];
-    const parameterNames = ["vault", "mainLendingMarket"];
+    const parameterNames = ["vault"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -835,13 +917,13 @@ export function createVaultCrankAccumulator(options: CreateVaultCrankAccumulator
         typeArguments: options.typeArguments
     });
 }
-export interface ProcessLendingMarketForCrankArguments {
+export interface RefreshObligationsForCrankArguments {
     crank: RawTransactionArgument<string>;
     lendingMarket: RawTransactionArgument<string>;
 }
-export interface ProcessLendingMarketForCrankOptions {
+export interface RefreshObligationsForCrankOptions {
     package?: string;
-    arguments: ProcessLendingMarketForCrankArguments | [
+    arguments: RefreshObligationsForCrankArguments | [
         crank: RawTransactionArgument<string>,
         lendingMarket: RawTransactionArgument<string>
     ];
@@ -850,13 +932,49 @@ export interface ProcessLendingMarketForCrankOptions {
         string
     ];
 }
+/** Refresh all obligations attached to one LendingMarket */
+export function refreshObligationsForCrank(options: RefreshObligationsForCrankOptions) {
+    const packageAddress = options.package ?? '@local-pkg/vault';
+    const argumentsTypes = [
+        `${packageAddress}::accumulator::VaultCrankAccumulator<${options.typeArguments[0]}>`,
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
+        '0x0000000000000000000000000000000000000000000000000000000000000002::clock::Clock'
+    ] satisfies string[];
+    const parameterNames = ["crank", "lendingMarket"];
+    return (tx: Transaction) => tx.moveCall({
+        package: packageAddress,
+        module: 'vault',
+        function: 'refresh_obligations_for_crank',
+        arguments: normalizeMoveArguments(options.arguments, argumentsTypes, parameterNames),
+        typeArguments: options.typeArguments
+    });
+}
+export interface ProcessLendingMarketForCrankArguments {
+    crank: RawTransactionArgument<string>;
+    lendingMarket: RawTransactionArgument<string>;
+    mainLendingMarket: RawTransactionArgument<string>;
+}
+export interface ProcessLendingMarketForCrankOptions {
+    package?: string;
+    arguments: ProcessLendingMarketForCrankArguments | [
+        crank: RawTransactionArgument<string>,
+        lendingMarket: RawTransactionArgument<string>,
+        mainLendingMarket: RawTransactionArgument<string>
+    ];
+    typeArguments: [
+        string,
+        string
+    ];
+}
+/** Obligations must be refreshed beforehand with refresh_obligations_for_crank */
 export function processLendingMarketForCrank(options: ProcessLendingMarketForCrankOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
     const argumentsTypes = [
         `${packageAddress}::accumulator::VaultCrankAccumulator<${options.typeArguments[0]}>`,
-        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`
+        `0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<${options.typeArguments[1]}>`,
+        '0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::lending_market::LendingMarket<0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf::suilend::MAIN_POOL>'
     ] satisfies string[];
-    const parameterNames = ["crank", "lendingMarket"];
+    const parameterNames = ["crank", "lendingMarket", "mainLendingMarket"];
     return (tx: Transaction) => tx.moveCall({
         package: packageAddress,
         module: 'vault',
@@ -926,9 +1044,10 @@ export interface CreateUnwindAccumulatorOptions {
 }
 /**
  * Create an unwind accumulator for withdrawals that require unwinding obligations
- * Calculate which obligations need to be unwound to satisfy withdrawal liquidity
- * needs Each LendingMarket must be processed by
- * process_unwinds_for_lending_market() A VaultValueAggregate must first be created
+ * Each LendingMarket must be processed by process_unwinds_for_lending_market() in
+ * configured order Manager controls unwind priority via
+ * move_lending_market_to_front / move_obligation_to_front A VaultValueAggregate
+ * must first be created
  */
 export function createUnwindAccumulator(options: CreateUnwindAccumulatorOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
@@ -968,8 +1087,10 @@ export interface ProcessUnwindsForLendingMarketOptions {
 }
 /**
  * Process unwinding for a specific lending market Withdraws and redeems ctokens
- * from obligations, adding funds to vault.deposit_asset Removes the lending market
- * from pending_unwinds
+ * from obligations in configured order, adding funds to vault.deposit_asset Early
+ * exits when sufficient funds have been recovered Each LM must be processed
+ * exactly once in order; calling twice or out of order aborts
+ * VaultUnwindAccumulator must be consumed in withdraw_with_unwind()
  */
 export function processUnwindsForLendingMarket(options: ProcessUnwindsForLendingMarketOptions) {
     const packageAddress = options.package ?? '@local-pkg/vault';
