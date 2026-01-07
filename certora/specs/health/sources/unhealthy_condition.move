@@ -6,9 +6,6 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use health::utils::setup_obligation;
-use suilend::lending_market;
-use dummy_pool::obligation;
-use cvlm::nondet::nondet;
 use sui::clock::Clock;
 
 public fun cvlm_manifest() {
@@ -39,7 +36,6 @@ public fun cvlm_manifest() {
 
     // Admin mut functions
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_reserve");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
     target(@dummy_pool, b"dummy_pool_lending_market", b"change_reserve_price_feed");
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_pool_reward");
     target(@dummy_pool, b"dummy_pool_lending_market", b"cancel_pool_reward");
@@ -57,6 +53,8 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 
 /* Obligation only becomes unhealthy due to increasing borrow value */
 
+/// If an obligation becomes unhealthy, then the only reason is that the amount of debt increases.
+/// This does not hold if the reserve's config is adjusted (e.g. ltv or borrow weight), so we ignore this case.
 public fun unhealthy_only_if_borrow_increases(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
