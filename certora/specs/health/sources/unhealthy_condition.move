@@ -78,7 +78,7 @@ public fun unhealthy_only_if_borrow_increases(
 
     invoke(target, lending_market, id);
 
-    lending_market.refresh_obligation(id, clock);
+    lending_market.refresh_obligation_health(id, clock);
     let obligation = lending_market.obligation_mut(id);
 
     let borrow_value_post = obligation.weighted_borrowed_value_upper_bound_usd();

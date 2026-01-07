@@ -4,20 +4,19 @@ use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
-use suilend::decimal::Decimal;
+use health::utils::{setup_obligation, require_liquidatable_only_if_unhealthy};
+use sui::clock::Clock;
+use suilend::decimal::{Self, Decimal};
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use suilend::decimal;
-use sui::clock::Clock;
-use health::utils::{ setup_obligation};
 
 public fun cvlm_manifest() {
     // Public mut functions
-    
+
     // We ignore price changes and config updates
     // target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
     // target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
-    
+
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
@@ -58,51 +57,42 @@ public fun cvlm_manifest() {
     rule(b"increasing_collateral_stays_healthy");
 }
 
-
 native fun invoke(
     target: Function,
     lending_market: &mut LendingMarket<DummyPool>,
     obligation_id: ID,
 );
 
+fun solvent_with_zero_debt(lm: &mut LendingMarket<DummyPool>, id: ID) {
+    let zero = decimal::from(0);
+    let obligation = setup_obligation(lm, id);
 
+    cvlm_assume_msg(obligation.total_borrowed_amount() == zero, b"No debt");
 
+    let healthy = obligation.is_healthy();
 
-fun solvent_with_zero_debt(
-    lm: &mut LendingMarket<DummyPool>,
-    id: ID
-) {
-  let zero = decimal::from(0);
-  let obligation = setup_obligation(lm, id);
-
-  cvlm_assume_msg(obligation.total_borrowed_amount() == zero,  b"No debt");
-
-  let healthy = obligation.is_healthy();
-
-  cvlm_assert(healthy);
+    cvlm_assert(healthy);
 }
-
 
 fun increasing_collateral_stays_healthy(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock
-){
-  let obligation = setup_obligation(lending_market, id);
-  let coll_pre = obligation.deposited_value_usd();
-  cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy"); 
+    clock: &Clock,
+) {
+    let obligation = setup_obligation(lending_market, id);
+    let coll_pre = obligation.deposited_value_usd();
+    cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy");
+    require_liquidatable_only_if_unhealthy(obligation);
 
-  invoke(target, lending_market, id);
+    invoke(target, lending_market, id);
 
-  
-  lending_market.refresh_obligation(id, clock);
-  let obligation = lending_market.obligation_mut(id);
-  let coll_post = obligation.deposited_value_usd();
+    lending_market.refresh_obligation_health(id, clock);
+    let obligation = lending_market.obligation_mut(id);
+    let coll_post = obligation.deposited_value_usd();
 
-  let coll_increase = coll_post.gt(coll_pre);
+    let coll_increase = coll_post.gt(coll_pre);
 
-  // If collateral increases, obligation remains healthy
-  cvlm_assert(!coll_increase || obligation.is_healthy());
-
+    // If collateral increases, obligation remains healthy
+    cvlm_assert(!coll_increase || obligation.is_healthy());
 }

@@ -63,7 +63,7 @@ public fun no_col_decrease(
     invoke(target, lending_market, id);
     
     
-    lending_market.refresh_obligation(id, clock);
+    lending_market.refresh_obligation_health(id, clock);
     let obligation = lending_market.obligation_mut(id);
     let col_post = obligation.total_deposited_ctokens();
 

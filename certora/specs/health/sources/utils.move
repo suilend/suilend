@@ -1,6 +1,6 @@
 module health::utils;
 
-use cvlm::asserts::{cvlm_assume_msg};
+use cvlm::asserts::cvlm_assume_msg;
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::decimal;
 use suilend::lending_market::LendingMarket;
@@ -41,7 +41,7 @@ fun require_freshness(lm: &LendingMarket<DummyPool>, ob_id: ID) {
         cvlm_assume_msg(close_ltv.lt(one), b"");
 
         cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one), b"");
-        
+
         let deposited_value_usd_i = deposit_reserve.ctoken_market_value(deposit.deposited_ctoken_amount());
 
         let deposited_value_usd_lb_i = deposit_reserve.ctoken_market_value_lower_bound(deposit.deposited_ctoken_amount());
@@ -106,5 +106,24 @@ fun require_freshness(lm: &LendingMarket<DummyPool>, ob_id: ID) {
     cvlm_assume_msg(
         obligation.weighted_borrowed_value_upper_bound_usd() == weighted_borrowed_value_upper_bound_usd,
         b"",
+    );
+}
+
+public fun require_liquidatable_only_if_unhealthy<P>(obligation: &Obligation<P>) {
+    // Liquidatable => Unhealthy
+    cvlm_assume_msg(
+        !obligation.is_liquidatable() || !obligation.is_healthy(),
+        b"Require invariant: Obligation is only liquidatable if it is unhealthy",
+    );
+}
+
+public fun forgivable_only_if<P>(obligation: &Obligation<P>) {
+    let forgivable = obligation.is_forgivable();
+    let healthy = obligation.is_healthy();
+    let no_debt = obligation.borrows().length() == 0;
+    // forgivable => unhealthy | no borrows
+    cvlm_assume_msg(
+        !forgivable || (!healthy || no_debt),
+        b"Require invariant: Obligation is only forgivable if it is unhealthy or has no debt",
     );
 }

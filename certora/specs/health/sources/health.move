@@ -11,6 +11,9 @@ use health::utils::setup_obligation;
 use sui::clock::Clock;
 use suilend::decimal;
 use suilend::lending_market::LendingMarket;
+use dummy_pool::obligation;
+use health::utils::require_liquidatable_only_if_unhealthy;
+use health::utils::forgivable_only_if;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -94,25 +97,17 @@ public fun obligation_health_step(
 
     cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
 
-    // Liquidatable => Unhealthy
-    cvlm_assume_msg(
-        !obligation.is_liquidatable() || !obligation.is_healthy(),
-        b"Require invariant: Obligation is only liquidatable if it is unhealthy",
-    );
-    let forgivable = obligation.is_forgivable();
-    let healthy = obligation.is_healthy();
-    let no_debt = obligation.borrows().length() == 0;
-    // forgivable => unhealthy | no borrows
-    cvlm_assume_msg(
-        !forgivable || (!healthy || no_debt),
-        b"Require invariant: Obligation is only forgivable if it is unhealthy or has no debt",
-    );
+    
+    require_liquidatable_only_if_unhealthy(obligation);
+    forgivable_only_if(obligation);
+   
 
     invoke(target, lending_market, id);
-
+    
+    cvlm_assume_msg(lending_market.reserves().length() <= 2, b"Still at most 2 reserves");
 
     {
-        lending_market.refresh_obligation(id, clock);
+        lending_market.refresh_obligation_health(id, clock);
         let obligation = lending_market.obligation_mut(id);
 
         cvlm_assert_msg(

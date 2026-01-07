@@ -93,7 +93,7 @@ public fun no_deposits_no_borrow_step(
     invoke(target, lending_market, id);
 
     
-    lending_market.refresh_obligation(id, clock);
+    lending_market.refresh_obligation_health(id, clock);
     let obligation = lending_market.obligation_mut(id);
 
     cvlm_assert_msg(no_deposit_no_borrow(obligation), b"Assert invariant in post-state");

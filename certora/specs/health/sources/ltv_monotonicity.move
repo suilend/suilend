@@ -85,7 +85,7 @@ fun ltv_increases_with_debt(
   invoke(target, lending_market, id);
 
   
-  lending_market.refresh_obligation(id, clock);
+  lending_market.refresh_obligation_health(id, clock);
   let obligation = lending_market.obligation_mut(id);
   let debt_post = obligation.weighted_borrowed_value_usd();
   let ltv_post = ltv(obligation);
@@ -113,7 +113,7 @@ fun ltv_decreases_with_collateral(
   invoke(target, lending_market, id);
 
   
-  lending_market.refresh_obligation(id, clock);
+  lending_market.refresh_obligation_health(id, clock);
   let obligation = lending_market.obligation_mut(id);
   let coll_post = obligation.deposited_value_usd();
   let ltv_post = ltv(obligation);
