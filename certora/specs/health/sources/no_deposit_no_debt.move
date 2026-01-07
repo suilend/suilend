@@ -7,7 +7,6 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use suilend::decimal;
 use health::utils::setup_obligation;
 use sui::clock::Clock;
 
@@ -90,16 +89,6 @@ public fun no_deposits_no_borrow_step(
     let obligation = setup_obligation(lending_market, id);
     cvlm_assume_msg(no_deposit_no_borrow(obligation), b"Assume invariant in pre-state");
 
-    let mut i = 0;
-    let zero = decimal::from(0);
-    let one = decimal::from(1);
-    while (i < lending_market.reserves().length()) {
-        let weight = lending_market.reserves()[i].config().borrow_weight();
-        cvlm_assume_msg(one.le(weight), b"Non-zero borrow weight");
-        cvlm_assume_msg(zero.lt(lending_market.reserves()[i].price()), b"Non-zero price");
-        
-        i = i + 1;
-    };
 
     invoke(target, lending_market, id);
 
