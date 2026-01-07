@@ -1,37 +1,40 @@
 module health::summaries;
 
 use cvlm::asserts::cvlm_assume_msg;
-use cvlm::manifest::summary;
+use cvlm::ghost::ghost_destroy;
+use cvlm::manifest::{summary, ghost};
 use cvlm::nondet::{nondet_with, nondet};
 use dummy_pool::dummy_pool::DummyPool;
 use sui::balance::Balance;
 use sui::clock::Clock;
 use sui_system::sui_system::SuiSystemState;
-use suilend::decimal::Decimal;
+use suilend::decimal::{Self, Decimal, min, sub};
 use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
-use suilend::obligation::{Obligation, ExistStaleOracles};
+use suilend::obligation::{Obligation, ExistStaleOracles, Borrow, is_healthy};
 use suilend::rate_limiter::RateLimiter;
-use suilend::reserve::{Reserve, LiquidityRequest};
-use cvlm::manifest::ghost;
+use suilend::reserve::{Reserve, LiquidityRequest, config, CToken};
+use suilend::reserve_config::{isolated, open_ltv};
+use suilend::reserve_config::ReserveConfig;
 
 public fun cvlm_manifest() {
-    //summary(b"reserve_compound_borrow_rate", @suilend, b"reserve", b"compound_borrow_rate");
-    summary(b"reserve_compound_interest", @suilend, b"reserve", b"compound_interest");
-    summary(b"reserve_borrow_liquidity", @suilend, b"reserve", b"borrow_liquidity");
-    summary(b"reserve_unstake_sui_from_staker", @suilend, b"reserve", b"unstake_sui_from_staker");
-    summary(b"reserve_rebalance_staker", @suilend, b"reserve", b"rebalance_staker");
-    summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
 
-    summary(b"rate_limiter_process_qty", @suilend, b"rate_limiter", b"process_qty");
 
-    summary(b"max_borrow_amount", @suilend, b"lending_market", b"max_borrow_amount");
 
-    // summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
+    /* obligation summaries */
+    ghost(b"debt_factor");
+    summary(b"obligation_compound_debt", @suilend, b"obligation", b"compound_debt");
+    summary(b"deposit", @suilend, b"obligation", b"deposit");
+    summary(b"repay", @suilend, b"obligation", b"repay");
+    summary(b"withdraw_unchecked", @suilend, b"obligation", b"withdraw_unchecked");
+    summary(b"borrow", @suilend, b"obligation", b"borrow");
+    summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
+    // Simpler deposit/borrow indexing
     ghost(b"deposit_index");
     ghost(b"borrow_index");
     summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
     summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
     summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
+    // Nondet / noops
     summary(
         b"obligation_find_or_add_user_reward_manager",
         @suilend,
@@ -45,21 +48,59 @@ public fun cvlm_manifest() {
         b"zero_out_rewards_if_looped",
     );
 
+
+    /* Reserve Summaries */
+    summary(b"reserve_compound_interest", @suilend, b"reserve", b"compound_interest");
+    summary(b"reserve_borrow_liquidity", @suilend, b"reserve", b"borrow_liquidity");
+    summary(b"reserve_unstake_sui_from_staker", @suilend, b"reserve", b"unstake_sui_from_staker");
+    summary(b"reserve_rebalance_staker", @suilend, b"reserve", b"rebalance_staker");
+    summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
+    summary(b"reserve_deposit_ctokens", @suilend, b"reserve", b"deposit_ctokens");
+    summary(b"reserve_log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
+    summary(b"assert_price_is_fresh", @suilend, b"reserve", b"assert_price_is_fresh");
+
+
+
+    // Pricing / Market Value: Enabling these (fixing price = 1) simplifies a lot but masked virtually all violations
+    // summary(b"market_value", @suilend, b"reserve", b"market_value");
+    // summary(b"market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
+    // summary(b"market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
+    summary(b"reserve_mint_decimals", @suilend, b"reserve", b"mint_decimals");
+    summary(b"borrow_weight", @suilend, b"reserve_config", b"borrow_weight");
+    // summary(b"ctoken_market_value", @suilend, b"reserve", b"ctoken_market_value");
+    // summary(b"ctoken_market_value_lower_bound", @suilend, b"reserve", b"ctoken_market_value_lower_bound");
+    // summary(b"ctoken_market_value_upper_bound", @suilend, b"reserve", b"ctoken_market_value_upper_bound");
+    
+
+
+
+    /* Misc */
+
+    // Ignore the rate limiter
+    summary(b"rate_limiter_process_qty", @suilend, b"rate_limiter", b"process_qty");
+    // Nondet the max borrow amount
+    summary(b"max_borrow_amount", @suilend, b"lending_market", b"max_borrow_amount");
+
+    // Ignore mining
     summary(
         b"mining_change_user_reward_manager_share",
         @suilend,
         b"liquidity_mining",
         b"change_user_reward_manager_share",
     );
-
-    summary(b"reserve_mint_decimals", @suilend, b"reserve", b"mint_decimals");
-
     summary(b"mining_claim_rewards", @suilend, b"liquidity_mining", b"claim_rewards");
 }
+
+const MAX_DEPOSITS: u64 = 7;
+const MAX_BORROWS: u64 = 5;
 
 public fun reserve_mint_decimals<P>(_reserve: &Reserve<P>): u8 {
     9
 }
+
+public fun borrow_weight(_config: &ReserveConfig): Decimal {
+        decimal::from_bps(10000)
+    }
 
 public fun reserve_compound_borrow_rate(_: &mut Reserve<DummyPool>, _: u64): Decimal {
     let val = nondet_with!(b"Borrow rate", |r| 1 <= r && r < 2);
@@ -92,6 +133,13 @@ public fun reserve_rebalance_staker<P>(
     _system_state: &mut SuiSystemState,
     _ctx: &mut TxContext,
 ) {}
+
+public fun reserve_deposit_ctokens<P, T>(
+    _reserve: &mut Reserve<P>,
+    ctokens: Balance<CToken<P, T>>,
+) {
+    ghost_destroy(ctokens);
+}
 
 public fun rate_limiter_process_qty(
     _rate_limiter: &mut RateLimiter,
@@ -133,9 +181,9 @@ public fun obligation_find_deposit_index<P>(obligation: &Obligation<P>, reserve:
 }
 
 public fun obligation_refresh<P>(
-    obligation: &mut Obligation<P>,
-    reserves: &mut vector<Reserve<P>>,
-    clock: &Clock,
+    _obligation: &mut Obligation<P>,
+    _reserves: &mut vector<Reserve<P>>,
+    _clock: &Clock,
 ): Option<ExistStaleOracles> {
     nondet()
 }
@@ -177,10 +225,178 @@ public fun obligation_find_or_add_user_reward_manager<P>(
 public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}
 
 public(package) fun mining_claim_rewards<T>(
-    pool_reward_manager: &mut PoolRewardManager,
-    user_reward_manager: &mut UserRewardManager,
-    clock: &Clock,
-    reward_index: u64,
+    _pool_reward_manager: &mut PoolRewardManager,
+    _user_reward_manager: &mut UserRewardManager,
+    _clock: &Clock,
+    _reward_index: u64,
 ): Balance<T> {
     nondet()
 }
+
+public fun reserve_repay_liquidity<P, T>(
+    _reserve: &mut Reserve<P>,
+    liquidity: Balance<T>,
+    settle_amount: Decimal,
+) {
+    cvlm_assume_msg(liquidity.value() == settle_amount.ceil(), b"");
+    ghost_destroy(liquidity);
+}
+
+/* Obligation summaries */
+
+public native fun debt_factor(): Decimal;
+public fun obligation_compound_debt<P>(borrow: &mut Borrow, _reserve: &Reserve<P>) {
+    let f = debt_factor();
+    let one = decimal::from(1);
+    let two = decimal::from(1);
+    cvlm_assume_msg(f.ge(one), b">= 1");
+    cvlm_assume_msg(f.le(two), b"<= 2");
+
+    if (f.gt(one)) {
+        *borrow.borrowed_amount_mut() = borrow.borrowed_amount().mul(f);
+    }
+}
+
+public fun deposit<P>(
+    obligation: &mut Obligation<P>,
+    reserve: &mut Reserve<P>,
+    clock: &Clock,
+    ctoken_amount: u64,
+) {
+    let deposit_index = obligation.find_or_add_deposit(reserve, clock);
+    cvlm_assume_msg(obligation.deposits().length() <= MAX_DEPOSITS, b"");
+
+    let borrow_index = obligation.find_borrow_index(reserve);
+
+    cvlm_assume_msg(borrow_index == obligation.borrows().length(), b"");
+
+    let deposit = vector::borrow_mut(obligation.deposits_mut(), deposit_index);
+
+    *deposit.deposited_ctoken_amount_mut() = deposit.deposited_ctoken_amount() + ctoken_amount;
+
+    // Skip intermediate health value update
+}
+
+public fun borrow<P>(
+    obligation: &mut Obligation<P>,
+    reserve: &mut Reserve<P>,
+    clock: &Clock,
+    amount: u64,
+) {
+    let borrow_index = obligation.find_or_add_borrow(reserve, clock);
+    cvlm_assume_msg(obligation.borrows().length() <= MAX_BORROWS, b"");
+
+    let deposit_index = obligation.find_deposit_index(reserve);
+    cvlm_assume_msg(deposit_index == obligation.deposits().length(), b"");
+
+    let borrow = vector::borrow_mut(obligation.borrows_mut(), borrow_index);
+    *borrow.borrowed_amount_mut() = borrow.borrowed_amount().add(suilend::decimal::from(amount));
+
+    // update only relevant health values
+    //let borrow_market_value = reserve.market_value(decimal::from(amount));
+
+    // *borrow.market_value_mut() = borrow.market_value().add(borrow_market_value);
+    // *obligation.unweighted_borrowed_value_usd_mut() =
+    //     obligation.unweighted_borrowed_value_usd().add(borrow_market_value);
+    // *obligation.weighted_borrowed_value_usd_mut() =
+    //     obligation
+    //         .weighted_borrowed_value_usd()
+    //         .add(borrow_market_value.mul(borrow_weight(config(reserve))));
+
+    // weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd(pre) + weighted_borrowed_value_upper_bound_usd(new) <
+
+    let borrow_market_value_upper_bound = reserve.market_value_upper_bound(
+        decimal::from(amount),
+    );
+    *obligation.weighted_borrowed_value_upper_bound_usd_mut() =
+        obligation
+            .weighted_borrowed_value_upper_bound_usd()
+            .add(borrow_market_value_upper_bound.mul(borrow_weight(config(reserve))));
+
+    assert!(is_healthy(obligation));
+
+    if (isolated(config(reserve)) || obligation.borrowing_isolated_asset()) {
+        assert!(obligation.borrows().length() == 1);
+    };
+}
+
+public fun repay<P>(
+    obligation: &mut Obligation<P>,
+    reserve: &mut Reserve<P>,
+    _clock: &Clock,
+    max_repay_amount: Decimal,
+): Decimal {
+    let borrow_index = obligation.find_borrow_index(reserve);
+    cvlm_assume_msg(borrow_index < obligation.borrows().length(), b"Borrow exists");
+    let borrow = vector::borrow_mut(obligation.borrows_mut(), borrow_index);
+
+    borrow.compound_debt(reserve);
+
+    let repay_amount = min(max_repay_amount, borrow.borrowed_amount());
+
+    *borrow.borrowed_amount_mut() = borrow.borrowed_amount().sub(repay_amount);
+
+    // skip health updates
+
+    // if (borrow.borrowed_amount().eq(decimal::from(0))) {
+    //     let b = vector::remove(obligation.borrows_mut(), borrow_index);
+    //     ghost_destroy(b);
+    // };
+
+    repay_amount
+}
+
+public fun withdraw_unchecked<P>(
+    obligation: &mut Obligation<P>,
+    reserve: &mut Reserve<P>,
+    _clock: &Clock,
+    ctoken_amount: u64,
+) {
+    let deposit_index = obligation.find_deposit_index(reserve);
+    cvlm_assume_msg(deposit_index < obligation.deposits().length(), b"Deposit exists");
+    let deposit = vector::borrow_mut(obligation.deposits_mut(), deposit_index);
+
+    //let withdraw_market_value = reserve.ctoken_market_value(ctoken_amount);
+
+    *deposit.deposited_ctoken_amount_mut() = deposit.deposited_ctoken_amount() - ctoken_amount;
+    // if (deposit.deposited_ctoken_amount() == 0) {
+    //     let d = vector::remove(obligation.deposits_mut(), deposit_index);
+    //     ghost_destroy(d);
+    // };
+
+    // update only relevant health value
+    
+    // *deposit.market_value_mut() = deposit.market_value().sub(withdraw_market_value);
+    // let new_deposit_value_usd = obligation.deposited_value_usd().sub(withdraw_market_value);
+    // *obligation.deposited_value_usd_mut() = new_deposit_value_usd;
+
+    // This value is larger than the "true" value:
+    // floor(pre) - floor(new) >= floor(pre - new)
+    *obligation.allowed_borrow_value_usd_mut() =
+        obligation
+            .allowed_borrow_value_usd()
+            .sub(reserve
+                .ctoken_market_value_lower_bound(ctoken_amount)
+                .mul(
+                    open_ltv(config(reserve)),
+                ));
+    // *obligation.unhealthy_borrow_value_usd_mut() =
+    //     obligation
+    //         .unhealthy_borrow_value_usd()
+    //         .sub(withdraw_market_value.mul(close_ltv(config(reserve))));
+}
+
+public fun market_value<P>(reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
+    liquidity_amount.div(decimal::from(std::u64::pow(10, reserve.mint_decimals())))
+}
+
+public fun market_value_upper_bound<P>(reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
+    liquidity_amount.div(decimal::from(std::u64::pow(10, reserve.mint_decimals())))
+}
+
+public fun market_value_lower_bound<P>(reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
+    liquidity_amount.div(decimal::from(std::u64::pow(10, reserve.mint_decimals())))
+}
+
+
+public fun assert_price_is_fresh<P>(_reserve: &Reserve<P>, _clock: &Clock) {}
