@@ -65,8 +65,8 @@ public fun cvlm_manifest() {
 
     summary(b"reserve_mint_decimals", @suilend, b"reserve", b"mint_decimals");
     summary(b"borrow_weight", @suilend, b"reserve_config", b"borrow_weight");
-    summary(b"ctoken_market_value", @suilend, b"reserve", b"ctoken_market_value");
     
+    summary(b"ctoken_market_value", @suilend, b"reserve", b"ctoken_market_value");
     summary(
         b"ctoken_market_value_lower_bound",
         @suilend,
@@ -464,19 +464,16 @@ public fun market_value_lower_bound<P>(reserve: &Reserve<P>, liquidity_amount: D
 public fun assert_price_is_fresh<P>(_reserve: &Reserve<P>, _clock: &Clock) {}
 
 public fun ctoken_market_value<P>(reserve: &Reserve<P>, ctoken_amount: u64): Decimal {
-    // TODO should i floor here?
     let liquidity_amount = decimal::from(ctoken_amount);
     reserve.market_value(liquidity_amount)
 }
 
 public fun ctoken_market_value_lower_bound<P>(reserve: &Reserve<P>, ctoken_amount: u64): Decimal {
-    // TODO should i floor here?
     let liquidity_amount = decimal::from(ctoken_amount);
     reserve.market_value(liquidity_amount)
 }
 
 public fun ctoken_market_value_upper_bound<P>(reserve: &Reserve<P>, ctoken_amount: u64): Decimal {
-    // TODO should i floor here?
     let liquidity_amount = decimal::from(ctoken_amount);
     reserve.market_value(liquidity_amount)
 }
