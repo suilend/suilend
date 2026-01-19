@@ -39,22 +39,14 @@ public fun setup_obligation(
     cvlm_assume_msg(close_ltv.lt(one), b"");
     cvlm_assume_msg(borrow_weight.le(one), b"");
 
-    // Deposit reserve must be solvent, otherwise we get counterexamples due to rounding with token ratio < 1
-    // This is safe since we proved solvency in a different spec.
-    // Additionally assume total supply and ctoken supply are both larger than zero to omit rounding by 0 cases.
-    // cvlm_assume_msg(deposit_reserve.total_supply().gt(decimal::from(deposit_reserve.ctoken_supply())) , b"Solvency");
-    // cvlm_assume_msg(deposit_reserve.total_supply().gt(one) , b"Solvency");
-    // cvlm_assume_msg(deposit_reserve.ctoken_supply() > 1 , b"Solvency");
-
-    cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one) , b"Solvency");
-    cvlm_assume_msg(borrow_reserve.ctoken_ratio().eq(one) , b"Solvency");
+    cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one) , b"Constant ctoken ratio");
+    cvlm_assume_msg(borrow_reserve.ctoken_ratio().eq(one) , b"Constant ctoken ratio");
 
 
-    // let twenty_percent = decimal::from_bps(2_000);
-    // let fees = deposit_reserve.config().protocol_liquidation_fee().add(deposit_reserve.config().liquidation_bonus());
-    // cvlm_assume_msg(fees.lt(twenty_percent), b"");
-    cvlm_assume_msg(deposit_reserve.config().protocol_liquidation_fee().eq(zero), b"");
-    cvlm_assume_msg(deposit_reserve.config().liquidation_bonus().eq(zero), b"");
+    let twenty_percent = decimal::from_bps(2_000);
+    let fees = deposit_reserve.config().protocol_liquidation_fee().add(deposit_reserve.config().liquidation_bonus());
+    cvlm_assume_msg(fees.le(twenty_percent), b"Fees and bonus do not exceed 20 percent");
+    
 
     /* Freshness */
 
@@ -82,3 +74,5 @@ public fun setup_obligation(
 
     (obligation, repay_reserve_index, withdraw_reserve_index)
 }
+
+public fun log<T>(_: &T) {}
