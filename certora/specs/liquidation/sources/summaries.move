@@ -6,17 +6,15 @@ use cvlm::manifest::{summary, ghost};
 use cvlm::nondet::{nondet_with, nondet};
 use sui::balance::Balance;
 use sui::clock::Clock;
-use suilend::decimal::{Self, Decimal, div, ceil, mul, floor, min, le, gt, ge};
+use suilend::decimal::{Self, Decimal, min};
 use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
-use suilend::obligation::{Obligation, Borrow, Deposit, ExistStaleOracles};
-use suilend::reserve::{Reserve, CToken, config, market_value, ctoken_ratio};
-use suilend::reserve_config::{protocol_liquidation_fee, ReserveConfig};
+use suilend::obligation::{Obligation, Borrow, ExistStaleOracles};
+use suilend::reserve::{Reserve, CToken, market_value, ctoken_ratio};
+use suilend::reserve_config::{ReserveConfig};
 
 public fun cvlm_manifest() {
     /* Obligation Summaries */
 
-    // summary(b"liquidation_amounts", @suilend, b"obligation", b"liquidation_amounts");
-    // summary(b"reserve_deduct_liquidation_fee", @suilend, b"reserve", b"deduct_liquidation_fee");
 
     summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
     summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
@@ -52,9 +50,9 @@ public fun cvlm_manifest() {
     summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
 
 
-    // summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
-    // summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
-    // summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
+    summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
+    summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
+    summary(b"reserve_market_value_lower_bound", @suilend, b"reserve", b"market_value_lower_bound");
     summary(b"ctoken_market_value", @suilend, b"reserve", b"ctoken_market_value");
     summary(
         b"ctoken_market_value_lower_bound",
@@ -70,9 +68,7 @@ public fun cvlm_manifest() {
     );
 }
 
-public fun reserve_mint_decimals<P>(r: &Reserve<P>): u8 {
-    18
-}
+public fun reserve_mint_decimals<P>(_: &Reserve<P>): u8 {0}
 
 
 public(package) fun obligation_zero_out_rewards_if_looped<P>(
@@ -134,9 +130,10 @@ public fun obligation_log_obligation_data<P>(_obligation: &Obligation<P>) {} // 
 
 public fun reserve_compound_interest<P>(_: &mut Reserve<P>, _: &Clock) {}
 
-native fun mint_decimals(id: &UID): u8;
 
-fun mv<P>(_reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
+
+fun mv<P>(r: &Reserve<P>, liquidity_amount: Decimal): Decimal {
+    cvlm_assert(r.mint_decimals() == 0);
     liquidity_amount
 }
 
@@ -160,105 +157,6 @@ public fun reserve_market_value_lower_bound<P>(
 
 public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}
 
-fun liquidation_amounts<P>(
-    obligation: &Obligation<P>,
-    repay_amount: u64,
-    withdraw_reserve: &Reserve<P>,
-    repay_reserve: &Reserve<P>,
-    borrow: &Borrow,
-    deposit: &Deposit,
-): (Decimal, u64) {
-    // invariant: repay_amount <= borrow.borrowed_amount
-    // let repay_amount = if (le(borrow.market_value(), decimal::from(1))) {
-    //     // full liquidation
-    //     min(
-    //         borrow.borrowed_amount(),
-    //         decimal::from(repay_amount),
-    //     )
-    // } else {
-    // partial liquidation
-    // let max_repay_value = min(
-    //     mul(
-    //         obligation.weighted_borrowed_value_usd(),
-    //         decimal::from_percent(20),
-    //     ),
-    //     borrow.market_value(),
-    // );
-
-    cvlm_assume_msg(gt(borrow.market_value(), decimal::from(1)), b"");
-
-    // // Since weighted_borrowed_value_usd == borrow.market_value(), we can skip the min()
-    // let max_repay_value = mul(
-    //     obligation.weighted_borrowed_value_usd(),
-    //     decimal::from_percent(20),
-    // );
-
-    //let max_repay_value = obligation.weighted_borrowed_value_usd();
-
-    // Compute max_repay directly without intermediate percentage
-    // This avoids: mul(div(max_repay_value, borrow.market_value), borrow.borrowed_amount)
-    // let max_repay = div(
-    //     mul(max_repay_value, borrow.borrowed_amount()),
-    //     borrow.market_value(),
-    // );
-
-    let max_repay = borrow.borrowed_amount();
-
-    // Allow full liquidation
-    //let max_repay = borrow.borrowed_amount();
-
-    let repay_amount = min(max_repay, decimal::from(repay_amount));
-    //};
-
-    let repay_value = repay_reserve.market_value(repay_amount);
-
-    cvlm_assert(repay_value.le(borrow.market_value()));
-
-    // let bonus = add(
-    //     liquidation_bonus(config(withdraw_reserve)),
-    //     protocol_liquidation_fee(config(withdraw_reserve)),
-    // );
-
-    let withdraw_value = repay_value;
-    // mul(
-    //     repay_value,
-    //     add(decimal::from(1), bonus),
-    // );
-
-    // repay amount, but in decimals. called settle amount to keep logic in line with
-    // spl-lending
-    let final_settle_amount: Decimal;
-    let final_withdraw_amount;
-
-    cvlm_assume_msg(ge(deposit.market_value(), withdraw_value), b"");
-
-    // if (lt(deposit.market_value(), withdraw_value)) {
-    //     // Compute final_settle_amount directly without intermediate percentage
-    //     // This avoids: mul(repay_amount, div(deposit.market_value(), withdraw_value))
-    //     final_settle_amount =
-    //         div(
-    //             mul(repay_amount, deposit.market_value()),
-    //             withdraw_value,
-    //         );
-    //     final_withdraw_amount = deposit.deposited_ctoken_amount();
-    // } else {
-    // Compute final_withdraw_amount directly without intermediate percentage
-    // This avoids: mul(deposit.deposited_ctoken_amount, div(withdraw_value, deposit.market_value()))
-    final_settle_amount = repay_amount;
-    final_withdraw_amount =
-        floor(
-            div(
-                mul(decimal::from(deposit.deposited_ctoken_amount()), withdraw_value),
-                deposit.market_value(),
-            ),
-        );
-    // };
-
-    cvlm_assert(final_settle_amount.le(borrow.market_value()));
-    cvlm_assert(final_withdraw_amount <= (deposit.deposited_ctoken_amount()));
-
-    (final_settle_amount, final_withdraw_amount)
-}
 
 public fun obligation_refresh<P>(
     _obligation: &mut Obligation<P>,
@@ -269,9 +167,9 @@ public fun obligation_refresh<P>(
 }
 
 public fun reserve_repay_liquidity<P, T>(
-    reserve: &mut Reserve<P>,
+    _reserve: &mut Reserve<P>,
     liquidity: Balance<T>,
-    settle_amount: Decimal,
+    _settle_amount: Decimal,
 ) {
     ghost_destroy(liquidity);
 }
@@ -285,26 +183,6 @@ public fun reserve_withdraw_ctokens<P, T>(
     bal
 }
 
-public fun reserve_deduct_liquidation_fee<P, T>(
-    reserve: &mut Reserve<P>,
-    ctokens: &mut Balance<CToken<P, T>>,
-): (u64, u64) {
-    let pf = protocol_liquidation_fee(config(reserve));
-
-    //let bonus = liquidation_bonus(config(reserve));
-
-    // cvlm_assume_msg(pf.eq(decimal::from(0)), b"");
-    // cvlm_assume_msg(bonus.eq(decimal::from(0)), b"");
-    (0, 0)
-
-    // let bonus = liquidation_bonus(config(reserve));
-    // let denom = add(add(decimal::from(1), bonus), pf);
-
-    // let protocol_fee_amount = ceil(mul(div(pf, denom), decimal::from(balance::value(ctokens))));
-    // ghost_destroy(balance::split(ctokens, protocol_fee_amount));
-
-    // (protocol_fee_amount, nondet())
-}
 
 // no nothing
 public fun obligation_compound_debt<P>(_borrow: &mut Borrow, _reserve: &Reserve<P>) {}
