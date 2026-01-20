@@ -1,14 +1,12 @@
 module commons::helper;
 
-
-
 use cvlm::asserts::cvlm_assume_msg;
 use dummy_pool::dummy_pool::DummyPool;
-use suilend::decimal;
+use suilend::decimal::{Self, Decimal};
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use suilend::decimal::Decimal;
-
+use suilend::reserve::Reserve;
+use suilend::reserve_config::open_ltv;
 
 /// Maximum number of deposits allowed in an obligation for verification purposes.
 /// Limited to 1 to reduce verification complexity.
@@ -17,7 +15,6 @@ const MAX_DEPOSITS: u64 = 1;
 /// Maximum number of borrows allowed in an obligation for verification purposes.
 /// Limited to 1 to reduce verification complexity.
 const MAX_BORROWS: u64 = 1;
-
 
 /// Returns the maximum number of deposits allowed in an obligation for verification.
 public fun max_deposits(): u64 {
@@ -64,7 +61,6 @@ fun setup_deposit_assumptions(
     deposit_reserve: &suilend::reserve::Reserve<DummyPool>,
     deposit: &suilend::obligation::Deposit,
 ): (suilend::decimal::Decimal, suilend::decimal::Decimal, suilend::decimal::Decimal) {
-
     let zero = zero();
     let one = one();
 
@@ -76,16 +72,37 @@ fun setup_deposit_assumptions(
     cvlm_assume_msg(close_ltv.lt(one), b"close_ltv < 1");
     cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one), b"ctoken_ratio = 1");
 
-
-    let fees = deposit_reserve.config().protocol_liquidation_fee().add(deposit_reserve.config().liquidation_bonus());
+    let fees = deposit_reserve
+        .config()
+        .protocol_liquidation_fee()
+        .add(deposit_reserve.config().liquidation_bonus());
     cvlm_assume_msg(fees.le(twenty_percent()), b"Fees and bonus do not exceed 20 percent");
 
+    let (deposited_value_usd, allowed_borrow_value, unhealthy_borrow_value_usd) = deposit_values(
+        deposit_reserve,
+        deposit,
+        open_ltv,
+        close_ltv,
+    );
+
+    cvlm_assume_msg(
+        deposit.market_value() == deposited_value_usd,
+        b"Deposit market value matches calculated deposited value in USD",
+    );
+
+    (deposited_value_usd, allowed_borrow_value, unhealthy_borrow_value_usd)
+}
+
+fun deposit_values<P>(
+    deposit_reserve: &suilend::reserve::Reserve<P>,
+    deposit: &suilend::obligation::Deposit,
+    open_ltv: Decimal,
+    close_ltv: Decimal,
+): (Decimal, Decimal, Decimal) {
     let deposited_value_usd = deposit_reserve.ctoken_market_value(deposit.deposited_ctoken_amount());
     let deposited_value_usd_lb = deposit_reserve.ctoken_market_value_lower_bound(deposit.deposited_ctoken_amount());
     let allowed_borrow_value = deposited_value_usd_lb.mul(open_ltv);
     let unhealthy_borrow_value_usd = deposited_value_usd_lb.mul(close_ltv);
-
-    cvlm_assume_msg(deposit.market_value() == deposited_value_usd, b"Deposit market value matches calculated deposited value in USD");
 
     (deposited_value_usd, allowed_borrow_value, unhealthy_borrow_value_usd)
 }
@@ -114,16 +131,41 @@ fun setup_borrow_assumptions(
     cvlm_assume_msg(borrow_weight.ge(one), b"Borrow weight >= 1");
     cvlm_assume_msg(borrow_reserve.ctoken_ratio().eq(one), b"ctoken_ratio = 1");
 
+    let (
+        unweighted_borrowed_value_usd,
+        weighted_borrowed_value_usd,
+        weighted_borrowed_value_upper_bound_usd,
+    ) = borrow_values(borrow_reserve, borrow, borrow_weight);
+
+    cvlm_assume_msg(
+        borrow.market_value() == unweighted_borrowed_value_usd,
+        b"Borrow market value matches calculated unweighted borrowed value in USD",
+    );
+
+    (
+        unweighted_borrowed_value_usd,
+        weighted_borrowed_value_usd,
+        weighted_borrowed_value_upper_bound_usd,
+    )
+}
+
+fun borrow_values<P>(
+    borrow_reserve: &suilend::reserve::Reserve<P>,
+    borrow: &suilend::obligation::Borrow,
+    borrow_weight: Decimal,
+): (Decimal, Decimal, Decimal) {
     let unweighted_borrowed_value_usd = borrow_reserve.market_value(borrow.borrowed_amount());
     let unweighted_borrowed_value_usd_ub = borrow_reserve.market_value_upper_bound(borrow.borrowed_amount());
     let weighted_borrowed_value_usd = unweighted_borrowed_value_usd.mul(borrow_weight);
-    let weighted_borrowed_value_upper_bound_usd = unweighted_borrowed_value_usd_ub.mul(borrow_weight);
-
-    cvlm_assume_msg(borrow.market_value() == unweighted_borrowed_value_usd, b"Borrow market value matches calculated unweighted borrowed value in USD");
-
-    (unweighted_borrowed_value_usd, weighted_borrowed_value_usd, weighted_borrowed_value_upper_bound_usd)
+    let weighted_borrowed_value_upper_bound_usd = unweighted_borrowed_value_usd_ub.mul(
+        borrow_weight,
+    );
+    (
+        unweighted_borrowed_value_usd,
+        weighted_borrowed_value_usd,
+        weighted_borrowed_value_upper_bound_usd,
+    )
 }
-
 
 /// Sets up an obligation for verification with support for multiple deposits and borrows.
 ///
@@ -144,12 +186,12 @@ public fun setup_obligation(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligati
     let obligation = lm.obligation(ob_id);
     cvlm_assume_msg(obligation.deposits().length() <= MAX_DEPOSITS, b"Limit number of deposits");
     cvlm_assume_msg(obligation.borrows().length() <= MAX_BORROWS, b"Limit number of borrows");
-   
+
     let deposits = obligation.deposits().length();
     let borrows = obligation.borrows().length();
 
     /* Freshness */
-    let zero = decimal::from(0);
+    let zero = zero();
 
     // Collateral
     let mut deposited_value_usd = zero;
@@ -161,8 +203,11 @@ public fun setup_obligation(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligati
         let deposit = &obligation.deposits()[i];
         let deposit_reserve = &lm.reserves()[deposit.reserve_array_index()];
 
-        let (deposited_value_usd_i, allowed_borrow_value_i, unhealthy_borrow_value_usd_i) =
-            setup_deposit_assumptions(deposit_reserve, deposit);
+        let (
+            deposited_value_usd_i,
+            allowed_borrow_value_i,
+            unhealthy_borrow_value_usd_i,
+        ) = setup_deposit_assumptions(deposit_reserve, deposit);
 
         deposited_value_usd = deposited_value_usd.add(deposited_value_usd_i);
         allowed_borrow_value = allowed_borrow_value.add(allowed_borrow_value_i);
@@ -171,9 +216,18 @@ public fun setup_obligation(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligati
         i = i+1;
     };
 
-    cvlm_assume_msg(obligation.deposited_value_usd() == deposited_value_usd, b"Obligation deposited value matches sum of all deposits");
-    cvlm_assume_msg(obligation.allowed_borrow_value_usd() == allowed_borrow_value, b"Obligation allowed borrow value matches calculated borrowing capacity");
-    cvlm_assume_msg(obligation.unhealthy_borrow_value_usd() == unhealthy_borrow_value_usd, b"Obligation unhealthy borrow value matches calculated liquidation threshold");
+    cvlm_assume_msg(
+        obligation.deposited_value_usd() == deposited_value_usd,
+        b"Obligation deposited value matches sum of all deposits",
+    );
+    cvlm_assume_msg(
+        obligation.allowed_borrow_value_usd() == allowed_borrow_value,
+        b"Obligation allowed borrow value matches calculated borrowing capacity",
+    );
+    cvlm_assume_msg(
+        obligation.unhealthy_borrow_value_usd() == unhealthy_borrow_value_usd,
+        b"Obligation unhealthy borrow value matches calculated liquidation threshold",
+    );
 
     // Debt
 
@@ -186,8 +240,11 @@ public fun setup_obligation(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligati
         let borrow = &obligation.borrows()[i];
         let borrow_reserve = &lm.reserves()[borrow.reserve_array_index()];
 
-        let (unweighted_borrowed_value_usd_i, weighted_borrowed_value_usd_i, weighted_borrowed_value_upper_bound_usd_i) =
-            setup_borrow_assumptions(borrow_reserve, borrow);
+        let (
+            unweighted_borrowed_value_usd_i,
+            weighted_borrowed_value_usd_i,
+            weighted_borrowed_value_upper_bound_usd_i,
+        ) = setup_borrow_assumptions(borrow_reserve, borrow);
 
         unweighted_borrowed_value_usd =
             unweighted_borrowed_value_usd.add(unweighted_borrowed_value_usd_i);
@@ -203,7 +260,10 @@ public fun setup_obligation(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligati
         obligation.unweighted_borrowed_value_usd() == unweighted_borrowed_value_usd,
         b"Obligation unweighted borrowed value matches sum of all borrows",
     );
-    cvlm_assume_msg(obligation.weighted_borrowed_value_usd() == weighted_borrowed_value_usd, b"Obligation weighted borrowed value matches sum of all risk-adjusted borrows");
+    cvlm_assume_msg(
+        obligation.weighted_borrowed_value_usd() == weighted_borrowed_value_usd,
+        b"Obligation weighted borrowed value matches sum of all risk-adjusted borrows",
+    );
     cvlm_assume_msg(
         obligation.weighted_borrowed_value_upper_bound_usd() == weighted_borrowed_value_upper_bound_usd,
         b"Obligation weighted borrowed value upper bound matches sum of all upper bounds",
@@ -232,7 +292,10 @@ public fun setup_obligation(lm: &LendingMarket<DummyPool>, ob_id: ID): &Obligati
 /// - obligation: Reference to the verified obligation
 /// - repay_reserve_index: Index of the reserve to repay (the borrowed asset)
 /// - withdraw_reserve_index: Index of the reserve to withdraw (the collateral asset)
-public fun setup_obligation_for_liquidation(lm: &LendingMarket<DummyPool>, ob_id: ID): (&Obligation<DummyPool>, u64, u64)  {
+public fun setup_obligation_for_liquidation(
+    lm: &LendingMarket<DummyPool>,
+    ob_id: ID,
+): (&Obligation<DummyPool>, u64, u64) {
     cvlm_assume_msg(lm.reserves().length() == 2, b"Exactly two reserves");
 
     let obligation = lm.obligation(ob_id);
@@ -245,27 +308,158 @@ public fun setup_obligation_for_liquidation(lm: &LendingMarket<DummyPool>, ob_id
     let repay_reserve_index = borrow.reserve_array_index();
     let withdraw_reserve_index = deposit.reserve_array_index();
 
-    cvlm_assume_msg(withdraw_reserve_index != repay_reserve_index, b"Withdraw and repay reserves must differ");
+    cvlm_assume_msg(
+        withdraw_reserve_index != repay_reserve_index,
+        b"Withdraw and repay reserves must differ",
+    );
 
     let borrow_reserve = &lm.reserves()[repay_reserve_index];
     let deposit_reserve = &lm.reserves()[withdraw_reserve_index];
-    cvlm_assume_msg(borrow_reserve != deposit_reserve, b"Borrow from different reserve than deposited to");
+    cvlm_assume_msg(
+        borrow_reserve != deposit_reserve,
+        b"Borrow from different reserve than deposited to",
+    );
 
     // Setup deposit assumptions and calculate collateral values
-    let (deposited_value_usd, allowed_borrow_value, unhealthy_borrow_value_usd) =
-        setup_deposit_assumptions(deposit_reserve, deposit);
+    let (
+        deposited_value_usd,
+        allowed_borrow_value,
+        unhealthy_borrow_value_usd,
+    ) = setup_deposit_assumptions(deposit_reserve, deposit);
 
-    cvlm_assume_msg(obligation.deposited_value_usd() == deposited_value_usd, b"Obligation deposited value matches single deposit value");
-    cvlm_assume_msg(obligation.allowed_borrow_value_usd() == allowed_borrow_value, b"Obligation allowed borrow value matches single deposit borrowing capacity");
-    cvlm_assume_msg(obligation.unhealthy_borrow_value_usd() == unhealthy_borrow_value_usd, b"Obligation unhealthy borrow value matches single deposit liquidation threshold");
+    cvlm_assume_msg(
+        obligation.deposited_value_usd() == deposited_value_usd,
+        b"Obligation deposited value matches single deposit value",
+    );
+    cvlm_assume_msg(
+        obligation.allowed_borrow_value_usd() == allowed_borrow_value,
+        b"Obligation allowed borrow value matches single deposit borrowing capacity",
+    );
+    cvlm_assume_msg(
+        obligation.unhealthy_borrow_value_usd() == unhealthy_borrow_value_usd,
+        b"Obligation unhealthy borrow value matches single deposit liquidation threshold",
+    );
 
     // Setup borrow assumptions and calculate debt values
-    let (unweighted_borrowed_value_usd, weighted_borrowed_value_usd, weighted_borrowed_value_upper_bound_usd) =
-        setup_borrow_assumptions(borrow_reserve, borrow);
+    let (
+        unweighted_borrowed_value_usd,
+        weighted_borrowed_value_usd,
+        weighted_borrowed_value_upper_bound_usd,
+    ) = setup_borrow_assumptions(borrow_reserve, borrow);
 
-    cvlm_assume_msg(obligation.unweighted_borrowed_value_usd() == unweighted_borrowed_value_usd, b"Obligation unweighted borrowed value matches single borrow value");
-    cvlm_assume_msg(obligation.weighted_borrowed_value_usd() == weighted_borrowed_value_usd, b"Obligation weighted borrowed value matches single borrow risk-adjusted value");
-    cvlm_assume_msg(obligation.weighted_borrowed_value_upper_bound_usd() == weighted_borrowed_value_upper_bound_usd, b"Obligation weighted borrowed value upper bound matches single borrow upper bound");
+    cvlm_assume_msg(
+        obligation.unweighted_borrowed_value_usd() == unweighted_borrowed_value_usd,
+        b"Obligation unweighted borrowed value matches single borrow value",
+    );
+    cvlm_assume_msg(
+        obligation.weighted_borrowed_value_usd() == weighted_borrowed_value_usd,
+        b"Obligation weighted borrowed value matches single borrow risk-adjusted value",
+    );
+    cvlm_assume_msg(
+        obligation.weighted_borrowed_value_upper_bound_usd() == weighted_borrowed_value_upper_bound_usd,
+        b"Obligation weighted borrowed value upper bound matches single borrow upper bound",
+    );
 
     (obligation, repay_reserve_index, withdraw_reserve_index)
+}
+
+/// Refreshes the health metrics of an obligation by recalculating all deposit and borrow values.
+///
+/// This function iterates through all deposits and borrows in the obligation, recalculates
+/// their current market values based on the latest reserve data, and updates the obligation's
+/// aggregate health metrics.
+///
+/// # Important
+/// **This function ignores all debt and interest accrual.** It does not update borrowed amounts
+/// or accumulate interest over time. It only recalculates the USD values based on current prices
+/// and the existing deposited/borrowed token amounts.
+///
+/// # Updates
+/// For each deposit:
+/// - Recalculates deposited value, allowed borrow value, and unhealthy borrow value
+/// - Updates the deposit's market value
+///
+/// For each borrow:
+/// - Recalculates unweighted, weighted, and upper bound borrowed values
+/// - Updates the borrow's market value
+///
+/// Obligation-level values updated:
+/// - deposited_value_usd
+/// - allowed_borrow_value_usd
+/// - unhealthy_borrow_value_usd
+/// - unweighted_borrowed_value_usd
+/// - weighted_borrowed_value_usd
+/// - weighted_borrowed_value_upper_bound_usd
+public fun refresh_health<P>(
+    obligation: &mut Obligation<P>,
+    reserves: &mut vector<Reserve<P>>,
+) {
+    
+    let deposits = obligation.deposits().length();
+    let borrows = obligation.borrows().length();
+
+    /* Freshness */
+    let zero = zero();
+
+    let mut deposited_value_usd = zero;
+    let mut allowed_borrow_value = zero;
+    let mut unhealthy_borrow_value_usd = zero;
+    let mut i = 0;
+    while (i < deposits) {
+        let deposit = &mut obligation.deposits_mut()[i];
+        let deposit_reserve = &reserves[deposit.reserve_array_index()];
+        let open_ltv = deposit_reserve.config().open_ltv();
+        let close_ltv = deposit_reserve.config().close_ltv();
+        
+        // Sound state
+        cvlm_assume_msg(zero.lt(open_ltv), b"0 < open_ltv");
+        cvlm_assume_msg(open_ltv.le(close_ltv), b"open_ltv <= close_ltv");
+        cvlm_assume_msg(close_ltv.lt(one()), b"close_ltv < 1");
+        cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one()), b"ctoken_ratio = 1");
+
+        let (
+            deposited_value_usd_i,
+            allowed_borrow_value_i,
+            unhealthy_borrow_value_usd_i,
+        ) = deposit_values(deposit_reserve, deposit, open_ltv, close_ltv);
+
+        deposited_value_usd = deposited_value_usd.add(deposited_value_usd_i);
+        allowed_borrow_value = allowed_borrow_value.add(allowed_borrow_value_i);
+        unhealthy_borrow_value_usd = unhealthy_borrow_value_usd.add(unhealthy_borrow_value_usd_i);
+
+        *deposit.market_value_mut() = deposited_value_usd_i;
+        i = i+1;
+    };
+    *obligation.allowed_borrow_value_usd_mut() = allowed_borrow_value;
+    *obligation.deposited_value_usd_mut() = deposited_value_usd;
+    *obligation.unhealthy_borrow_value_usd_mut() = unhealthy_borrow_value_usd;
+
+    let mut unweighted_borrowed_value_usd = zero;
+    let mut weighted_borrowed_value_usd = zero;
+    let mut weighted_borrowed_value_upper_bound_usd = zero;
+    let mut i = 0;
+    while (i < borrows) {
+        let borrow = &mut obligation.borrows_mut()[i];
+        let borrow_reserve = &reserves[borrow.reserve_array_index()];
+        let borrow_weight = borrow_reserve.config().borrow_weight();
+    
+        // Sound state
+        cvlm_assume_msg(borrow_weight.ge(one()), b"Borrow weight >= 1");
+
+        let (
+            unweighted_borrowed_value_usd_i,
+            weighted_borrowed_value_usd_i,
+            weighted_borrowed_value_upper_bound_usd_i,
+        ) = borrow_values(borrow_reserve, borrow, borrow_weight);
+
+        unweighted_borrowed_value_usd = unweighted_borrowed_value_usd.add(unweighted_borrowed_value_usd_i);
+        weighted_borrowed_value_usd = weighted_borrowed_value_usd.add(weighted_borrowed_value_usd_i);
+        weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd.add(weighted_borrowed_value_upper_bound_usd_i);
+
+        *borrow.market_value_mut() = unweighted_borrowed_value_usd_i;
+        i = i+1;
+    };
+    *obligation.unweighted_borrowed_value_usd_mut() = unweighted_borrowed_value_usd;
+    *obligation.weighted_borrowed_value_usd_mut() = weighted_borrowed_value_usd;
+    *obligation.weighted_borrowed_value_upper_bound_usd_mut() = weighted_borrowed_value_upper_bound_usd;
 }
