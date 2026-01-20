@@ -15,7 +15,6 @@ use sui::balance::Balance;
 use sui::sui::SUI;
 use sui_system::sui_system::SuiSystemState;
 use cvlm::manifest::ghost;
-use cvlm::ghost::ghost_write;
 use cvlm::asserts::cvlm_assume_msg;
 use suilend::liquidity_mining::PoolRewardManager;
 use suilend::liquidity_mining::UserRewardManager;
@@ -165,16 +164,14 @@ public fun rate_limiter_process_qty(
     _qty: Decimal,
 ) {} // noop
 
-public fun log<T>(_what: &T) {}
 
 public(package) fun staker_deposit<P>(_staker: &mut Staker<P>, sui: Balance<SUI>) {
     let v = sui.value();
     
     let staked_pre = staked_sui();
-    log(staked_pre);
+    
     //ghost_write(&mut staked_sui(), staked_pre + v);
     *staked_pre = *staked_pre + v;
-    log(staked_sui());
 
     ghost_destroy(sui);
 } // noop

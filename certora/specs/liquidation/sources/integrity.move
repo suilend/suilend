@@ -5,7 +5,7 @@ use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::rule;
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
-use liquidation::utils::{log};
+use commons::utils::log;
 use commons::helper::setup_obligation_for_liquidation;
 use sui::coin::Coin;
 use suilend::decimal::{gt};
