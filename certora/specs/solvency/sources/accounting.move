@@ -11,7 +11,7 @@ use suilend::lending_market::LendingMarket;
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
 use sui::sui::SUI;
-use solvency::summaries::staked_sui;
+use solvency::summaries_staking::staked_sui;
 
 public fun cvlm_manifest() {
     // Public mut functions
