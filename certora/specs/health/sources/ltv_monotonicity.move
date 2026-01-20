@@ -8,7 +8,7 @@ use suilend::decimal::Decimal;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
 use sui::clock::Clock;
-use health::utils::{ setup_obligation};
+use commons::helper::setup_obligation;
 
 public fun cvlm_manifest() {
     // Public mut functions

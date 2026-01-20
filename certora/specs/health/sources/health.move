@@ -7,11 +7,12 @@ use cvlm::manifest::{target, invoker, rule};
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
 use health::summaries::debt_factor;
-use health::utils::setup_obligation;
 use sui::clock::Clock;
 use suilend::decimal;
 use suilend::lending_market::LendingMarket;
 use dummy_pool::obligation;
+use commons::helper::setup_obligation;
+
 use health::utils::require_liquidatable_only_if_unhealthy;
 use health::utils::forgivable_only_if;
 

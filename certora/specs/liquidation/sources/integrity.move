@@ -5,7 +5,8 @@ use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::rule;
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
-use liquidation::utils::{setup_obligation, log};
+use liquidation::utils::{log};
+use commons::helper::setup_obligation_for_liquidation;
 use sui::coin::Coin;
 use suilend::decimal::{gt};
 use suilend::lending_market::LendingMarket;
@@ -24,7 +25,7 @@ public fun liquidation_only_unhealthy_obligation<R, W>(
     lm: &mut LendingMarket<DummyPool>,
     ob_id: ID,
 ) {
-    let (obligation, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
+    let (obligation, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
 
     let liquidatable = obligation.is_liquidatable();
     let healthy = obligation.is_healthy();
@@ -58,7 +59,7 @@ public fun liquidation_reduces_collateral_and_debt<R, W>(
     lm: &mut LendingMarket<DummyPool>,
     ob_id: ID,
 ) {
-    let (obligation, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
+    let (obligation, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
 
     let (deposits_pre, borrows_pre) = {
         let deposits = obligation.deposits()[0].deposited_ctoken_amount();
@@ -101,7 +102,7 @@ public fun liquidation_reduces_collateral_and_debt<R, W>(
 /// Verifies that liquidation is not a loss for the liquidator.
 /// That means that the market value of the returned CTokens is at least the market value of the repaid debt.
 public fun liquidation_improves_health<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
-    let (ob, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
+    let (ob, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
 
     let clock = nondet();
     let mut ctx = nondet();

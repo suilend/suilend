@@ -5,7 +5,7 @@ use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
-use health::utils::setup_obligation;
+use commons::helper::setup_obligation;
 use sui::clock::Clock;
 
 public fun cvlm_manifest() {

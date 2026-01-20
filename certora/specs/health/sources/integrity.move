@@ -4,11 +4,11 @@ use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
-use health::utils::{setup_obligation, require_liquidatable_only_if_unhealthy};
+use health::utils::{require_liquidatable_only_if_unhealthy};
+use commons::helper::setup_obligation;
 use sui::clock::Clock;
-use suilend::decimal::{Self, Decimal};
+use suilend::decimal::{Self};
 use suilend::lending_market::LendingMarket;
-use suilend::obligation::Obligation;
 
 public fun cvlm_manifest() {
     // Public mut functions
