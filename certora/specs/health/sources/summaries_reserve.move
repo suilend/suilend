@@ -38,6 +38,7 @@ public fun cvlm_manifest() {
     summary(b"init_staker", @suilend, b"reserve", b"init_staker");
     summary(b"log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
     summary(b"assert_price_is_fresh", @suilend, b"reserve", b"assert_price_is_fresh");
+    summary(b"withdraw_ctokens", @suilend, b"reserve", b"withdraw_ctokens");
 
     // Pricing / Market Value: NOT summarized - these are critical for health calculations.
     // Fixing price = 1 would simplify verification but would mask real violations.
@@ -196,3 +197,9 @@ public fun ctoken_market_value_upper_bound<P>(reserve: &Reserve<P>, ctoken_amoun
 
 /// No-op price freshness check. Oracle staleness is not verified in obligation health specs.
 public fun assert_price_is_fresh<P>(_reserve: &Reserve<P>, _clock: &Clock) {}
+
+/// Returns nondeterministic ctokens when withdrawing from reserve.
+/// The actual reserve ctoken balance management is irrelevant for obligation health verification.
+public fun withdraw_ctokens<P, T>(_reserve: &mut Reserve<P>, _amount: u64): Balance<CToken<P, T>> {
+    nondet()
+}

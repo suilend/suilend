@@ -2,7 +2,7 @@
 module health::summaries_obligation;
 
 use commons::helper::{max_deposits, max_borrows};
-use cvlm::asserts::cvlm_assume_msg;
+use cvlm::asserts::{cvlm_assume_msg};
 use cvlm::manifest::{summary, ghost};
 use cvlm::nondet::nondet;
 use sui::clock::Clock;
@@ -19,11 +19,12 @@ public fun cvlm_manifest() {
     summary(b"obligation_compound_debt", @suilend, b"obligation", b"compound_debt");
 
     // Main entrypoints: For efficiency, the core obligation operations (deposit, borrow, repay, withdraw)
-    // are simplified such that they do not perform intermediate health updates. 
+    // are simplified such that they do not perform intermediate health updates.
     // The `refresh` function is summarized to do nothing. Instead, health related values are computed in the specs.
     summary(b"deposit", @suilend, b"obligation", b"deposit");
     summary(b"repay", @suilend, b"obligation", b"repay");
     summary(b"withdraw_unchecked", @suilend, b"obligation", b"withdraw_unchecked");
+    summary(b"withdraw", @suilend, b"obligation", b"withdraw");
     summary(b"borrow", @suilend, b"obligation", b"borrow");
     summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
 
@@ -153,6 +154,24 @@ public fun repay<P>(
 
     *borrow.borrowed_amount_mut() = borrow.borrowed_amount().sub(repay_amount);
     repay_amount
+}
+
+/// Simplified withdraw that updates deposited ctoken amount and checks health.
+///
+/// Unlike the real implementation, this skips the stale oracle conditional logic by assuming
+/// no stale oracles exist (via destroy_none()). This is safe because refresh() is already
+/// summarized to return nondet, and oracle freshness is controlled in the test setup.
+/// The function still performs the critical health check that other rules depend on.
+public fun withdraw<P>(
+    obligation: &mut Obligation<P>,
+    reserve: &mut Reserve<P>,
+    clock: &Clock,
+    ctoken_amount: u64,
+    stale_oracles: Option<ExistStaleOracles>,
+) {
+    stale_oracles.destroy_none();
+    withdraw_unchecked(obligation, reserve, clock, ctoken_amount);
+    assert!(is_healthy(obligation));
 }
 
 /// Simplified withdraw that updates deposited ctoken amount and allowed borrow value.
