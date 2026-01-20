@@ -61,7 +61,7 @@ jobs:
         uses: Certora/certora-run-action@v2
         with:
           ecosystem: sui
-          working-directory: certora/specs/obligation_spec
+          working-directory: certora/specs/obligation
           configurations: |-
             confs/state.conf
           job-name: "Verify Obligation Integrity Rules"

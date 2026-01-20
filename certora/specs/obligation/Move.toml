@@ -1,5 +1,5 @@
 [package]
-name = "obligation_spec"
+name = "obligation"
 edition = "2024.beta"
 
 [dependencies]
@@ -9,4 +9,4 @@ cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm",
 certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries",  rev = "main" }
 
 [addresses]
-obligation_spec = "0x0"
+obligation = "0x0"

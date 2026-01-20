@@ -1,4 +1,4 @@
-module obligation_spec::summaries;
+module obligation::summaries;
 
 use cvlm::asserts::cvlm_assume_msg;
 use cvlm::manifest::summary;

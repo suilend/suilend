@@ -1,4 +1,4 @@
-module obligation_spec::state;
+module obligation::state;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
