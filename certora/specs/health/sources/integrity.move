@@ -4,10 +4,10 @@ use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
-use health::utils::{require_liquidatable_only_if_unhealthy};
 use commons::helper::setup_obligation;
 use sui::clock::Clock;
 use suilend::decimal::{Self};
+use commons::inv::require_sound_obligation_state;
 use suilend::lending_market::LendingMarket;
 
 public fun cvlm_manifest() {
@@ -83,7 +83,7 @@ fun increasing_collateral_stays_healthy(
     let obligation = setup_obligation(lending_market, id);
     let coll_pre = obligation.deposited_value_usd();
     cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy");
-    require_liquidatable_only_if_unhealthy(obligation);
+    require_sound_obligation_state(obligation);
 
     invoke(target, lending_market, id);
 

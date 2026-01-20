@@ -4,17 +4,14 @@ use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
-use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
 use health::summaries::debt_factor;
 use sui::clock::Clock;
 use suilend::decimal;
 use suilend::lending_market::LendingMarket;
-use dummy_pool::obligation;
 use commons::helper::setup_obligation;
+use commons::inv::require_sound_obligation_state;
 
-use health::utils::require_liquidatable_only_if_unhealthy;
-use health::utils::forgivable_only_if;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -99,8 +96,7 @@ public fun obligation_health_step(
     cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
 
     
-    require_liquidatable_only_if_unhealthy(obligation);
-    forgivable_only_if(obligation);
+    require_sound_obligation_state(obligation);
    
 
     invoke(target, lending_market, id);

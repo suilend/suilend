@@ -7,6 +7,7 @@ use cvlm::manifest::{rule, target, invoker};
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
 use dummy_pool::obligation::{ create_obligation};
+use commons::inv::{liquidatable_implies_unhealthy,forgivable_only_if_unhealthy_or_debt_free};
 use sui::clock::Clock;
 use suilend::decimal;
 use suilend::obligation::Obligation;
@@ -38,16 +39,6 @@ native fun invoke(
     reserve: &mut Reserve<DummyPool>,
     clock: &Clock,
 );
-
-/* INVARIANT: liquidatable implies unhealthy */
-
-/// In other words, only unhealthy obligations may be liquidated.
-public fun liquidatable_implies_unhealthy(obligation: &Obligation<DummyPool>): bool {
-    let healthy = obligation.is_healthy();
-    let liquidatable = obligation.is_liquidatable();
-    // liquidatable -> unhealthy  <==> !liquidatable || unhealthy
-    return !liquidatable || !healthy
-}
 
 public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut TxContext) {
     let obligation = create_obligation(lending_market_id, ctx);
@@ -100,16 +91,8 @@ public fun liquidatable_implies_unhealthy_step(
 
 /* INVARIANT: Forgivable implies unhealthy or debt free */
 
-/// If an obligation is liquidatable, then is also unhealthy.
-/// In other words, only unhealthy obligations may be liquidated.
 
-public fun forgivable_only_if_unhealthy_or_debt_free(obligation: &Obligation<DummyPool>): bool {
-    let healthy = obligation.is_healthy();
-    let forgivable = obligation.is_forgivable();
-    let no_debt = obligation.borrows().length() == 0;
-    // forgivable => unhealthy | no borrows
-    return !forgivable || !healthy || no_debt
-}
+
 
 public fun forgivable_only_if_unhealthy_or_debt_free_base(
     lending_market_id: ID,
