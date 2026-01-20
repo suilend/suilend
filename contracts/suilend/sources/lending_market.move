@@ -1425,23 +1425,34 @@ module suilend::lending_market {
         clock: &Clock,
         ctx: &mut TxContext,
     ) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-        assert!(
-            reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves),
-            EDuplicateReserve,
-        );
-
-        let reserve = reserve::create_reserve<P, T>(
-            object::id(lending_market),
-            config,
-            vector::length(&lending_market.reserves),
-            coin::get_decimals(coin_metadata),
+        add_reserve_internal<_, T>(
+            lending_market,
             price_info,
+            config,
+            coin_metadata.get_decimals(),
             clock,
             ctx,
         );
+    }
 
-        vector::push_back(&mut lending_market.reserves, reserve);
+    /// Creates a new coin_registry::Currency reserve in a lending market
+    public fun add_registry_reserve<P, T>(
+        _lending_market_owner_cap: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        price_info: &PriceInfoObject,
+        config: ReserveConfig,
+        coin_metadata: &sui::coin_registry::Currency<T>,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        add_reserve_internal<_, T>(
+            lending_market,
+            price_info,
+            config,
+            coin_metadata.decimals(),
+            clock,
+            ctx,
+        );
     }
 
     /// Updates the configuration of a reserve.
@@ -1963,6 +1974,33 @@ module suilend::lending_market {
         });
 
         rewards
+    }
+
+    fun add_reserve_internal<P, T>(
+        lending_market: &mut LendingMarket<P>,
+        price_info: &PriceInfoObject,
+        config: ReserveConfig,
+        decimals: u8,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+        assert!(
+            reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves),
+            EDuplicateReserve,
+        );
+
+        let reserve = reserve::create_reserve<P, T>(
+            object::id(lending_market),
+            config,
+            vector::length(&lending_market.reserves),
+            decimals,
+            price_info,
+            clock,
+            ctx,
+        );
+
+        vector::push_back(&mut lending_market.reserves, reserve);
     }
 
     // === Test Functions ===
