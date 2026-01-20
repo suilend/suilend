@@ -6,13 +6,14 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use commons::helper::setup_obligation;
-use sui::clock::Clock;
+use commons::helper::refresh_health;
 
 public fun cvlm_manifest() {
     // Public mut functions
     
     // Ignore price changes
-    //target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
+    // target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
+    // target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
     
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
@@ -58,11 +59,10 @@ native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool
 
 /// If an obligation becomes unhealthy, then the only reason is that the amount of debt increases.
 /// This does not hold if the reserve's config is adjusted (e.g. ltv or borrow weight), so we ignore this case.
-public fun unhealthy_only_if_borrow_increases(
+public(package) fun unhealthy_only_if_borrow_increases(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock
 ) {
     let obligation = setup_obligation(lending_market, id);
 
@@ -78,8 +78,8 @@ public fun unhealthy_only_if_borrow_increases(
 
     invoke(target, lending_market, id);
 
-    lending_market.refresh_obligation_health(id, clock);
-    let obligation = lending_market.obligation_mut(id);
+    let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(obligation, reserves);
 
     let borrow_value_post = obligation.weighted_borrowed_value_upper_bound_usd();
 

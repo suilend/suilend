@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/lending_market.move b/contracts/suilend/sources/lending_market.move
-index c90807d..7e70a7a 100644
+index c90807d..0f062d6 100644
 --- a/contracts/suilend/sources/lending_market.move
 +++ b/contracts/suilend/sources/lending_market.move
 @@ -16,6 +16,7 @@ module suilend::lending_market {
@@ -10,26 +10,7 @@ index c90807d..7e70a7a 100644
  
      // === Errors ===
      const EIncorrectVersion: u64 = 1;
-@@ -265,6 +266,18 @@ module suilend::lending_market {
-         cap
-     }
- 
-+    public fun refresh_obligation_health<P>(
-+        lending_market: &mut LendingMarket<P>,
-+        id: ID,
-+        clock: &Clock
-+    ) {
-+        let obligation = object_table::borrow_mut(
-+            &mut lending_market.obligations,
-+            id,
-+        );
-+        obligation::refresh_health<P>(obligation, &mut lending_market.reserves, clock);
-+    }
-+
-     /// Deposits liquidity into a reserve and mints cTokens in return.
-     ///
-     /// This function allows a user to deposit a certain amount of a token into a reserve
-@@ -1236,6 +1249,11 @@ module suilend::lending_market {
+@@ -1236,6 +1237,11 @@ module suilend::lending_market {
          &lending_market.reserves
      }
  
@@ -41,7 +22,7 @@ index c90807d..7e70a7a 100644
      fun max_borrow_amount<P>(
          mut rate_limiter: RateLimiter,
          obligation: &Obligation<P>,
-@@ -1351,6 +1369,11 @@ module suilend::lending_market {
+@@ -1351,6 +1357,11 @@ module suilend::lending_market {
          object_table::borrow(&lending_market.obligations, obligation_id)
      }
  
@@ -53,3 +34,20 @@ index c90807d..7e70a7a 100644
      /// Get the fee receiver address.
      public fun fee_receiver<P>(lending_market: &LendingMarket<P>): address {
          lending_market.fee_receiver
+@@ -1970,6 +1981,16 @@ module suilend::lending_market {
+         &mut lending_market.reserves
+     }
+ 
++    #[test_only]
++    public fun obligation_and_reserves_mut_for_testing<P>(
++        lending_market: &mut LendingMarket<P>,
++        obligation_id: ID,
++    ): (&mut Obligation<P>, &mut vector<Reserve<P>>) {
++        let obligation = object_table::borrow_mut(&mut lending_market.obligations, obligation_id);
++        let reserves = &mut lending_market.reserves;
++        (obligation, reserves)
++    }
++
+     #[test_only]
+     public fun add_reserve_for_testing<P, T>(
+         _: &LendingMarketOwnerCap<P>,

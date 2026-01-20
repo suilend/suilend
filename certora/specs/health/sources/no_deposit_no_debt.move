@@ -8,10 +8,9 @@ use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
 use commons::helper::setup_obligation;
-use sui::clock::Clock;
+use commons::helper::refresh_health;
 
 public fun cvlm_manifest() {
-    // Public mut functions
     target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
@@ -35,8 +34,6 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"init_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"rebalance_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"unstake_sui_from_staker");
-
-    // Admin mut functions
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_reserve");
     target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
     target(@dummy_pool, b"dummy_pool_lending_market", b"change_reserve_price_feed");
@@ -68,7 +65,7 @@ fun no_deposit_no_borrow(ob: &Obligation<DummyPool>): bool {
 
 /// The base case for the induction.
 /// Asserts that in the initial state, i.e. right after creating a new obligation, if the obligation has no deposits, it has no borrows.
-public fun no_deposits_no_borrow_base(
+public(package) fun no_deposits_no_borrow_base(
     lending_market: &mut LendingMarket<DummyPool>,
     ctx: &mut TxContext,
 ) {
@@ -80,11 +77,10 @@ public fun no_deposits_no_borrow_base(
 }
 
 /// The step cases for the induction.
-public fun no_deposits_no_borrow_step(
+public(package) fun no_deposits_no_borrow_step(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock
 ) {
     let obligation = setup_obligation(lending_market, id);
     cvlm_assume_msg(no_deposit_no_borrow(obligation), b"Assume invariant in pre-state");
@@ -93,8 +89,8 @@ public fun no_deposits_no_borrow_step(
     invoke(target, lending_market, id);
 
     
-    lending_market.refresh_obligation_health(id, clock);
-    let obligation = lending_market.obligation_mut(id);
+    let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(obligation, reserves);
 
     cvlm_assert_msg(no_deposit_no_borrow(obligation), b"Assert invariant in post-state");
 }

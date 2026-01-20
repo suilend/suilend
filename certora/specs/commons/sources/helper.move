@@ -3,7 +3,7 @@ module commons::helper;
 use cvlm::asserts::cvlm_assume_msg;
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::decimal::{Self, Decimal};
-use suilend::lending_market::LendingMarket;
+use suilend::lending_market::{LendingMarket};
 use suilend::obligation::Obligation;
 use suilend::reserve::Reserve;
 use suilend::reserve_config::open_ltv;
@@ -392,7 +392,7 @@ public fun setup_obligation_for_liquidation(
 /// - weighted_borrowed_value_upper_bound_usd
 public fun refresh_health<P>(
     obligation: &mut Obligation<P>,
-    reserves: &mut vector<Reserve<P>>,
+    reserves: &vector<Reserve<P>>,
 ) {
     
     let deposits = obligation.deposits().length();

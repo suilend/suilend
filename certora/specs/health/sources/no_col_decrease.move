@@ -1,12 +1,11 @@
 module health::no_col_decrease;
 
-use cvlm::asserts::{cvlm_assert};
+use commons::helper::{setup_obligation, refresh_health};
+use cvlm::asserts::cvlm_assert;
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
-use commons::helper::setup_obligation;
-use sui::clock::Clock;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -48,26 +47,26 @@ public fun cvlm_manifest() {
     rule(b"no_col_decrease");
 }
 
-native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>, obligation_id: ID);
+native fun invoke(
+    target: Function,
+    lending_market: &mut LendingMarket<DummyPool>,
+    obligation_id: ID,
+);
 
-public fun no_col_decrease(
+public(package) fun no_col_decrease(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock
 ) {
     let obligation = setup_obligation(lending_market, id);
     let col_pre = obligation.total_deposited_ctokens();
 
-    
     invoke(target, lending_market, id);
-    
-    
-    lending_market.refresh_obligation_health(id, clock);
+
+    let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(obligation, reserves);
     let obligation = lending_market.obligation_mut(id);
     let col_post = obligation.total_deposited_ctokens();
 
-
-    cvlm_assert(col_pre <= col_post);   
-    
+    cvlm_assert(col_pre <= col_post);
 }

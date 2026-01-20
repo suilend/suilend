@@ -1,22 +1,19 @@
 module health::ltv_monotonicity;
 
-use cvlm::asserts::{cvlm_assert};
+use commons::helper::setup_obligation;
+use cvlm::asserts::cvlm_assert;
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::decimal::Decimal;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use sui::clock::Clock;
-use commons::helper::setup_obligation;
+use commons::helper::refresh_health;
 
 public fun cvlm_manifest() {
-    // Public mut functions
-    
     // We ignore price changes and config updates
     // target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
     // target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
-    
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
@@ -39,8 +36,6 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"init_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"rebalance_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"unstake_sui_from_staker");
-
-    // Admin mut functions
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_reserve");
 
     target(@dummy_pool, b"dummy_pool_lending_market", b"change_reserve_price_feed");
@@ -57,13 +52,11 @@ public fun cvlm_manifest() {
     rule(b"ltv_decreases_with_collateral");
 }
 
-
 native fun invoke(
     target: Function,
     lending_market: &mut LendingMarket<DummyPool>,
     obligation_id: ID,
 );
-
 
 fun ltv<P>(ob: &Obligation<P>): Decimal {
     let loan = ob.weighted_borrowed_value_upper_bound_usd();
@@ -71,59 +64,53 @@ fun ltv<P>(ob: &Obligation<P>): Decimal {
     loan.div(value)
 }
 
-
-fun ltv_increases_with_debt(
+public(package) fun ltv_increases_with_debt(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock
 ) {
-  let obligation = setup_obligation(lending_market, id);
-  let debt_pre = obligation.weighted_borrowed_value_usd();
-  let ltv_pre = ltv(obligation);
+    let obligation = setup_obligation(lending_market, id);
+    let debt_pre = obligation.weighted_borrowed_value_usd();
+    let ltv_pre = ltv(obligation);
 
-  invoke(target, lending_market, id);
+    invoke(target, lending_market, id);
 
-  
-  lending_market.refresh_obligation_health(id, clock);
-  let obligation = lending_market.obligation_mut(id);
-  let debt_post = obligation.weighted_borrowed_value_usd();
-  let ltv_post = ltv(obligation);
+    
+    let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(obligation, reserves);
+    
+    let debt_post = obligation.weighted_borrowed_value_usd();
+    let ltv_post = ltv(obligation);
 
-  let debt_increase = debt_post.gt(debt_pre);
-  let ltv_increase = ltv_post.ge(ltv_pre);
-  
+    let debt_increase = debt_post.gt(debt_pre);
+    let ltv_increase = ltv_post.ge(ltv_pre);
 
-  // debt_increase -> ltv_increase <==> !debt_increase || ltv_increase
-  cvlm_assert(!debt_increase || ltv_increase);
+    // debt_increase -> ltv_increase <==> !debt_increase || ltv_increase
+    cvlm_assert(!debt_increase || ltv_increase);
 }
 
-fun ltv_decreases_with_collateral(
+public(package) fun ltv_decreases_with_collateral(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock
 ) {
+    let obligation = setup_obligation(lending_market, id);
 
-  let obligation = setup_obligation(lending_market, id);
+    let coll_pre = obligation.deposited_value_usd();
+    let ltv_pre = ltv(obligation);
 
-  let coll_pre = obligation.deposited_value_usd();
-  let ltv_pre = ltv(obligation);
+    invoke(target, lending_market, id);
 
-  invoke(target, lending_market, id);
+    
+    let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(obligation, reserves);
 
-  
-  lending_market.refresh_obligation_health(id, clock);
-  let obligation = lending_market.obligation_mut(id);
-  let coll_post = obligation.deposited_value_usd();
-  let ltv_post = ltv(obligation);
+    let coll_post = obligation.deposited_value_usd();
+    let ltv_post = ltv(obligation);
 
-  let coll_increase = coll_post.gt(coll_pre);
-  let ltv_decrease = ltv_post.le(ltv_pre);
+    let coll_increase = coll_post.gt(coll_pre);
+    let ltv_decrease = ltv_post.le(ltv_pre);
 
-  
-
-  // coll_increase -> ltv_decrease <==> !coll_increase || ltv_decrease
-  cvlm_assert(!coll_increase || ltv_decrease);
-
+    // coll_increase -> ltv_decrease <==> !coll_increase || ltv_decrease
+    cvlm_assert(!coll_increase || ltv_decrease);
 }
