@@ -11,6 +11,9 @@ use dummy_pool::obligation::{ create_obligation};
 use sui::clock::Clock;
 use suilend::obligation::Obligation;
 use suilend::reserve::Reserve;
+use commons::helper::zero;
+use commons::helper::refresh_health;
+
 
 public fun cvlm_manifest() {
     target(@dummy_pool, b"obligation", b"deposit");
@@ -28,6 +31,8 @@ public fun cvlm_manifest() {
 
 
     rule(b"isolation_borrow_integrity");
+    
+    rule(b"isolated_deposit_has_zero_borrowing_power");
 }
 
 native fun invoke(
@@ -50,6 +55,13 @@ public fun exactly_one_borrow_in_isolation_base(lending_market_id: ID, ctx: &mut
     ghost_destroy(obligation);
 }
 
+fun pick_reserve<P>(reserves: &mut vector<Reserve<P>>): (u64, &mut Reserve<P>) {
+    let r_index = nondet_with!(b"Index in range", |r| r < reserves.length());
+    let reserve = &mut reserves[r_index];
+    cvlm_assume_msg(reserve.array_index() == r_index, b"Consistent index");
+    (r_index, reserve)
+}
+
 public fun exactly_one_borrow_in_isolation_step(
     obligation: &mut Obligation<DummyPool>,
     reserves: &mut vector<Reserve<DummyPool>>,
@@ -59,10 +71,8 @@ public fun exactly_one_borrow_in_isolation_step(
     refresh_isolation(obligation, reserves);
 
     cvlm_assume_msg(exactly_one_borrow_in_isolation(obligation), b"Assume in pre condition");
-
-    let r_index = nondet_with!(b"Index in range", |r| r < reserves.length());
-    let reserve = &mut reserves[r_index];
-    cvlm_assume_msg(reserve.array_index() == r_index, b"Consistent index");
+    
+    let (_, reserve) = pick_reserve(reserves);
     invoke(target, obligation, reserve, clock);
 
     refresh_isolation(obligation, reserves);
@@ -82,9 +92,7 @@ public fun isolation_borrow_integrity(
 
     cvlm_assume_msg(exactly_one_borrow_in_isolation(obligation), b"Assume in pre condition");
 
-    let r_index = nondet_with!(b"Index in range", |r| r < reserves.length());
-    let reserve = &mut reserves[r_index];
-    cvlm_assume_msg(reserve.array_index() == r_index, b"Consistent index");
+   let (_, reserve) = pick_reserve(reserves);
     invoke(target, obligation, reserve, clock);
 
     refresh_isolation(obligation, reserves);
@@ -103,4 +111,54 @@ public fun isolation_borrow_integrity(
 
     // Ensure we don't skip from 0 to 2+ borrows when entering isolation
     cvlm_assert(!(isolated_post && !isolated_pre) || borrows_post <= 1);
+}
+
+
+/// if we deposit assets into an obligation from a reserve that is isolated,
+/// then these assets do not count as collateral.
+public fun isolated_deposit_has_zero_borrowing_power(
+    obligation: &mut Obligation<DummyPool>,
+    reserves: &mut vector<Reserve<DummyPool>>,
+    clock: &Clock,
+    target: Function,
+) {
+    
+    refresh_health(obligation, reserves);
+    
+    let allowed_borrow_pre = obligation.allowed_borrow_value_usd();
+    let unhealthy_borrow_pre = obligation.unhealthy_borrow_value_usd();
+    let (r_index, reserve) = pick_reserve(reserves);
+    
+
+    // Assume the reserve is isolated
+    // This implies open_ltv = close_ltv = 0 (per reserve_config::validate_reserve_config)
+    cvlm_assume_msg(reserve.config().isolated(), b"Reserve is isolated");
+    cvlm_assume_msg(reserve.config().open_ltv().eq(zero()), b"open_ltv is 0");
+    cvlm_assume_msg(reserve.config().close_ltv().eq(zero()), b"close_ltv is 0");
+
+    let index = obligation.find_deposit_index(reserve);
+    let tokens_pre = if (index == obligation.deposits().length()) {
+        0
+    }else{
+        obligation.deposits()[index].deposited_ctoken_amount()
+    };
+
+    invoke(target, obligation, reserve, clock);
+
+    refresh_health(obligation, reserves);
+
+    let index = obligation.find_deposit_index(&reserves[r_index]);
+    cvlm_assume_msg(index < obligation.deposits().length(), b"Assume there is a deposit for this reserve");
+    let tokens_post = obligation.deposits()[index].deposited_ctoken_amount();
+
+    cvlm_assume_msg(tokens_post > tokens_pre, b"Assume we deposited");
+    
+   
+    let allowed_borrow_post = obligation.allowed_borrow_value_usd();
+    let unhealthy_borrow_post = obligation.unhealthy_borrow_value_usd();
+
+    // Isolated assets have 0 LTV, so depositing them should not increase borrowing power
+    cvlm_assert(allowed_borrow_pre.eq(allowed_borrow_post));
+    cvlm_assert(unhealthy_borrow_pre.eq(unhealthy_borrow_post));
+
 }
