@@ -1,4 +1,4 @@
-module obligation::state;
+module obligation::health_consistency;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
@@ -29,9 +29,6 @@ public fun cvlm_manifest() {
     rule(b"liquidatable_implies_unhealthy_step");
     rule(b"forgivable_only_if_unhealthy_or_debt_free_base");
     rule(b"forgivable_only_if_unhealthy_or_debt_free_step");
-    
-    rule(b"no_borrow_and_deposit_from_same_reserve_base");
-    rule(b"no_borrow_and_deposit_from_same_reserve_step");
 }
 
 native fun invoke(
@@ -62,9 +59,9 @@ public fun liquidatable_implies_unhealthy_step(
     let i = nondet();
     cvlm_assume_msg(i < reserves.length(), b"Existing reserve");
     cvlm_assume_msg(reserves[i].array_index() == i, b"array_index == position");
-        
+
     refresh_health(obligation, reserves);
-    
+
     let allowed = obligation.allowed_borrow_value_usd();
     let unhealthy = obligation.unhealthy_borrow_value_usd();
     let borrowed = obligation.weighted_borrowed_value_usd();
@@ -163,39 +160,4 @@ public fun forgivable_only_if_unhealthy_or_debt_free_step(
 
     // Assert invariant in post state
     cvlm_assert(forgivable_only_if_unhealthy_or_debt_free(obligation));
-}
-
-public fun no_borrow_and_deposit_from_same_reserve(
-    obligation: &Obligation<DummyPool>,
-    reserve: &Reserve<DummyPool>,
-): bool {
-    let borrow_index = obligation.find_borrow_index(reserve);
-    let deposit_index = obligation.find_deposit_index(reserve);
-
-    (borrow_index == obligation.borrows().length()) || (deposit_index == obligation.deposits().length())
-}
-
-public fun no_borrow_and_deposit_from_same_reserve_base(
-    lending_market_id: ID,
-    reserve: &Reserve<DummyPool>,
-    ctx: &mut TxContext,
-) {
-    let obligation = create_obligation(lending_market_id, ctx);
-    cvlm_assert(no_borrow_and_deposit_from_same_reserve(&obligation, reserve));
-    ghost_destroy(obligation);
-}
-
-
-public fun no_borrow_and_deposit_from_same_reserve_step(
-    obligation: &mut Obligation<DummyPool>,
-    reserve: &mut Reserve<DummyPool>,
-    clock: &Clock,
-    target: Function,
-) {
-    cvlm_assume_msg(no_borrow_and_deposit_from_same_reserve(obligation, reserve), b"");
-
-    invoke(target, obligation, reserve, clock);
-
-    cvlm_assert_msg(no_borrow_and_deposit_from_same_reserve(obligation, reserve), b"");
-    
 }
