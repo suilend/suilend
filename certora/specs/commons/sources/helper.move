@@ -3,10 +3,10 @@ module commons::helper;
 use cvlm::asserts::cvlm_assume_msg;
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::decimal::{Self, Decimal};
-use suilend::lending_market::{LendingMarket};
+use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use suilend::reserve::Reserve;
-use suilend::reserve_config::open_ltv;
+use suilend::reserve::{Reserve, config};
+use suilend::reserve_config::{open_ltv, isolated};
 
 /// Maximum number of deposits allowed in an obligation for verification purposes.
 /// Limited to 1 to reduce verification complexity.
@@ -390,11 +390,7 @@ public fun setup_obligation_for_liquidation(
 /// - unweighted_borrowed_value_usd
 /// - weighted_borrowed_value_usd
 /// - weighted_borrowed_value_upper_bound_usd
-public fun refresh_health<P>(
-    obligation: &mut Obligation<P>,
-    reserves: &vector<Reserve<P>>,
-) {
-    
+public fun refresh_health<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
     let deposits = obligation.deposits().length();
     let borrows = obligation.borrows().length();
 
@@ -410,7 +406,7 @@ public fun refresh_health<P>(
         let deposit_reserve = &reserves[deposit.reserve_array_index()];
         let open_ltv = deposit_reserve.config().open_ltv();
         let close_ltv = deposit_reserve.config().close_ltv();
-        
+
         // Sound state
         cvlm_assume_msg(zero.lt(open_ltv), b"0 < open_ltv");
         cvlm_assume_msg(open_ltv.le(close_ltv), b"open_ltv <= close_ltv");
@@ -442,7 +438,7 @@ public fun refresh_health<P>(
         let borrow = &mut obligation.borrows_mut()[i];
         let borrow_reserve = &reserves[borrow.reserve_array_index()];
         let borrow_weight = borrow_reserve.config().borrow_weight();
-    
+
         // Sound state
         cvlm_assume_msg(borrow_weight.ge(one()), b"Borrow weight >= 1");
 
@@ -452,14 +448,44 @@ public fun refresh_health<P>(
             weighted_borrowed_value_upper_bound_usd_i,
         ) = borrow_values(borrow_reserve, borrow, borrow_weight);
 
-        unweighted_borrowed_value_usd = unweighted_borrowed_value_usd.add(unweighted_borrowed_value_usd_i);
-        weighted_borrowed_value_usd = weighted_borrowed_value_usd.add(weighted_borrowed_value_usd_i);
-        weighted_borrowed_value_upper_bound_usd = weighted_borrowed_value_upper_bound_usd.add(weighted_borrowed_value_upper_bound_usd_i);
+        unweighted_borrowed_value_usd =
+            unweighted_borrowed_value_usd.add(unweighted_borrowed_value_usd_i);
+        weighted_borrowed_value_usd =
+            weighted_borrowed_value_usd.add(weighted_borrowed_value_usd_i);
+        weighted_borrowed_value_upper_bound_usd =
+            weighted_borrowed_value_upper_bound_usd.add(weighted_borrowed_value_upper_bound_usd_i);
 
         *borrow.market_value_mut() = unweighted_borrowed_value_usd_i;
         i = i+1;
     };
     *obligation.unweighted_borrowed_value_usd_mut() = unweighted_borrowed_value_usd;
     *obligation.weighted_borrowed_value_usd_mut() = weighted_borrowed_value_usd;
-    *obligation.weighted_borrowed_value_upper_bound_usd_mut() = weighted_borrowed_value_upper_bound_usd;
+    *obligation.weighted_borrowed_value_upper_bound_usd_mut() =
+        weighted_borrowed_value_upper_bound_usd;
+}
+
+/// Refreshes the isolated asset borrowing status of an obligation.
+///
+/// Iterates through all borrows to determine if any borrow involves an isolated asset.
+/// If any borrow is of an isolated asset, the obligation is marked as borrowing an isolated asset.
+///
+/// # Updates
+/// - borrowing_isolated_asset: Set to true if any borrow involves an isolated reserve
+public fun refresh_isolation<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
+    let borrows = obligation.borrows().length();
+
+    let mut i = 0;
+    let mut borrowing_isolated_asset = false;
+    // Loop through borrows until we find an isolated asset or exhaust all borrows
+    while (i < borrows && !borrowing_isolated_asset) {
+        let borrow = &obligation.borrows()[i];
+        let borrow_reserve = &reserves[borrow.reserve_array_index()];
+
+        // Check if this borrow's reserve is isolated
+        borrowing_isolated_asset = isolated(config(borrow_reserve));
+        i = i+1;
+    };
+
+    *obligation.borrowing_isolated_asset_mut() = borrowing_isolated_asset;
+
 }

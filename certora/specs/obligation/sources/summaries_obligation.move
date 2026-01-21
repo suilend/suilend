@@ -28,12 +28,6 @@ public fun cvlm_manifest() {
         b"find_or_add_user_reward_manager",
     );
 
-    // Prover-friendly deposit/borrow indexing: Uses native ghost functions to simplify
-    // the search for deposit and borrow indices in the obligation's vectors.
-    ghost(b"deposit_index");
-    ghost(b"borrow_index");
-    summary(b"obligation_find_borrow_index", @suilend, b"obligation", b"find_borrow_index");
-    summary(b"obligation_find_deposit_index", @suilend, b"obligation", b"find_deposit_index");
 }
 
 /// No-op rewards zeroing function.
