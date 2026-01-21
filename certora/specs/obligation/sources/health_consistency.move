@@ -1,4 +1,4 @@
-module obligation_spec::state;
+module obligation::health_consistency;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
@@ -7,10 +7,12 @@ use cvlm::manifest::{rule, target, invoker};
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
 use dummy_pool::obligation::{ create_obligation};
+use commons::inv::{liquidatable_implies_unhealthy,forgivable_only_if_unhealthy_or_debt_free};
 use sui::clock::Clock;
 use suilend::decimal;
 use suilend::obligation::Obligation;
 use suilend::reserve::Reserve;
+use commons::helper::refresh_health;
 
 public fun cvlm_manifest() {
     target(@dummy_pool, b"obligation", b"deposit");
@@ -27,9 +29,6 @@ public fun cvlm_manifest() {
     rule(b"liquidatable_implies_unhealthy_step");
     rule(b"forgivable_only_if_unhealthy_or_debt_free_base");
     rule(b"forgivable_only_if_unhealthy_or_debt_free_step");
-    
-    rule(b"no_borrow_and_deposit_from_same_reserve_base");
-    rule(b"no_borrow_and_deposit_from_same_reserve_step");
 }
 
 native fun invoke(
@@ -38,16 +37,6 @@ native fun invoke(
     reserve: &mut Reserve<DummyPool>,
     clock: &Clock,
 );
-
-/* INVARIANT: liquidatable implies unhealthy */
-
-/// In other words, only unhealthy obligations may be liquidated.
-public fun liquidatable_implies_unhealthy(obligation: &Obligation<DummyPool>): bool {
-    let healthy = obligation.is_healthy();
-    let liquidatable = obligation.is_liquidatable();
-    // liquidatable -> unhealthy  <==> !liquidatable || unhealthy
-    return !liquidatable || !healthy
-}
 
 public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut TxContext) {
     let obligation = create_obligation(lending_market_id, ctx);
@@ -66,8 +55,13 @@ public fun liquidatable_implies_unhealthy_step(
     cvlm_assume_msg(obligation.borrows().length() <= 1, b"");
     cvlm_assume_msg(obligation.deposits().length() <= 1, b"");
 
-    // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
+    // Pick a reserve
+    let i = nondet();
+    cvlm_assume_msg(i < reserves.length(), b"Existing reserve");
+    cvlm_assume_msg(reserves[i].array_index() == i, b"array_index == position");
+
+    refresh_health(obligation, reserves);
+
     let allowed = obligation.allowed_borrow_value_usd();
     let unhealthy = obligation.unhealthy_borrow_value_usd();
     let borrowed = obligation.weighted_borrowed_value_usd();
@@ -76,40 +70,27 @@ public fun liquidatable_implies_unhealthy_step(
     // Sound state:
     // - allowed_borrow_value < unhealthy_borrow_value
     // - borrowed_value <= borrowed_value_upper_bound
-    cvlm_assume_msg(allowed.lt(unhealthy), b"");
-    cvlm_assume_msg(borrowed.le(borrowed_upper), b"");
+    cvlm_assert(allowed.le(unhealthy));
+    cvlm_assert(borrowed.le(borrowed_upper));
 
     //  Require invariant in pre state
     cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
 
-    // Pick a reserve
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
+
 
     // Perform action
-    invoke(target, obligation, reserve, clock);
+    invoke(target, obligation, &mut reserves[i], clock);
 
-    // Make sure obligation is fresh
-    obligation.refresh(reserves, clock).destroy_none();
+    refresh_health(obligation, reserves);
 
     // Assert invariant in post state
-    cvlm_assert_msg(liquidatable_implies_unhealthy(obligation), b"");
+    cvlm_assert(liquidatable_implies_unhealthy(obligation));
 }
 
 /* INVARIANT: Forgivable implies unhealthy or debt free */
 
-/// If an obligation is liquidatable, then is also unhealthy.
-/// In other words, only unhealthy obligations may be liquidated.
 
-public fun forgivable_only_if_unhealthy_or_debt_free(obligation: &Obligation<DummyPool>): bool {
-    let healthy = obligation.is_healthy();
-    let forgivable = obligation.is_forgivable();
-    let no_debt = obligation.borrows().length() == 0;
-    // forgivable => unhealthy | no borrows
-    return !forgivable || !healthy || no_debt
-}
+
 
 public fun forgivable_only_if_unhealthy_or_debt_free_base(
     lending_market_id: ID,
@@ -131,8 +112,13 @@ public fun forgivable_only_if_unhealthy_or_debt_free_step(
     cvlm_assume_msg(obligation.borrows().length() <= 1, b"");
     cvlm_assume_msg(obligation.deposits().length() <= 1, b"");
 
+    // Pick a reserve
+    let i = nondet();
+    cvlm_assume_msg(i < reserves.length(), b"Existing reserve");
+    cvlm_assume_msg(reserves[i].array_index() == i, b"array_index == position");
+
     // Assume fresh state
-    obligation.refresh(reserves, clock).destroy_none();
+    refresh_health(obligation, reserves);
     let allowed = obligation.allowed_borrow_value_usd();
     let unhealthy = obligation.unhealthy_borrow_value_usd();
     let borrowed = obligation.weighted_borrowed_value_usd();
@@ -141,8 +127,8 @@ public fun forgivable_only_if_unhealthy_or_debt_free_step(
     // Sound state:
     // - allowed_borrow_value < unhealthy_borrow_value
     // - borrowed_value <= borrowed_value_upper_bound
-    cvlm_assume_msg(allowed.lt(unhealthy), b"");
-    cvlm_assume_msg(borrowed.le(borrowed_upper), b"");
+    cvlm_assert_msg(allowed.le(unhealthy), b"");
+    cvlm_assert_msg(borrowed.le(borrowed_upper), b"");
 
     let mut i = 0;
     while (i < obligation.deposits().length()) {
@@ -166,53 +152,12 @@ public fun forgivable_only_if_unhealthy_or_debt_free_step(
     //  Require invariant in pre state
     cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt_free(obligation), b"");
 
-    // Perform action
-    let i = nondet();
-    cvlm_assume_msg(i < reserves.length(), b"");
-    let reserve = vector::borrow_mut(reserves, i);
-    cvlm_assume_msg(reserve.array_index() == i, b"array_index == position");
 
-    invoke(target, obligation, reserve, clock);
+    invoke(target, obligation, &mut reserves[i], clock);
 
     // Assume fresh state again
-    obligation.refresh(reserves, clock).destroy_none();
+    refresh_health(obligation, reserves);
 
     // Assert invariant in post state
-    cvlm_assert_msg(forgivable_only_if_unhealthy_or_debt_free(obligation), b"");
-}
-
-public fun no_borrow_and_deposit_from_same_reserve(
-    obligation: &Obligation<DummyPool>,
-    reserve: &Reserve<DummyPool>,
-): bool {
-    let borrow_index = obligation.find_borrow_index(reserve);
-    let deposit_index = obligation.find_deposit_index(reserve);
-
-    (borrow_index == obligation.borrows().length()) || (deposit_index == obligation.deposits().length())
-}
-
-public fun no_borrow_and_deposit_from_same_reserve_base(
-    lending_market_id: ID,
-    reserve: &Reserve<DummyPool>,
-    ctx: &mut TxContext,
-) {
-    let obligation = create_obligation(lending_market_id, ctx);
-    cvlm_assert(no_borrow_and_deposit_from_same_reserve(&obligation, reserve));
-    ghost_destroy(obligation);
-}
-
-
-public fun no_borrow_and_deposit_from_same_reserve_step(
-    obligation: &mut Obligation<DummyPool>,
-    reserve: &mut Reserve<DummyPool>,
-    clock: &Clock,
-    target: Function,
-) {
-    cvlm_assume_msg(no_borrow_and_deposit_from_same_reserve(obligation, reserve), b"");
-
-    invoke(target, obligation, reserve, clock);
-
-    cvlm_assert_msg(no_borrow_and_deposit_from_same_reserve(obligation, reserve), b"");
-    
-        
+    cvlm_assert(forgivable_only_if_unhealthy_or_debt_free(obligation));
 }

@@ -7,6 +7,7 @@ use suilend::decimal::Decimal;
 use suilend::liquidity_mining::PoolRewardManager;
 use suilend::obligation::{Self, Obligation, ExistStaleOracles};
 use suilend::reserve::Reserve;
+use cvlm::asserts::cvlm_assume_msg;
 
 public fun create_obligation(lending_market_id: ID, ctx: &mut TxContext): Obligation<DummyPool> {
     obligation::create_obligation(lending_market_id, ctx)
@@ -35,6 +36,8 @@ public fun borrow(
     clock: &Clock,
     amount: u64,
 ) {
+    // This assumption is safe because all calls to Obligation::borrow go through the lending market, which asserts this condition pre call.
+    cvlm_assume_msg(amount > 0, b"Borrowing non-zero amount");
     obligation::borrow(obligation, reserve, clock, amount)
 }
 

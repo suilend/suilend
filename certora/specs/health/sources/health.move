@@ -1,22 +1,20 @@
 module health::health;
 
+use commons::helper::{setup_obligation, refresh_health};
+use commons::inv::require_sound_obligation_state;
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
-use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
-use health::summaries::debt_factor;
-use health::utils::setup_obligation;
-use sui::clock::Clock;
+use health::summaries_obligation::debt_factor;
 use suilend::decimal;
 use suilend::lending_market::LendingMarket;
-use dummy_pool::obligation;
-use health::utils::require_liquidatable_only_if_unhealthy;
-use health::utils::forgivable_only_if;
 
 public fun cvlm_manifest() {
-    // Public mut functions
+    // We explicitly ignore price changes and config updates
+    // target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
+    // target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
@@ -39,8 +37,6 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"init_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"rebalance_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"unstake_sui_from_staker");
-
-    // Admin mut functions
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_reserve");
     target(@dummy_pool, b"dummy_pool_lending_market", b"change_reserve_price_feed");
     target(@dummy_pool, b"dummy_pool_lending_market", b"add_pool_reward");
@@ -64,7 +60,7 @@ native fun invoke(
 
 /// The base case for the induction.
 /// Asserts that in the initial state, i.e. right after creating a new obligation, it is healthy.
-public fun obligation_health_base(
+public(package) fun obligation_health_base(
     lending_market: &mut LendingMarket<DummyPool>,
     ctx: &mut TxContext,
 ) {
@@ -83,36 +79,30 @@ public fun obligation_health_base(
 /// - reserve config is updated, or
 /// - prices fluctuate
 /// Hence we assume none of these happen
-public fun obligation_health_step(
+public(package) fun obligation_health_step(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
     target: Function,
-    clock: &Clock,
 ) {
+    {
+        let obligation = setup_obligation(lending_market, id);
 
-    let obligation = setup_obligation(lending_market, id);
+        cvlm_assume_msg(lending_market.reserves().length() <= 2, b"At most 2 reserves");
+        cvlm_assume_msg(debt_factor().ge(decimal::from(1)), b"No debt accumulates");
+        cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
 
-    cvlm_assume_msg(lending_market.reserves().length() <= 2, b"At most 2 reserves");
-    cvlm_assume_msg(debt_factor().ge(decimal::from(1)), b"No debt accumulates");
-
-    cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
-
-    
-    require_liquidatable_only_if_unhealthy(obligation);
-    forgivable_only_if(obligation);
-   
+        require_sound_obligation_state(obligation);
+    };
 
     invoke(target, lending_market, id);
-    
+
     cvlm_assume_msg(lending_market.reserves().length() <= 2, b"Still at most 2 reserves");
 
-    {
-        lending_market.refresh_obligation_health(id, clock);
-        let obligation = lending_market.obligation_mut(id);
+    let (ob, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(ob, reserves);
 
-        cvlm_assert_msg(
-            obligation.is_healthy(),
-            b"Assert obligation is healthy in post-state after refresh",
-        );
-    }
+    cvlm_assert_msg(
+        ob.is_healthy(),
+        b"Assert obligation is healthy in post-state after refresh",
+    );
 }

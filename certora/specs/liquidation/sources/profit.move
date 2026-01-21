@@ -5,7 +5,7 @@ use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::rule;
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
-use liquidation::utils::setup_obligation;
+use commons::helper::setup_obligation_for_liquidation;
 use sui::coin::Coin;
 use suilend::decimal;
 use suilend::lending_market::LendingMarket;
@@ -18,7 +18,7 @@ public fun cvlm_manifest() {
 /// Verifies that liquidation is not a loss for the liquidator.
 /// That means that the market value of the returned CTokens is at least the market value of the repaid debt.
 public fun liquidation_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
-    let (_, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
+    let (_, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
 
     let clock = nondet();
     let mut ctx = nondet();
@@ -67,7 +67,7 @@ public fun liquidation_no_loss<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: I
 /// Verifies that liquidation is not a loss for the liquidator.
 /// That means that the market value of the returned CTokens is at least the market value of the repaid debt.
 public fun liquidation_with_bonus_profitable<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
-    let (_, repay_reserve_index, withdraw_reserve_index) = setup_obligation(lm, ob_id);
+    let (_, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
 
     let clock = nondet();
     let mut ctx = nondet();

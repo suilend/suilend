@@ -61,9 +61,10 @@ jobs:
         uses: Certora/certora-run-action@v2
         with:
           ecosystem: sui
-          working-directory: certora/specs/obligation_spec
+          working-directory: certora/specs/obligation
           configurations: |-
-            confs/state.conf
+            confs/health_consistency.conf
+            confs/reserve_separation.conf
           job-name: "Verify Obligation Integrity Rules"
           certora-key: ${{ secrets.CERTORAKEY }}
         env:
