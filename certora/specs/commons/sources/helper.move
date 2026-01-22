@@ -399,10 +399,15 @@ public fun setup_obligation_for_liquidation(
 /// - weighted_borrowed_value_upper_bound_usd
 public fun refresh_health<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
    refresh_health_deposit(obligation, reserves); 
-   refresh_health_borrow(obligation, reserves);  
+   refresh_health_borrow(obligation, reserves, false);  
 }
 
-public fun refresh_health_borrow<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>){
+public fun refresh_health_compound_debt<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
+   refresh_health_deposit(obligation, reserves); 
+   refresh_health_borrow(obligation, reserves, true);  
+}
+
+public fun refresh_health_borrow<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>, compound_debt: bool){
     let borrows = obligation.borrows().length();
 
     /* Freshness */
@@ -419,6 +424,11 @@ public fun refresh_health_borrow<P>(obligation: &mut Obligation<P>, reserves: &v
 
         // Sound state
         cvlm_assume_msg(borrow_weight.ge(one()), b"Borrow weight >= 1");
+
+        if (compound_debt) {
+            borrow.compound_debt(borrow_reserve);
+        };
+        
 
         let (
             unweighted_borrowed_value_usd_i,
