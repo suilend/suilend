@@ -88,7 +88,7 @@ public(package) fun obligation_health_step(
         let obligation = setup_obligation(lending_market, id);
 
         cvlm_assume_msg(lending_market.reserves().length() <= 2, b"At most 2 reserves");
-        cvlm_assume_msg(debt_factor().ge(decimal::from(1)), b"No debt accumulates");
+        cvlm_assume_msg(debt_factor().eq(decimal::from(1)), b"No debt accumulates");
         cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
 
         require_sound_obligation_state(obligation);
