@@ -11,7 +11,8 @@
 // assumption may mask real violations where health changes are caused by ctoken ratio changes.
 module health::summaries_reserve;
 
-use cvlm::asserts::cvlm_assume_msg;
+use commons::helper::one;
+use cvlm::asserts::{cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::summary;
 use cvlm::nondet::{nondet_with, nondet};
@@ -23,7 +24,6 @@ use sui_system::sui_system::SuiSystemState;
 use suilend::decimal::{Self, Decimal};
 use suilend::reserve::{Reserve, LiquidityRequest, CToken};
 use suilend::reserve_config::ReserveConfig;
-use commons::helper::one;
 
 public fun cvlm_manifest() {
     // Reserve state management: These operations are irrelevant for obligation health verification
@@ -39,6 +39,8 @@ public fun cvlm_manifest() {
     summary(b"log_reserve_data", @suilend, b"reserve", b"log_reserve_data");
     summary(b"assert_price_is_fresh", @suilend, b"reserve", b"assert_price_is_fresh");
     summary(b"withdraw_ctokens", @suilend, b"reserve", b"withdraw_ctokens");
+    summary(b"deduct_liquidation_fee", @suilend, b"reserve", b"deduct_liquidation_fee");
+    summary(b"join_fees", @suilend, b"reserve", b"join_fees");
 
     // Pricing / Market Value: NOT summarized - these are critical for health calculations.
     // Fixing price = 1 would simplify verification but would mask real violations.
@@ -118,7 +120,19 @@ public fun deposit_ctokens<P, T>(_reserve: &mut Reserve<P>, ctokens: Balance<CTo
     ghost_destroy(ctokens);
 }
 
+public fun deduct_liquidation_fee<P, T>(
+    _reserve: &mut Reserve<P>,
+    ctokens: &mut Balance<CToken<P, T>>,
+): (u64, u64) {
+    let fees: u64 = nondet();
+    let bonus: u64 = nondet();
+    let total = fees + bonus;
+    cvlm_assert_msg(total < ctokens.value(), b"Fees don't exceed coin value");
+    let r = ctokens.split(fees);
+    ghost_destroy(r);
 
+    (fees, bonus)
+}
 
 /// Destroys staker treasury cap. Staker initialization doesn't affect obligation health.
 public fun init_staker<P, S: drop>(
@@ -140,6 +154,10 @@ public fun repay_liquidity<P, T>(
 ) {
     cvlm_assume_msg(liquidity.value() == settle_amount.ceil(), b"");
     ghost_destroy(liquidity);
+}
+
+public fun join_fees<P, T>(_reserve: &mut Reserve<P>, fees: Balance<T>) {
+    ghost_destroy(fees)
 }
 
 /// Market value calculation - CURRENTLY UNUSED (not summarized in manifest).
@@ -179,7 +197,6 @@ public fun ctoken_market_value<P>(reserve: &Reserve<P>, ctoken_amount: u64): Dec
     reserve.market_value(liquidity_amount)
 }
 
-
 /// CToken market value lower bound calculation assuming a 1:1 ctoken ratio.
 /// For simplification, uses the same logic as ctoken_market_value.
 public fun ctoken_market_value_lower_bound<P>(reserve: &Reserve<P>, ctoken_amount: u64): Decimal {
@@ -193,7 +210,6 @@ public fun ctoken_market_value_upper_bound<P>(reserve: &Reserve<P>, ctoken_amoun
     let liquidity_amount = decimal::from(ctoken_amount);
     reserve.market_value(liquidity_amount)
 }
-
 
 /// No-op price freshness check. Oracle staleness is not verified in obligation health specs.
 public fun assert_price_is_fresh<P>(_reserve: &Reserve<P>, _clock: &Clock) {}
