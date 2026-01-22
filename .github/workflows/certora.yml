@@ -39,7 +39,9 @@ jobs:
             confs/no_col_decrease.conf
             confs/no_dep_no_borrow.conf
             confs/unhealthy_condition.conf
-            confs/ltv_monotonicity.conf
+            confs/ltv_monotonicity_decrease.conf
+            confs/ltv_monotonicity_increase_part1.conf
+            confs/ltv_monotonicity_increase_part2.conf
           job-name: "Verify Obligation Health Rules"
           certora-key: ${{ secrets.CERTORAKEY }}
         env:
