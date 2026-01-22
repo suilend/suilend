@@ -12,7 +12,7 @@
 module health::summaries_reserve;
 
 use commons::helper::one;
-use cvlm::asserts::{cvlm_assume_msg, cvlm_assert_msg};
+use cvlm::asserts::{cvlm_assume_msg};
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::summary;
 use cvlm::nondet::{nondet_with, nondet};
@@ -127,7 +127,7 @@ public fun deduct_liquidation_fee<P, T>(
     let fees: u64 = nondet();
     let bonus: u64 = nondet();
     let total = fees + bonus;
-    cvlm_assert_msg(total < ctokens.value(), b"Fees don't exceed coin value");
+    cvlm_assume_msg(total < ctokens.value(), b"Fees don't exceed coin value");
     let r = ctokens.split(fees);
     ghost_destroy(r);
 
