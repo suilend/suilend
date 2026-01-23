@@ -1,22 +1,23 @@
+/// property: Unhealthy Obligation Condition
+/// description: Verifies that obligations only become unhealthy when borrow value increases (excluding config and price changes)
 module health::unhealthy_condition;
 
+use commons::helper::{setup_obligation, refresh_health_compound_debt};
+use commons::inv::require_sound_obligation_state;
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
-use commons::helper::setup_obligation;
-use commons::helper::refresh_health_compound_debt;
-use commons::inv::require_sound_obligation_state;
 use suilend::obligation::is_healthy;
 
 public fun cvlm_manifest() {
     // Public mut functions
-    
-    // Ignore price changes
+
+    // Ignore price and config changes
     // target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
     // target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
-    
+
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
@@ -55,12 +56,13 @@ public fun cvlm_manifest() {
     rule(b"unhealthy_only_if_borrow_increases");
 }
 
-native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>, obligation_id: ID);
+native fun invoke(
+    target: Function,
+    lending_market: &mut LendingMarket<DummyPool>,
+    obligation_id: ID,
+);
 
-/* Obligation only becomes unhealthy due to increasing borrow value */
-
-/// If an obligation becomes unhealthy, then the only reason is that the amount of debt increases.
-/// This does not hold if the reserve's config is adjusted (e.g. ltv or borrow weight), so we ignore this case.
+/// Verifies that obligations only become unhealthy when borrow value increases
 public(package) fun unhealthy_only_if_borrow_increases(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,

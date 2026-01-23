@@ -12,7 +12,7 @@
 module health::summaries_reserve;
 
 use commons::helper::one;
-use cvlm::asserts::{cvlm_assume_msg};
+use cvlm::asserts::cvlm_assume_msg;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::summary;
 use cvlm::nondet::{nondet_with, nondet};

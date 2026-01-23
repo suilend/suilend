@@ -8,18 +8,16 @@
 // these global reserve invariants, allowing aggressive simplification.
 module solvency::summaries_obligation;
 
-use cvlm::manifest::summary;
-use cvlm::manifest::ghost;
-use cvlm::nondet::nondet;
 use cvlm::asserts::cvlm_assume_msg;
-use sui::clock::Clock;
-use suilend::reserve::Reserve;
-use suilend::obligation::Obligation;
-use suilend::decimal::Decimal;
-use suilend::liquidity_mining::PoolRewardManager;
-use suilend::liquidity_mining::UserRewardManager;
-use sui::balance::Balance;
 use cvlm::ghost::ghost_destroy;
+use cvlm::manifest::{summary, ghost};
+use cvlm::nondet::nondet;
+use sui::balance::Balance;
+use sui::clock::Clock;
+use suilend::decimal::Decimal;
+use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
+use suilend::obligation::Obligation;
+use suilend::reserve::Reserve;
 
 public fun cvlm_manifest() {
     // Prover-friendly deposit/borrow indexing: Uses ghost functions to simplify

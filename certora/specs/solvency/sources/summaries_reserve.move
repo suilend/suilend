@@ -1,14 +1,14 @@
 // Reserve summaries for solvency specs
 //
 // This module provides simplified implementations for reserve operations needed for
-// solvency verification. 
+// solvency verification.
 module solvency::summaries_reserve;
 
 use cvlm::manifest::summary;
 use cvlm::nondet::nondet_with;
-use suilend::reserve::Reserve;
-use suilend::decimal::{Decimal};
+use suilend::decimal::Decimal;
 use suilend::rate_limiter::RateLimiter;
+use suilend::reserve::Reserve;
 
 public fun cvlm_manifest() {
     // Interest rate modeling: Simplified to return nondeterministic but bounded values.

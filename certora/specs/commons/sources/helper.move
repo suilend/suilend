@@ -43,7 +43,6 @@ public fun two(): Decimal {
     decimal::from_scaled_val(2000000000000000000)
 }
 
-
 /// Returns a Decimal representation of twenty percent (0.2).
 /// Scaled value: 0.2 * 10^18
 public fun twenty_percent(): Decimal {
@@ -398,16 +397,23 @@ public fun setup_obligation_for_liquidation(
 /// - weighted_borrowed_value_usd
 /// - weighted_borrowed_value_upper_bound_usd
 public fun refresh_health<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
-   refresh_health_deposit(obligation, reserves); 
-   refresh_health_borrow(obligation, reserves, false);  
+    refresh_health_deposit(obligation, reserves);
+    refresh_health_borrow(obligation, reserves, false);
 }
 
-public fun refresh_health_compound_debt<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
-   refresh_health_deposit(obligation, reserves); 
-   refresh_health_borrow(obligation, reserves, true);  
+public fun refresh_health_compound_debt<P>(
+    obligation: &mut Obligation<P>,
+    reserves: &vector<Reserve<P>>,
+) {
+    refresh_health_deposit(obligation, reserves);
+    refresh_health_borrow(obligation, reserves, true);
 }
 
-public fun refresh_health_borrow<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>, compound_debt: bool){
+public fun refresh_health_borrow<P>(
+    obligation: &mut Obligation<P>,
+    reserves: &vector<Reserve<P>>,
+    compound_debt: bool,
+) {
     let borrows = obligation.borrows().length();
 
     /* Freshness */
@@ -428,7 +434,6 @@ public fun refresh_health_borrow<P>(obligation: &mut Obligation<P>, reserves: &v
         if (compound_debt) {
             borrow.compound_debt(borrow_reserve);
         };
-        
 
         let (
             unweighted_borrowed_value_usd_i,
@@ -452,7 +457,10 @@ public fun refresh_health_borrow<P>(obligation: &mut Obligation<P>, reserves: &v
         weighted_borrowed_value_upper_bound_usd;
 }
 
-public fun refresh_health_deposit<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>){
+public fun refresh_health_deposit<P>(
+    obligation: &mut Obligation<P>,
+    reserves: &vector<Reserve<P>>,
+) {
     let deposits = obligation.deposits().length();
 
     /* Freshness */
@@ -489,13 +497,16 @@ public fun refresh_health_deposit<P>(obligation: &mut Obligation<P>, reserves: &
     };
 }
 
-public fun weighted_borrowed_value_usd<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>): Decimal {
+public fun weighted_borrowed_value_usd<P>(
+    obligation: &mut Obligation<P>,
+    reserves: &vector<Reserve<P>>,
+): Decimal {
     let borrows = obligation.borrows().length();
     let mut weighted_borrowed_value_usd = zero();
 
     let mut i = 0;
     while (i < borrows) {
-         let borrow = &mut obligation.borrows_mut()[i];
+        let borrow = &mut obligation.borrows_mut()[i];
         let borrow_reserve = &reserves[borrow.reserve_array_index()];
         let borrow_weight = borrow_reserve.config().borrow_weight();
 
@@ -509,7 +520,6 @@ public fun weighted_borrowed_value_usd<P>(obligation: &mut Obligation<P>, reserv
     };
     weighted_borrowed_value_usd
 }
-
 
 /// Refreshes the isolated asset borrowing status of an obligation.
 ///
@@ -534,5 +544,4 @@ public fun refresh_isolation<P>(obligation: &mut Obligation<P>, reserves: &vecto
     };
 
     *obligation.borrowing_isolated_asset_mut() = borrowing_isolated_asset;
-
 }

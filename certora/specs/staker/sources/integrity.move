@@ -1,16 +1,17 @@
+/// property: Staker Liability Integrity
+/// description: Verifies that deposits and withdrawals correctly update staker liabilities,
+/// with deposits increasing liabilities by the exact deposited amount and withdrawals decreasing them correspondingly
 module staker::integrity;
 
-use cvlm::asserts::{cvlm_assert};
-
+use cvlm::asserts::cvlm_assert;
+use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
-
-use suilend::staker::{Staker};
-use sui::sui::SUI;
 use sui::balance::Balance;
+use sui::sui::SUI;
 use sui_system::sui_system::SuiSystemState;
-use cvlm::function::Function;
+use suilend::staker::Staker;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -23,11 +24,12 @@ public fun cvlm_manifest() {
 
     rule(b"deposit_increases_liability");
     rule(b"withdraw_decreases_liability");
-    
 }
 
-native fun invoke(target: Function, staker: &mut Staker<DummyPool>);
+public(package) native fun invoke(target: Function, staker: &mut Staker<DummyPool>);
 
+/// Verifies that deposit operations increase staker liabilities by exactly the deposited amount.
+/// The change in liabilities must equal the value of SUI deposited
 public fun deposit_increases_liability(staker: &mut Staker<DummyPool>, sui: Balance<SUI>) {
     let liabilities_pre = staker.liabilities();
     let sui_val = sui.value();
@@ -39,7 +41,15 @@ public fun deposit_increases_liability(staker: &mut Staker<DummyPool>, sui: Bala
     cvlm_assert(liabilities_post - liabilities_pre == sui_val);
 }
 
-public fun withdraw_decreases_liability(staker: &mut Staker<DummyPool>, withdraw_amount: u64, system_state: &mut SuiSystemState, ctx: &mut TxContext) {
+/// Verifies that withdraw operations decrease staker liabilities by exactly the withdrawn amount.
+/// The change in liabilities must equal the value of SUI withdrawn,
+/// which must also equal the requested withdrawal amount
+public fun withdraw_decreases_liability(
+    staker: &mut Staker<DummyPool>,
+    withdraw_amount: u64,
+    system_state: &mut SuiSystemState,
+    ctx: &mut TxContext,
+) {
     let liabilities_pre = staker.liabilities();
     let sui = staker.withdraw(withdraw_amount, system_state, ctx);
 

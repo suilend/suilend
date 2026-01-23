@@ -1,5 +1,6 @@
 module dummy_pool::obligation;
 
+use cvlm::asserts::cvlm_assume_msg;
 use dummy_pool::dummy_pool::DummyPool;
 use sui::balance::Balance;
 use sui::clock::Clock;
@@ -7,7 +8,6 @@ use suilend::decimal::Decimal;
 use suilend::liquidity_mining::PoolRewardManager;
 use suilend::obligation::{Self, Obligation, ExistStaleOracles};
 use suilend::reserve::Reserve;
-use cvlm::asserts::cvlm_assume_msg;
 
 public fun create_obligation(lending_market_id: ID, ctx: &mut TxContext): Obligation<DummyPool> {
     obligation::create_obligation(lending_market_id, ctx)

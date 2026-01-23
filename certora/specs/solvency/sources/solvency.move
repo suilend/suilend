@@ -1,3 +1,6 @@
+/// property: Reserve Solvency
+/// description: Verifies that reserves maintain solvency by ensuring the ctoken ratio remains >= 1,
+/// meaning total supply of assets is always at least equal to the amount of ctokens
 module solvency::solvency;
 
 use commons::helper::one;
@@ -62,8 +65,7 @@ public fun is_solvent(reserve: &Reserve<DummyPool>): bool {
     ratio.ge(one())
 }
 
-/// The base case for the induction.
-/// Asserts that in the initial state, i.e. right after creating a new reserve, the solvency property holds.
+/// Verifies that newly created reserves are solvent with ctoken ratio >= 1
 public fun solvency_base<T>(
     lending_market_id: ID,
     config: ReserveConfig,
@@ -86,9 +88,8 @@ public fun solvency_base<T>(
     ghost_destroy(reserve);
 }
 
-/// The induction steps for the solvency invariant.
-/// Assumes an arbitrary reserve, identified by its index in the lending market, that is in a solvent state,
-/// and assert that every function that can modify the state preserves the solvency.
+/// Verifies that all lending market operations preserve reserve solvency.
+/// Reserves that are solvent before an operation remain solvent after
 public fun solvency_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, target: Function) {
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 

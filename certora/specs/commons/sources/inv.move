@@ -4,7 +4,6 @@ module commons::inv;
 use cvlm::asserts::cvlm_assume_msg;
 use suilend::obligation::Obligation;
 
-
 /// Invariant: If an obligation is liquidatable, then it must be unhealthy.
 /// In other words, only unhealthy obligations may be liquidated.
 ///
@@ -28,12 +27,9 @@ public fun forgivable_only_if_unhealthy_or_debt_free<P>(obligation: &Obligation<
     return !forgivable || !healthy || no_debt
 }
 
-
 /// Requires that the obligation satisfies the sound state invariants.
 /// This is used to assume invariants in specifications that depend on them.
 public fun require_sound_obligation_state<P>(obligation: &Obligation<P>) {
-   cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
-   cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt_free(obligation), b"")
+    cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
+    cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt_free(obligation), b"")
 }
-
-

@@ -3,7 +3,7 @@ module obligation::summaries_reserve;
 
 use cvlm::manifest::summary;
 use cvlm::nondet::nondet_with;
-use suilend::decimal::{Decimal};
+use suilend::decimal::Decimal;
 use suilend::reserve::Reserve;
 
 public fun cvlm_manifest() {
@@ -35,10 +35,7 @@ public fun reserve_compound_borrow_rate<DummyPool>(_: &mut Reserve<DummyPool>, _
 ///
 /// Returns the liquidity amount directly, effectively treating the price as 1:1.
 /// This abstracts away price lookups and decimal conversions for efficiency.
-public fun reserve_market_value<P>(
-    _reserve: &Reserve<P>,
-    liquidity_amount: Decimal
-): Decimal {
+public fun reserve_market_value<P>(_reserve: &Reserve<P>, liquidity_amount: Decimal): Decimal {
     liquidity_amount
 }
 
@@ -48,7 +45,7 @@ public fun reserve_market_value<P>(
 /// use the upper bound of the price range from the oracle.
 public fun reserve_market_value_upper_bound<P>(
     _reserve: &Reserve<P>,
-    liquidity_amount: Decimal
+    liquidity_amount: Decimal,
 ): Decimal {
     liquidity_amount
 }
@@ -59,7 +56,7 @@ public fun reserve_market_value_upper_bound<P>(
 /// use the lower bound of the price range from the oracle.
 public fun reserve_market_value_lower_bound<P>(
     _reserve: &Reserve<P>,
-    liquidity_amount: Decimal
+    liquidity_amount: Decimal,
 ): Decimal {
     liquidity_amount
 }

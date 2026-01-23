@@ -4,15 +4,14 @@
 // via ghost state to ensure correct liquidity accounting.
 module solvency::summaries_staking;
 
-use cvlm::manifest::summary;
-use cvlm::manifest::ghost;
+use cvlm::asserts::cvlm_assume_msg;
 use cvlm::ghost::ghost_destroy;
+use cvlm::manifest::{summary, ghost};
 use cvlm::nondet::nondet;
 use sui::balance::Balance;
 use sui::sui::SUI;
 use sui_system::sui_system::SuiSystemState;
 use suilend::staker::Staker;
-use cvlm::asserts::cvlm_assume_msg;
 
 public fun cvlm_manifest() {
     // Staking operations: Simplified implementations that track staked amounts via ghost state

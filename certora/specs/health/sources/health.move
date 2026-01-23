@@ -1,3 +1,5 @@
+/// property: Obligation Health Preservation
+/// description: Verifies that obligations remain healthy after lending operations, assuming no debt accumulation and stable prices/configs
 module health::health;
 
 use commons::helper::{setup_obligation, refresh_health};
@@ -50,7 +52,6 @@ public fun cvlm_manifest() {
 
     rule(b"obligation_health_base");
     rule(b"obligation_health_step");
-
 }
 
 native fun invoke(
@@ -59,8 +60,7 @@ native fun invoke(
     obligation_id: ID,
 );
 
-/// The base case for the induction.
-/// Asserts that in the initial state, i.e. right after creating a new obligation, it is healthy.
+/// Verifies that newly created obligations are healthy
 public(package) fun obligation_health_base(
     lending_market: &mut LendingMarket<DummyPool>,
     ctx: &mut TxContext,
@@ -73,13 +73,7 @@ public(package) fun obligation_health_base(
     ghost_destroy(cap);
 }
 
-/// The step cases for the induction.
-/// Asserts that if obligation is in a healthy state, no lending operation can make it unhealthy, unless debt is accumulated.
-///
-/// This is not true if
-/// - reserve config is updated, or
-/// - prices fluctuate
-/// Hence we assume none of these happen
+/// Verifies that healthy obligations remain healthy after operations (excluding debt accumulation, price changes, and config updates)
 public(package) fun obligation_health_step(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,

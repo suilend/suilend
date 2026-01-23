@@ -7,9 +7,9 @@ use cvlm::math_int::{Self, MathInt};
 use cvlm::nondet::nondet;
 use liquid_staking::liquid_staking::{LiquidStakingInfo, AdminCap};
 use sui::coin::Coin;
+use sui::object::id;
 use sui::sui::SUI;
 use sui_system::sui_system::SuiSystemState;
-use sui::object::id;
 
 public fun cvlm_manifest() {
     ghost(b"total_sui");
@@ -29,7 +29,6 @@ public fun cvlm_manifest() {
     summary(b"mint", @liquid_staking, b"liquid_staking", b"mint");
     summary(b"redeem", @liquid_staking, b"liquid_staking", b"redeem");
 }
-
 
 const MAX_BPS: u128 = 10_000;
 
@@ -59,7 +58,7 @@ public fun refresh<P>(
     _system_state: &mut SuiSystemState,
     ctx: &mut TxContext,
 ): bool {
-    let id =id(lsi);
+    let id = id(lsi);
     let epoch = ctx.epoch();
     let last_refresh = last_refresh(lsi);
     cvlm_assume_msg(epoch >= *last_refresh, b"Not going back in time");
@@ -72,7 +71,6 @@ public fun refresh<P>(
         // old_supply <= new_supply < 2*old_supply
         cvlm_assume_msg(old_supply.le(new_supply), b"Positive exchange rate");
         cvlm_assume_msg(new_supply.le(old_supply.mul(two)), b"Bounded exchange rate");
-
 
         let diff = new_supply.sub(old_supply).to_u128();
         let fee_rate = lsi.fee_config().spread_fee_bps() as u128;
@@ -114,11 +112,11 @@ public fun mint<P: drop>(
 
     // Calculate and collect mint fee
     let mint_fee_rate = lsi.fee_config().sui_mint_fee_bps() as u128;
-    cvlm_assume_msg(mint_fee_rate <= MAX_BPS, b"Sound fees"); 
+    cvlm_assume_msg(mint_fee_rate <= MAX_BPS, b"Sound fees");
     let mint_fee_amount = ((sui_val.to_u128() * mint_fee_rate) / 10_000);
-    
+
     let mint_fee = math_int::from_u128(mint_fee_amount);
-    
+
     *total_fees(id) = (*total_fees(id)).add(mint_fee);
 
     // Mint LST based on SUI amount after fees
@@ -178,7 +176,6 @@ public fun redeem<P: drop>(
     ghost_destroy(lst);
     coin
 }
-
 
 /// No-op: We consider that all SUI deposited using `mint` to be staked.
 /// Returns a nondeterministic value to model various possible outcomes based on

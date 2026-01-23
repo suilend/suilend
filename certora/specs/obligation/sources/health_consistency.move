@@ -1,18 +1,21 @@
+/// property: Obligation Health Consistency
+/// description: Verifies consistency between obligation health states: liquidatable obligations must be unhealthy,
+/// and forgivable obligations must be either unhealthy or debt-free
 module obligation::health_consistency;
 
+use commons::helper::refresh_health;
+use commons::inv::{liquidatable_implies_unhealthy, forgivable_only_if_unhealthy_or_debt_free};
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{rule, target, invoker};
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
-use dummy_pool::obligation::{ create_obligation};
-use commons::inv::{liquidatable_implies_unhealthy,forgivable_only_if_unhealthy_or_debt_free};
+use dummy_pool::obligation::create_obligation;
 use sui::clock::Clock;
 use suilend::decimal;
 use suilend::obligation::Obligation;
 use suilend::reserve::Reserve;
-use commons::helper::refresh_health;
 
 public fun cvlm_manifest() {
     target(@dummy_pool, b"obligation", b"deposit");
@@ -38,12 +41,15 @@ native fun invoke(
     clock: &Clock,
 );
 
+/// Verifies that newly created obligations satisfy the liquidatable-implies-unhealthy invariant
 public fun liquidatable_implies_unhealthy_base(lending_market_id: ID, ctx: &mut TxContext) {
     let obligation = create_obligation(lending_market_id, ctx);
     cvlm_assert(liquidatable_implies_unhealthy(&obligation));
     ghost_destroy(obligation);
 }
 
+/// Verifies that obligation operations maintain the property that
+/// any obligation eligible for liquidation must be in an unhealthy state
 public fun liquidatable_implies_unhealthy_step(
     obligation: &mut Obligation<DummyPool>,
     reserves: &mut vector<Reserve<DummyPool>>,
@@ -76,8 +82,6 @@ public fun liquidatable_implies_unhealthy_step(
     //  Require invariant in pre state
     cvlm_assume_msg(liquidatable_implies_unhealthy(obligation), b"");
 
-
-
     // Perform action
     invoke(target, obligation, &mut reserves[i], clock);
 
@@ -87,11 +91,7 @@ public fun liquidatable_implies_unhealthy_step(
     cvlm_assert(liquidatable_implies_unhealthy(obligation));
 }
 
-/* INVARIANT: Forgivable implies unhealthy or debt free */
-
-
-
-
+/// Verifies that newly created obligations can only be forgiven if they are unhealthy or have no debt
 public fun forgivable_only_if_unhealthy_or_debt_free_base(
     lending_market_id: ID,
     ctx: &mut TxContext,
@@ -101,6 +101,8 @@ public fun forgivable_only_if_unhealthy_or_debt_free_base(
     ghost_destroy(obligation);
 }
 
+/// Verifies that obligation operations maintain the property that
+/// debt can only be forgiven on obligations that are either unhealthy or debt-free
 public fun forgivable_only_if_unhealthy_or_debt_free_step(
     obligation: &mut Obligation<DummyPool>,
     reserves: &mut vector<Reserve<DummyPool>>,
@@ -151,7 +153,6 @@ public fun forgivable_only_if_unhealthy_or_debt_free_step(
 
     //  Require invariant in pre state
     cvlm_assume_msg(forgivable_only_if_unhealthy_or_debt_free(obligation), b"");
-
 
     invoke(target, obligation, &mut reserves[i], clock);
 

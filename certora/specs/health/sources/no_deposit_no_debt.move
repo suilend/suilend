@@ -1,5 +1,8 @@
+/// property: Borrowing Requires Collateral Deposits
+/// description: Verifies that obligations without deposits cannot have borrows
 module health::no_deposit_no_debt;
 
+use commons::helper::{setup_obligation, refresh_health};
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
@@ -7,8 +10,6 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use commons::helper::setup_obligation;
-use commons::helper::refresh_health;
 
 public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
@@ -46,15 +47,15 @@ public fun cvlm_manifest() {
 
     invoker(b"invoke");
 
-
     rule(b"no_deposits_no_borrow_base");
     rule(b"no_deposits_no_borrow_step");
-
 }
 
-native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>, obligation_id: ID);
-
-
+native fun invoke(
+    target: Function,
+    lending_market: &mut LendingMarket<DummyPool>,
+    obligation_id: ID,
+);
 
 fun no_deposit_no_borrow(ob: &Obligation<DummyPool>): bool {
     let deposits = ob.deposits().length();
@@ -63,8 +64,7 @@ fun no_deposit_no_borrow(ob: &Obligation<DummyPool>): bool {
     deposits != 0 || borrows == 0
 }
 
-/// The base case for the induction.
-/// Asserts that in the initial state, i.e. right after creating a new obligation, if the obligation has no deposits, it has no borrows.
+/// Verifies that newly created obligations have no deposits and no borrows
 public(package) fun no_deposits_no_borrow_base(
     lending_market: &mut LendingMarket<DummyPool>,
     ctx: &mut TxContext,
@@ -76,7 +76,7 @@ public(package) fun no_deposits_no_borrow_base(
     ghost_destroy(cap);
 }
 
-/// The step cases for the induction.
+/// Verifies that obligations without deposits remain without borrows
 public(package) fun no_deposits_no_borrow_step(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
@@ -85,10 +85,8 @@ public(package) fun no_deposits_no_borrow_step(
     let obligation = setup_obligation(lending_market, id);
     cvlm_assume_msg(no_deposit_no_borrow(obligation), b"Assume invariant in pre-state");
 
-
     invoke(target, lending_market, id);
 
-    
     let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
     refresh_health(obligation, reserves);
 

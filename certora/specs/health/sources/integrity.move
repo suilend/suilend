@@ -1,3 +1,5 @@
+/// property: Obligation Solvency Integrity
+/// description: Various integrity rules regarding the healthiness of obligations.
 module health::integrity;
 
 use commons::helper::{setup_obligation, refresh_health};
@@ -58,6 +60,7 @@ native fun invoke(
     obligation_id: ID,
 );
 
+/// Verifies that obligations with zero debt are always healthy
 public(package) fun solvent_with_zero_debt(lm: &LendingMarket<DummyPool>, id: ID) {
     let zero = decimal::from(0);
     let obligation = setup_obligation(lm, id);
@@ -69,6 +72,7 @@ public(package) fun solvent_with_zero_debt(lm: &LendingMarket<DummyPool>, id: ID
     cvlm_assert(healthy);
 }
 
+/// Verifies that increasing collateral preserves obligation health
 public(package) fun increasing_collateral_stays_healthy(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,

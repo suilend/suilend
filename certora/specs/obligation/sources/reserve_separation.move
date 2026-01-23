@@ -1,3 +1,5 @@
+/// property: Reserve Separation
+/// description: Verifies that obligations cannot simultaneously have both a borrow and a deposit from the same reserve
 module obligation::reserve_separation;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
@@ -5,7 +7,7 @@ use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{rule, target, invoker};
 use dummy_pool::dummy_pool::DummyPool;
-use dummy_pool::obligation::{ create_obligation};
+use dummy_pool::obligation::create_obligation;
 use sui::clock::Clock;
 use suilend::obligation::Obligation;
 use suilend::reserve::Reserve;
@@ -42,6 +44,7 @@ public fun no_borrow_and_deposit_from_same_reserve(
     (borrow_index == obligation.borrows().length()) || (deposit_index == obligation.deposits().length())
 }
 
+/// Verifies that newly created obligations have no simultaneous borrows and deposits from the same reserve
 public fun no_borrow_and_deposit_from_same_reserve_base(
     lending_market_id: ID,
     reserve: &Reserve<DummyPool>,
@@ -52,7 +55,8 @@ public fun no_borrow_and_deposit_from_same_reserve_base(
     ghost_destroy(obligation);
 }
 
-
+/// Verifies that obligation operations maintain reserve separation.
+/// An obligation cannot have both a borrow position and a deposit position for the same reserve
 public fun no_borrow_and_deposit_from_same_reserve_step(
     obligation: &mut Obligation<DummyPool>,
     reserve: &mut Reserve<DummyPool>,
@@ -64,5 +68,4 @@ public fun no_borrow_and_deposit_from_same_reserve_step(
     invoke(target, obligation, reserve, clock);
 
     cvlm_assert_msg(no_borrow_and_deposit_from_same_reserve(obligation, reserve), b"");
-
 }

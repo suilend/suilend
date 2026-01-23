@@ -3,7 +3,7 @@ module obligation::summaries_obligation;
 
 use cvlm::asserts::cvlm_assume_msg;
 use cvlm::manifest::{summary, ghost};
-use cvlm::nondet::{nondet};
+use cvlm::nondet::nondet;
 use sui::clock::Clock;
 use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::Obligation;
@@ -27,7 +27,6 @@ public fun cvlm_manifest() {
         b"obligation",
         b"find_or_add_user_reward_manager",
     );
-
 }
 
 /// No-op rewards zeroing function.
@@ -66,7 +65,6 @@ public fun obligation_find_borrow_index<P>(obligation: &Obligation<P>, reserve: 
 
     i
 }
-
 
 /// Simplified deposit index finder using ghost function.
 ///

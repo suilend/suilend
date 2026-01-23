@@ -1,16 +1,14 @@
+/// property: CToken Ratio Monotonicity
+/// description: Verifies that the ctoken ratio (assets/shares) never decreases through user operations,
+/// ensuring that user actions cannot depreciate the value of ctokens
 module solvency::ratios;
 
-use suilend::lending_market::LendingMarket;
+use cvlm::asserts::{cvlm_assume_msg, cvlm_assert};
 use cvlm::function::Function;
-use cvlm::asserts::cvlm_assume_msg;
+use cvlm::manifest::{invoker, target, rule};
 use dummy_pool::dummy_pool::DummyPool;
-use cvlm::manifest::invoker;
-use cvlm::manifest::target;
-use cvlm::manifest::rule;
-use cvlm::asserts::cvlm_assert;
 use solvency::solvency::is_solvent;
-
-
+use suilend::lending_market::LendingMarket;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -18,7 +16,11 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity_request");
+    target(
+        @dummy_pool,
+        b"dummy_pool_lending_market",
+        b"redeem_ctokens_and_withdraw_liquidity_request",
+    );
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_ctokens_into_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow");
     target(@dummy_pool, b"dummy_pool_lending_market", b"compound_interest");
@@ -47,15 +49,13 @@ public fun cvlm_manifest() {
     invoker(b"invoke");
 
     rule(b"ratio_monotonicity");
-
 }
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
-/// Verifies that the solvency ratio, i.e. liquidity to collateral ratio, cannot decrease by
-/// user operations. This ensure that no action performed by any user can depreciate the value
-/// of a ctoken.
-/// This does not hold for the privileged `forgive` function.
+/// Verifies that user operations cannot decrease the ctoken ratio (assets/shares).
+/// Ensures that ctokens maintain or increase their value through lending operations.
+/// Note: This property does not hold for the privileged forgive function
 public fun ratio_monotonicity(
     lending_market: &mut LendingMarket<DummyPool>,
     i: u64,
@@ -65,8 +65,6 @@ public fun ratio_monotonicity(
 
     let reserve = &lending_market.reserves()[i];
     cvlm_assume_msg(is_solvent(reserve), b"Require invariant reserve is solvent");
-
-
 
     // let ratio_pre = reserve.ctoken_ratio();
     let (assets_pre, shares_pre) = {

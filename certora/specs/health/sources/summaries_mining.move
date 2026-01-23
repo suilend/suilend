@@ -67,4 +67,3 @@ public(package) fun claim_rewards<T>(
 ): Balance<T> {
     nondet()
 }
-

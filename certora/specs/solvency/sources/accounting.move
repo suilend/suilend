@@ -1,17 +1,19 @@
+/// property: Reserve Available Balance Accounting
+/// description: Verifies that the internal available balance never exceeds the sum of on-chain balance and staked SUI
 module solvency::accounting;
 
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
-use pyth::price_info::PriceInfoObject;
 use dummy_pool::dummy_pool::DummyPool;
+use pyth::price_info::PriceInfoObject;
+use solvency::summaries_staking::staked_sui;
 use sui::clock::Clock;
+use sui::sui::SUI;
 use suilend::lending_market::LendingMarket;
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
-use sui::sui::SUI;
-use solvency::summaries_staking::staked_sui;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -19,7 +21,11 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity_request");
+    target(
+        @dummy_pool,
+        b"dummy_pool_lending_market",
+        b"redeem_ctokens_and_withdraw_liquidity_request",
+    );
 
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_ctokens_into_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow");
@@ -57,7 +63,6 @@ public fun cvlm_manifest() {
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
-
 /// Returns whether given reserve is solvent, i.e., whether the total supply of assets is equal to or greater than the amount of cTokens.
 public fun available_balance_accounting_correct(reserve: &Reserve<DummyPool>): bool {
     let internal = reserve.available_amount();
@@ -69,8 +74,7 @@ public fun available_balance_accounting_correct(reserve: &Reserve<DummyPool>): b
     internal <= onchain + staked
 }
 
-/// The base case for the induction.
-/// Asserts that in the initial state, i.e. right after creating a new reserve, the solvency property holds.
+/// Verifies that newly created reserves have correct available balance accounting
 public fun available_balance_correct_base(
     lending_market_id: ID,
     config: ReserveConfig,
@@ -93,29 +97,39 @@ public fun available_balance_correct_base(
     ghost_destroy(reserve);
 }
 
-/// The induction steps for the solvency invariant.
-/// Assumes an arbitrary reserve, identified by its index in the lending market, that is in a solvent state,
-/// and assert that every function that can modify the state preserves the solvency.
-public fun available_balance_correct_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, target: Function) {
+/// Verifies that all lending market operations preserve the available balance accounting invariant.
+/// The internal available balance must remain less than or equal to on-chain balance plus staked SUI
+public fun available_balance_correct_step(
+    lending_market: &mut LendingMarket<DummyPool>,
+    i: u64,
+    target: Function,
+) {
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
     {
         let reserves = lending_market.reserves();
         cvlm_assume_msg(reserves.length() == 2, b"Assume 2 reserves");
         cvlm_assume_msg(reserves[0].id() != reserves[1].id(), b"Assume different IDs");
-        cvlm_assume_msg(reserves[0].coin_type() != reserves[1].coin_type(), b"Assume different coin types");
+        cvlm_assume_msg(
+            reserves[0].coin_type() != reserves[1].coin_type(),
+            b"Assume different coin types",
+        );
     };
 
     {
         let reserve = &lending_market.reserves()[i];
-        cvlm_assume_msg(available_balance_accounting_correct(reserve), b"Assume reserve is solvent pre-state");
+        cvlm_assume_msg(
+            available_balance_accounting_correct(reserve),
+            b"Assume reserve is solvent pre-state",
+        );
     };
 
     invoke(target, lending_market);
 
     {
         let reserve = &lending_market.reserves()[i];
-        cvlm_assert_msg(available_balance_accounting_correct(reserve), b"Assume reserve is solvent pre-state");
+        cvlm_assert_msg(
+            available_balance_accounting_correct(reserve),
+            b"Assume reserve is solvent pre-state",
+        );
     };
 }
-
-

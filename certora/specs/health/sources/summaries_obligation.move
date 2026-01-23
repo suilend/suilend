@@ -2,7 +2,7 @@
 module health::summaries_obligation;
 
 use commons::helper::{max_deposits, max_borrows};
-use cvlm::asserts::{cvlm_assume_msg};
+use cvlm::asserts::cvlm_assume_msg;
 use cvlm::manifest::{summary, ghost};
 use cvlm::nondet::nondet;
 use sui::clock::Clock;

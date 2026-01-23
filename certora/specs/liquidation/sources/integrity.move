@@ -1,17 +1,18 @@
+/// property: Liquidation Integrity
+/// description: Verifies liquidation only occurs on unhealthy obligations, reduces collateral and debt, and improves health
 module liquidation::integrity;
 
+use commons::helper::setup_obligation_for_liquidation;
+use commons::utils::log;
 use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::rule;
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
-use commons::utils::log;
-use commons::helper::setup_obligation_for_liquidation;
 use sui::coin::Coin;
-use suilend::decimal::{gt};
+use suilend::decimal::gt;
 use suilend::lending_market::LendingMarket;
 use suilend::reserve::market_value;
-
 
 public fun cvlm_manifest() {
     rule(b"liquidation_only_unhealthy_obligation");
@@ -19,13 +20,16 @@ public fun cvlm_manifest() {
     rule(b"liquidation_improves_health");
 }
 
-/* Liquidation reverts on healthy obligation */
-
+/// Verifies that if liquidation executes successfully, the obligation was unhealthy
 public fun liquidation_only_unhealthy_obligation<R, W>(
     lm: &mut LendingMarket<DummyPool>,
     ob_id: ID,
 ) {
-    let (obligation, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
+    let (
+        obligation,
+        repay_reserve_index,
+        withdraw_reserve_index,
+    ) = setup_obligation_for_liquidation(lm, ob_id);
 
     let liquidatable = obligation.is_liquidatable();
     let healthy = obligation.is_healthy();
@@ -55,11 +59,16 @@ public fun liquidation_only_unhealthy_obligation<R, W>(
     cvlm_assert(!healthy);
 }
 
+/// Verifies that liquidation reduces both collateral and debt amounts
 public fun liquidation_reduces_collateral_and_debt<R, W>(
     lm: &mut LendingMarket<DummyPool>,
     ob_id: ID,
 ) {
-    let (obligation, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
+    let (
+        obligation,
+        repay_reserve_index,
+        withdraw_reserve_index,
+    ) = setup_obligation_for_liquidation(lm, ob_id);
 
     let (deposits_pre, borrows_pre) = {
         let deposits = obligation.deposits()[0].deposited_ctoken_amount();
@@ -99,10 +108,12 @@ public fun liquidation_reduces_collateral_and_debt<R, W>(
     ghost_destroy(repay_coins);
 }
 
-/// Verifies that liquidation is not a loss for the liquidator.
-/// That means that the market value of the returned CTokens is at least the market value of the repaid debt.
+/// Verifies that liquidation improves the obligation's LTV ratio
 public fun liquidation_improves_health<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
-    let (ob, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(lm, ob_id);
+    let (ob, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(
+        lm,
+        ob_id,
+    );
 
     let clock = nondet();
     let mut ctx = nondet();
@@ -113,7 +124,6 @@ public fun liquidation_improves_health<R, W>(lm: &mut LendingMarket<DummyPool>, 
     let debt_pre = ob.borrows()[0].market_value();
 
     cvlm_assume_msg(debt_pre.le(collateral_pre), b"No bad debt");
-
 
     // Uncomment for a "nice" counterexample:
     // Repaying $18 debt at an LTV of $90/$100 using 20% fees, we obtain an LTV of 72/79 > 0.9

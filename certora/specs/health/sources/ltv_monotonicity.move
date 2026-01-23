@@ -1,3 +1,5 @@
+/// property: LTV Monotonicity
+/// description: Verifies that loan-to-value ratio increases with debt and decreases with collateral
 module health::ltv_monotonicity;
 
 use commons::helper::{setup_obligation, refresh_health, zero};
@@ -63,6 +65,7 @@ fun ltv<P>(ob: &Obligation<P>): (Decimal, Decimal) {
     (loan, value)
 }
 
+/// Verifies that LTV increases when debt increases
 public(package) fun ltv_increases_with_debt(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
@@ -97,6 +100,7 @@ public(package) fun ltv_increases_with_debt(
     cvlm_assert(ltv_increase);
 }
 
+/// Verifies that LTV decreases when collateral increases
 public(package) fun ltv_decreases_with_collateral(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,

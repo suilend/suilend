@@ -1,3 +1,5 @@
+/// property: Collateral Non-Decrease
+/// description: Verifies that total deposited ctokens in an obligation never decrease unless explicitly withdrawn
 module health::no_col_decrease;
 
 use commons::helper::{setup_obligation, refresh_health};
@@ -8,7 +10,6 @@ use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 
 public fun cvlm_manifest() {
-    // Public mut functions
     target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
@@ -24,6 +25,8 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow_request");
     target(@dummy_pool, b"dummy_pool_lending_market", b"fulfill_liquidity_request");
     target(@dummy_pool, b"dummy_pool_lending_market", b"repay");
+    // Does not hold when withdrawing ctokens, we omit it for this invariant
+    // target(@dummy_pool, b"dummy_pool_lending_market", b"withdraw_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"forgive");
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards");
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards_and_deposit");
@@ -53,6 +56,7 @@ native fun invoke(
     obligation_id: ID,
 );
 
+/// Verifies that collateral does not decrease unless explicitly withdrawn
 public(package) fun no_col_decrease(
     lending_market: &mut LendingMarket<DummyPool>,
     id: ID,
