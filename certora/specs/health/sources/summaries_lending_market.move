@@ -13,6 +13,8 @@ use suilend::decimal::{Decimal};
 use suilend::obligation::Obligation;
 use suilend::rate_limiter::RateLimiter;
 use suilend::reserve::{Reserve};
+use sui::coin::Coin;
+use suilend::lending_market::LendingMarket;
 
 public fun cvlm_manifest() {
     // Rate limiter: Ignored for obligation health verification as rate limiting doesn't affect
@@ -22,6 +24,15 @@ public fun cvlm_manifest() {
     // Max borrow amount: Returns nondeterministic value. The actual amount borrowed is what matters
     // for health, not the maximum allowed amount.
     summary(b"max_borrow_amount", @suilend, b"lending_market", b"max_borrow_amount");
+
+    // Max withdraw amount: Returns nondeterministic value. The actual amount withdrawn is what matters
+    // for health, not the maximum allowed amount.
+    summary(b"max_withdraw_amount", @suilend, b"lending_market", b"max_withdraw_amount");
+
+
+    summary(b"claim_rewards_by_obligation_id", @suilend, b"lending_market", b"claim_rewards_by_obligation_id");
+
+
 }
 
 /// No-op rate limiter processing.
@@ -43,3 +54,26 @@ public fun max_borrow_amount<P>(
     nondet()
 }
 
+
+fun max_withdraw_amount<P>(
+        mut _rate_limiter: RateLimiter,
+        _obligation: &Obligation<P>,
+        _reserve: &Reserve<P>,
+        _lock: &Clock,
+    ): u64 {
+        nondet()
+    }
+
+
+fun claim_rewards_by_obligation_id<P, RewardType>(
+        _lending_market: &mut LendingMarket<P>,
+        _obligation_id: ID,
+        _clock: &Clock,
+        _reserve_id: u64,
+        _reward_index: u64,
+        _is_deposit_reward: bool,
+        _fail_if_reward_period_not_over: bool,
+        _ctx: &mut TxContext,
+    ): Coin<RewardType> {
+        nondet()
+    }

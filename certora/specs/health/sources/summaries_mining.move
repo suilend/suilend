@@ -10,8 +10,6 @@ use cvlm::manifest::summary;
 use cvlm::nondet::nondet;
 use sui::balance::Balance;
 use sui::clock::Clock;
-use sui::coin::Coin;
-use suilend::lending_market::LendingMarket;
 use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 
 public fun cvlm_manifest() {
@@ -25,12 +23,6 @@ public fun cvlm_manifest() {
     summary(b"add_pool_reward", @suilend, b"liquidity_mining", b"add_pool_reward");
     summary(b"cancel_pool_reward", @suilend, b"liquidity_mining", b"cancel_pool_reward");
     summary(b"close_pool_reward", @suilend, b"liquidity_mining", b"close_pool_reward");
-    summary(
-        b"claim_rewards_by_obligation_id",
-        @suilend,
-        b"lending_market",
-        b"claim_rewards_by_obligation_id",
-    )
 }
 
 public fun change_user_reward_manager_share(
@@ -76,15 +68,3 @@ public(package) fun claim_rewards<T>(
     nondet()
 }
 
-public(package) fun claim_rewards_by_obligation_id<P, RewardType>(
-    _lending_market: &mut LendingMarket<P>,
-    _obligation_id: ID,
-    _clock: &Clock,
-    _reserve_id: u64,
-    _reward_index: u64,
-    _is_deposit_reward: bool,
-    _fail_if_reward_period_not_over: bool,
-    _ctx: &mut TxContext,
-): Coin<RewardType> {
-    nondet()
-}

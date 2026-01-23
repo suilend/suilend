@@ -64,7 +64,7 @@ public native fun debt_factor(): Decimal;
 public fun obligation_compound_debt<P>(borrow: &mut Borrow, _reserve: &Reserve<P>) {
     let f = debt_factor();
     let one = decimal::from(1);
-    let two = decimal::from(1);
+    let two = decimal::from(2);
     cvlm_assume_msg(f.ge(one), b">= 1");
     cvlm_assume_msg(f.le(two), b"<= 2");
 

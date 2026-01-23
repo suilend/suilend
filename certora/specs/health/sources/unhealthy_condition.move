@@ -6,7 +6,9 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use commons::helper::setup_obligation;
-use commons::helper::refresh_health;
+use commons::helper::refresh_health_compound_debt;
+use commons::inv::require_sound_obligation_state;
+use suilend::obligation::is_healthy;
 
 public fun cvlm_manifest() {
     // Public mut functions
@@ -66,20 +68,16 @@ public(package) fun unhealthy_only_if_borrow_increases(
 ) {
     let obligation = setup_obligation(lending_market, id);
 
-    cvlm_assume_msg(obligation.is_healthy(), b"Require invariant: obligation is healthy");
+    cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy");
 
     // Liquidatable => Unhealthy
-    cvlm_assume_msg(
-        !obligation.is_liquidatable() || !obligation.is_healthy(),
-        b"Require invariant: Obligation is only liquidatable if it is unhealthy",
-    );
-
+    require_sound_obligation_state(obligation);
     let borrow_value_pre = obligation.weighted_borrowed_value_upper_bound_usd();
 
     invoke(target, lending_market, id);
 
     let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
-    refresh_health(obligation, reserves);
+    refresh_health_compound_debt(obligation, reserves);
 
     let borrow_value_post = obligation.weighted_borrowed_value_upper_bound_usd();
 

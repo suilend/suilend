@@ -10,6 +10,7 @@ use dummy_pool::dummy_pool::DummyPool;
 use health::summaries_obligation::debt_factor;
 use suilend::decimal;
 use suilend::lending_market::LendingMarket;
+use cvlm::nondet::nondet;
 
 public fun cvlm_manifest() {
     // We explicitly ignore price changes and config updates
@@ -50,6 +51,10 @@ public fun cvlm_manifest() {
 
     rule(b"obligation_health_base");
     rule(b"obligation_health_step");
+    
+    
+    rule(b"obligation_health_test");
+
 }
 
 native fun invoke(
@@ -84,19 +89,48 @@ public(package) fun obligation_health_step(
     id: ID,
     target: Function,
 ) {
-    {
-        let obligation = setup_obligation(lending_market, id);
+    let obligation = setup_obligation(lending_market, id);
 
-        cvlm_assume_msg(lending_market.reserves().length() <= 2, b"At most 2 reserves");
-        cvlm_assume_msg(debt_factor().ge(decimal::from(1)), b"No debt accumulates");
-        cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
+    cvlm_assume_msg(lending_market.reserves().length() <= 2, b"At most 2 reserves");
+    cvlm_assume_msg(debt_factor().eq(decimal::from(1)), b"No debt accumulates");
+    cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
 
-        require_sound_obligation_state(obligation);
-    };
+    require_sound_obligation_state(obligation);
 
     invoke(target, lending_market, id);
 
-    cvlm_assume_msg(lending_market.reserves().length() <= 2, b"Still at most 2 reserves");
+    let (ob, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(ob, reserves);
+
+    cvlm_assert_msg(
+        ob.is_healthy(),
+        b"Assert obligation is healthy in post-state after refresh",
+    );
+}
+
+
+public(package) fun obligation_health_test<R>(
+    lending_market: &mut LendingMarket<DummyPool>,
+    id: ID,
+
+) {
+    let obligation = setup_obligation(lending_market, id);
+
+    cvlm_assume_msg(lending_market.reserves().length() <= 2, b"At most 2 reserves");
+    cvlm_assume_msg(debt_factor().eq(decimal::from(1)), b"No debt accumulates");
+    cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
+
+    require_sound_obligation_state(obligation);
+
+    let clock = nondet();
+    let mut ctx = nondet();
+    let cap = nondet();
+    //lending_market.claim_rewards_and_deposit<DummyPool, R>(id, &clock, nondet(), nondet(), nondet(), nondet(), &mut ctx);
+    lending_market.deposit_ctokens_into_obligation<DummyPool, R>(nondet(), &cap, &clock, nondet(), &mut ctx);
+    ghost_destroy(clock);
+    ghost_destroy(ctx);
+    ghost_destroy(cap);
+
 
     let (ob, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
     refresh_health(ob, reserves);

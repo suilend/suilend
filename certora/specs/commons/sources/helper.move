@@ -37,6 +37,13 @@ public fun one(): Decimal {
     decimal::from_scaled_val(1000000000000000000)
 }
 
+/// Returns a Decimal representation of one (1.0).
+/// Scaled value: 1 * 10^18
+public fun two(): Decimal {
+    decimal::from_scaled_val(2000000000000000000)
+}
+
+
 /// Returns a Decimal representation of twenty percent (0.2).
 /// Scaled value: 0.2 * 10^18
 public fun twenty_percent(): Decimal {
@@ -391,8 +398,62 @@ public fun setup_obligation_for_liquidation(
 /// - weighted_borrowed_value_usd
 /// - weighted_borrowed_value_upper_bound_usd
 public fun refresh_health<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
-    let deposits = obligation.deposits().length();
+   refresh_health_deposit(obligation, reserves); 
+   refresh_health_borrow(obligation, reserves, false);  
+}
+
+public fun refresh_health_compound_debt<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>) {
+   refresh_health_deposit(obligation, reserves); 
+   refresh_health_borrow(obligation, reserves, true);  
+}
+
+public fun refresh_health_borrow<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>, compound_debt: bool){
     let borrows = obligation.borrows().length();
+
+    /* Freshness */
+    let zero = zero();
+
+    let mut unweighted_borrowed_value_usd = zero;
+    let mut weighted_borrowed_value_usd = zero;
+    let mut weighted_borrowed_value_upper_bound_usd = zero;
+    let mut i = 0;
+    while (i < borrows) {
+        let borrow = &mut obligation.borrows_mut()[i];
+        let borrow_reserve = &reserves[borrow.reserve_array_index()];
+        let borrow_weight = borrow_reserve.config().borrow_weight();
+
+        // Sound state
+        cvlm_assume_msg(borrow_weight.ge(one()), b"Borrow weight >= 1");
+
+        if (compound_debt) {
+            borrow.compound_debt(borrow_reserve);
+        };
+        
+
+        let (
+            unweighted_borrowed_value_usd_i,
+            weighted_borrowed_value_usd_i,
+            weighted_borrowed_value_upper_bound_usd_i,
+        ) = borrow_values(borrow_reserve, borrow, borrow_weight);
+
+        unweighted_borrowed_value_usd =
+            unweighted_borrowed_value_usd.add(unweighted_borrowed_value_usd_i);
+        weighted_borrowed_value_usd =
+            weighted_borrowed_value_usd.add(weighted_borrowed_value_usd_i);
+        weighted_borrowed_value_upper_bound_usd =
+            weighted_borrowed_value_upper_bound_usd.add(weighted_borrowed_value_upper_bound_usd_i);
+
+        *borrow.market_value_mut() = unweighted_borrowed_value_usd_i;
+        i = i+1;
+    };
+    *obligation.unweighted_borrowed_value_usd_mut() = unweighted_borrowed_value_usd;
+    *obligation.weighted_borrowed_value_usd_mut() = weighted_borrowed_value_usd;
+    *obligation.weighted_borrowed_value_upper_bound_usd_mut() =
+        weighted_borrowed_value_upper_bound_usd;
+}
+
+public fun refresh_health_deposit<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>){
+    let deposits = obligation.deposits().length();
 
     /* Freshness */
     let zero = zero();
@@ -426,43 +487,29 @@ public fun refresh_health<P>(obligation: &mut Obligation<P>, reserves: &vector<R
         *deposit.market_value_mut() = deposited_value_usd_i;
         i = i+1;
     };
-    *obligation.allowed_borrow_value_usd_mut() = allowed_borrow_value;
-    *obligation.deposited_value_usd_mut() = deposited_value_usd;
-    *obligation.unhealthy_borrow_value_usd_mut() = unhealthy_borrow_value_usd;
+}
 
-    let mut unweighted_borrowed_value_usd = zero;
-    let mut weighted_borrowed_value_usd = zero;
-    let mut weighted_borrowed_value_upper_bound_usd = zero;
+public fun weighted_borrowed_value_usd<P>(obligation: &mut Obligation<P>, reserves: &vector<Reserve<P>>): Decimal {
+    let borrows = obligation.borrows().length();
+    let mut weighted_borrowed_value_usd = zero();
+
     let mut i = 0;
     while (i < borrows) {
-        let borrow = &mut obligation.borrows_mut()[i];
+         let borrow = &mut obligation.borrows_mut()[i];
         let borrow_reserve = &reserves[borrow.reserve_array_index()];
         let borrow_weight = borrow_reserve.config().borrow_weight();
 
         // Sound state
         cvlm_assume_msg(borrow_weight.ge(one()), b"Borrow weight >= 1");
-
-        let (
-            unweighted_borrowed_value_usd_i,
-            weighted_borrowed_value_usd_i,
-            weighted_borrowed_value_upper_bound_usd_i,
-        ) = borrow_values(borrow_reserve, borrow, borrow_weight);
-
-        unweighted_borrowed_value_usd =
-            unweighted_borrowed_value_usd.add(unweighted_borrowed_value_usd_i);
+        let unweighted_borrowed_value_usd = borrow_reserve.market_value(borrow.borrowed_amount());
+        let weighted_borrowed_value_usd_i = unweighted_borrowed_value_usd.mul(borrow_weight);
         weighted_borrowed_value_usd =
             weighted_borrowed_value_usd.add(weighted_borrowed_value_usd_i);
-        weighted_borrowed_value_upper_bound_usd =
-            weighted_borrowed_value_upper_bound_usd.add(weighted_borrowed_value_upper_bound_usd_i);
-
-        *borrow.market_value_mut() = unweighted_borrowed_value_usd_i;
         i = i+1;
     };
-    *obligation.unweighted_borrowed_value_usd_mut() = unweighted_borrowed_value_usd;
-    *obligation.weighted_borrowed_value_usd_mut() = weighted_borrowed_value_usd;
-    *obligation.weighted_borrowed_value_upper_bound_usd_mut() =
-        weighted_borrowed_value_upper_bound_usd;
+    weighted_borrowed_value_usd
 }
+
 
 /// Refreshes the isolated asset borrowing status of an obligation.
 ///

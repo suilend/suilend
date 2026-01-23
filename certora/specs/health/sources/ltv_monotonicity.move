@@ -1,14 +1,13 @@
 module health::ltv_monotonicity;
 
-use commons::helper::setup_obligation;
-use cvlm::asserts::cvlm_assert;
+use commons::helper::{setup_obligation, refresh_health, zero};
+use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::decimal::Decimal;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
-use commons::helper::refresh_health;
 
 public fun cvlm_manifest() {
     // We ignore price changes and config updates
@@ -58,10 +57,10 @@ native fun invoke(
     obligation_id: ID,
 );
 
-fun ltv<P>(ob: &Obligation<P>): Decimal {
+fun ltv<P>(ob: &Obligation<P>): (Decimal, Decimal) {
     let loan = ob.weighted_borrowed_value_upper_bound_usd();
     let value = ob.deposited_value_usd();
-    loan.div(value)
+    (loan, value)
 }
 
 public(package) fun ltv_increases_with_debt(
@@ -71,22 +70,31 @@ public(package) fun ltv_increases_with_debt(
 ) {
     let obligation = setup_obligation(lending_market, id);
     let debt_pre = obligation.weighted_borrowed_value_usd();
-    let ltv_pre = ltv(obligation);
+    let (loan_pre, value_pre) = ltv(obligation);
 
     invoke(target, lending_market, id);
 
-    
     let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
     refresh_health(obligation, reserves);
-    
     let debt_post = obligation.weighted_borrowed_value_usd();
-    let ltv_post = ltv(obligation);
+
+    let (loan_post, value_post) = ltv(obligation);
 
     let debt_increase = debt_post.gt(debt_pre);
-    let ltv_increase = ltv_post.ge(ltv_pre);
 
-    // debt_increase -> ltv_increase <==> !debt_increase || ltv_increase
-    cvlm_assert(!debt_increase || ltv_increase);
+    //          ltv_pre < ltv_post
+    // <==>     loan_pre/value_pre < loan_post/value_post
+    // <==>     loan_pre*value_post < loan_post/value_pre
+    cvlm_assume_msg(value_pre.gt(zero()), b"Non-zero collateral");
+    cvlm_assume_msg(value_post.gt(zero()), b"Non-zero collateral");
+
+    // needs to be <= instead of < due to rounding
+    let ltv_increase = loan_pre.mul(value_post).le(loan_post.mul(value_pre));
+
+    // It is better for performance to use a assumption here instead of "!debt_increase || ltv_increase"
+    // This is fine since we are not interested in the case where debt does not increase.
+    cvlm_assume_msg(debt_increase, b"Debt increases");
+    cvlm_assert(ltv_increase);
 }
 
 public(package) fun ltv_decreases_with_collateral(
@@ -97,20 +105,28 @@ public(package) fun ltv_decreases_with_collateral(
     let obligation = setup_obligation(lending_market, id);
 
     let coll_pre = obligation.deposited_value_usd();
-    let ltv_pre = ltv(obligation);
+    let (loan_pre, value_pre) = ltv(obligation);
 
     invoke(target, lending_market, id);
 
-    
     let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
     refresh_health(obligation, reserves);
 
     let coll_post = obligation.deposited_value_usd();
-    let ltv_post = ltv(obligation);
+
+    // needs to be >= instead of > due to rounding
+    let (loan_post, value_post) = ltv(obligation);
 
     let coll_increase = coll_post.gt(coll_pre);
-    let ltv_decrease = ltv_post.le(ltv_pre);
 
-    // coll_increase -> ltv_decrease <==> !coll_increase || ltv_decrease
-    cvlm_assert(!coll_increase || ltv_decrease);
+    //          ltv_pre > ltv_post
+    // <==>     loan_pre/value_pre > loan_post/value_post
+    // <==>     loan_pre*value_post > loan_post/value_pre
+    cvlm_assume_msg(value_pre.gt(zero()), b"Non-zero collateral");
+    cvlm_assume_msg(value_post.gt(zero()), b"Non-zero collateral");
+    let ltv_decrease = loan_pre.mul(value_post).ge(loan_post.mul(value_pre));
+
+    // See comment in above rule
+    cvlm_assume_msg(coll_increase, b"Assume collateral increases");
+    cvlm_assert(ltv_decrease);
 }
