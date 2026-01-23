@@ -495,6 +495,9 @@ public fun refresh_health_deposit<P>(
         *deposit.market_value_mut() = deposited_value_usd_i;
         i = i+1;
     };
+    *obligation.deposited_value_usd_mut() = deposited_value_usd;
+    *obligation.allowed_borrow_value_usd_mut() = allowed_borrow_value;
+    *obligation.unhealthy_borrow_value_usd_mut() = unhealthy_borrow_value_usd;
 }
 
 public fun weighted_borrowed_value_usd<P>(
