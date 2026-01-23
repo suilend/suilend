@@ -3,13 +3,14 @@ name: Certora Prover
 on:
   push:
     branches:
-      - kel/specs
       - certora
   pull_request:
+    branches:
+      - certora
   workflow_dispatch:
 
 jobs:
-  certora_run_health:
+  certora_run:
     runs-on: ubuntu-latest
     permissions:
       contents: read
