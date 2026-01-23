@@ -54,13 +54,6 @@ public fun cvlm_manifest() {
         b"obligation",
         b"zero_out_rewards_if_looped",
     );
-    summary(
-        b"mining_change_user_reward_manager_share",
-        @suilend,
-        b"liquidity_mining",
-        b"change_user_reward_manager_share",
-    );
-    summary(b"mining_claim_rewards", @suilend, b"liquidity_mining", b"claim_rewards");
 }
 
 /// Ghost functions for deposit and borrow index lookup.

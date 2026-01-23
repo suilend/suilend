@@ -1,13 +1,13 @@
 module solvency::solvency;
 
-use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
+use commons::helper::one;
+use cvlm::asserts::{cvlm_assert, cvlm_assume_msg};
 use cvlm::function::Function;
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{target, invoker, rule};
-use pyth::price_info::PriceInfoObject;
 use dummy_pool::dummy_pool::DummyPool;
+use pyth::price_info::PriceInfoObject;
 use sui::clock::Clock;
-use suilend::decimal::{Self};
 use suilend::lending_market::LendingMarket;
 use suilend::reserve::{Reserve, create_reserve};
 use suilend::reserve_config::ReserveConfig;
@@ -18,7 +18,11 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
     target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity_request");
+    target(
+        @dummy_pool,
+        b"dummy_pool_lending_market",
+        b"redeem_ctokens_and_withdraw_liquidity_request",
+    );
     target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_ctokens_into_obligation");
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow");
     target(@dummy_pool, b"dummy_pool_lending_market", b"compound_interest");
@@ -52,13 +56,10 @@ public fun cvlm_manifest() {
 
 native fun invoke(target: Function, lending_market: &mut LendingMarket<DummyPool>);
 
-
 /// Returns whether given reserve is solvent, i.e., whether the total supply of assets is equal to or greater than the amount of cTokens.
 public fun is_solvent(reserve: &Reserve<DummyPool>): bool {
-    let one = decimal::from(1);
     let ratio = reserve.ctoken_ratio();
-    ratio.ge(one)
-    
+    ratio.ge(one())
 }
 
 /// The base case for the induction.
@@ -91,17 +92,11 @@ public fun solvency_base<T>(
 public fun solvency_step(lending_market: &mut LendingMarket<DummyPool>, i: u64, target: Function) {
     cvlm_assume_msg(i < lending_market.reserves().length(), b"Index is in range");
 
-    {
-        let reserve = &lending_market.reserves()[i];
-        cvlm_assume_msg(is_solvent(reserve), b"Assume reserve is solvent pre-state");
-    };
+    let reserve = &lending_market.reserves()[i];
+    cvlm_assume_msg(is_solvent(reserve), b"Assume reserve is solvent pre-state");
 
     invoke(target, lending_market);
 
-    {
-        let reserve = &lending_market.reserves()[i];
-        cvlm_assert_msg(is_solvent(reserve), b"Assert reserve is solvent in post-state");
-    };
+    let reserve = &lending_market.reserves()[i];
+    cvlm_assert(is_solvent(reserve));
 }
-
-

@@ -12,6 +12,7 @@ use sui::balance::Balance;
 use sui::sui::SUI;
 use sui_system::sui_system::SuiSystemState;
 use suilend::staker::Staker;
+use cvlm::asserts::cvlm_assume_msg;
 
 public fun cvlm_manifest() {
     // Staking operations: Simplified implementations that track staked amounts via ghost state
@@ -64,11 +65,15 @@ public(package) fun staker_rebalance<P: drop>(
 /// the specific staking pool management.
 public(package) fun staker_withdraw<P: drop>(
     _staker: &mut Staker<P>,
-    _withdraw_amount: u64,
+    withdraw_amount: u64,
     _system_state: &mut SuiSystemState,
     _ctx: &mut TxContext,
 ): Balance<SUI> {
-    nondet()
+    let staked_pre = staked_sui();
+    *staked_pre = *staked_pre - withdraw_amount;
+    let balance: Balance<SUI> = nondet();
+    cvlm_assume_msg(balance.value() == withdraw_amount, b"Exact amount withdrawn");
+    balance
 }
 
 /// Nondeterministic fee claim.
