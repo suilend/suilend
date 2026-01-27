@@ -46,7 +46,7 @@ public fun two(): Decimal {
 /// Returns a Decimal representation of twenty percent (0.2).
 /// Scaled value: 0.2 * 10^18
 public fun twenty_percent(): Decimal {
-    decimal::from_scaled_val(20000000000000000)
+    decimal::from_percent(20)
 }
 
 /// Helper function to setup assumptions and calculations for a single deposit.
