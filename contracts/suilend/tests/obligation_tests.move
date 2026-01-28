@@ -1,6 +1,6 @@
 #[test_only]
 module suilend::obligation_tests {
-    use std::type_name;
+    use std::{type_name, unit_test};
     use sui::clock;
     use sui::test_scenario;
     use suilend::decimal::{Self, add};
@@ -31,6 +31,8 @@ module suilend::obligation_tests {
     public struct TEST_ETH {}
 
     public struct TEST_AUSD {}
+
+    public struct TEST_DUST {}
 
     fun sui_reserve<P>(ctx: &mut TxContext): Reserve<P> {
         let config = default_reserve_config(ctx);
@@ -2359,5 +2361,56 @@ module suilend::obligation_tests {
         clock::destroy_for_testing(clock);
         sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
+    }
+
+    /// Test that borrowing dust amounts (where market_value truncates to 0) is rejected.
+    /// This prevents users from borrowing without meaningful collateral.
+    #[test]
+    #[expected_failure(abort_code = suilend::obligation::EBorrowTooSmall)]
+    public fun test_borrow_fail_dust_amount() {
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+        let mut usdc_reserve = usdc_reserve(scenario.ctx());
+
+        // Create a reserve with low price ($1e-18) and 18 decimals.
+        // Borrowing 1 unit results in market_value = 0.
+        let mut dust_reserve = {
+            let config = default_reserve_config(scenario.ctx());
+            let mut builder = reserve_config::from(&config, scenario.ctx());
+            reserve_config::set_open_ltv_pct(&mut builder, 50);
+            reserve_config::set_close_ltv_pct(&mut builder, 80);
+            reserve_config::set_max_close_ltv_pct(&mut builder, 80);
+            reserve_config::set_borrow_weight_bps(&mut builder, 10_000);
+            reserve_config::set_interest_rate_utils(&mut builder, vector[0, 100]);
+            reserve_config::set_interest_rate_aprs(&mut builder, vector[0, 0]);
+            unit_test::destroy(config);
+            let config = reserve_config::build(builder, scenario.ctx());
+            reserve::create_for_testing<TEST_MARKET, TEST_DUST>(
+                config,
+                6,
+                18, // decimals
+                decimal::from_scaled_val(1), // price = $1e-18
+                0, 0, 0,
+                decimal::from(0),
+                decimal::from(1),
+                0,
+                scenario.ctx(),
+            )
+        };
+
+        let mut obligation = create_obligation<TEST_MARKET>(
+            object::uid_to_inner(&lending_market_id),
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Deposit collateral
+        obligation.deposit<TEST_MARKET>(&mut usdc_reserve, &clock, 100 * 1_000_000);
+
+        // Try to borrow 1 unit of the dust asset. Should abort
+        obligation.borrow<TEST_MARKET>(&mut dust_reserve, &clock, 1);
+
+        abort 999 // should not reach
     }
 }

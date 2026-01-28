@@ -40,6 +40,7 @@ module suilend::obligation {
     const EObligationIsNotForgivable: u64 = 7;
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
     const EOraclesAreStale: u64 = 9;
+    const EBorrowTooSmall: u64 = 10;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -455,6 +456,11 @@ module suilend::obligation {
 
         // update health values
         let borrow_market_value = reserve::market_value(reserve, decimal::from(amount));
+
+        // Abort if borrow amount is too small to have a meaningful market value.
+        // This prevents borrowing dust without collateral
+        assert!(borrow_market_value.gt(decimal::from(0)), EBorrowTooSmall);
+
         let borrow_market_value_upper_bound = reserve::market_value_upper_bound(
             reserve,
             decimal::from(amount),

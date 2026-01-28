@@ -2245,7 +2245,7 @@ module suilend::lending_market_tests {
         let mut scenario = test_scenario::begin(owner);
         setup_sui_system(&mut scenario);
 
-        let State { mut clock, owner_cap, mut lending_market, prices, type_to_index } = setup({
+        let State { mut clock, owner_cap, mut lending_market, mut prices, type_to_index } = setup({
                 let mut bag = bag::new(scenario.ctx());
                 bag::add(
                     &mut bag,
@@ -2330,6 +2330,9 @@ module suilend::lending_market_tests {
             ctokens,
             scenario.ctx(),
         );
+
+        prices.update_price<TEST_USDC>(1, 0, &clock); // $1
+        prices.update_price<SUI>(1, 1, &clock); // $10
 
         lending_market::refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
