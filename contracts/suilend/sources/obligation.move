@@ -720,8 +720,26 @@ module suilend::obligation {
         let borrow = find_borrow(obligation, repay_reserve);
         let deposit = find_deposit(obligation, withdraw_reserve);
 
-        // invariant: repay_amount <= borrow.borrowed_amount
-        let repay_amount = if (le(borrow.market_value, decimal::from(1))) {
+        let reserve_config = withdraw_reserve.config();
+        let configured_bonus = reserve_config.liquidation_bonus().add(
+            reserve_config.protocol_liquidation_fee()
+        );
+
+        // Cap the bonus to prevent liquidation from worsening the obligation's LTV
+        let bonus = if (obligation.unweighted_borrowed_value_usd.gt(decimal::from(0))) {
+            let max_safe_bonus = obligation.deposited_value_usd
+                .saturating_sub(obligation.unweighted_borrowed_value_usd)
+                .div(obligation.unweighted_borrowed_value_usd);
+            max_safe_bonus.min(configured_bonus)
+        } else {
+            configured_bonus // No debt, any bonus is safe
+        };
+
+        // Allow full liquidation when borrow is dust, or when bonus is capped
+        let allow_full_liquidation = borrow.market_value.le(decimal::from(1)) ||
+            bonus.lt(configured_bonus);
+
+        let repay_amount = if (allow_full_liquidation) {
             // full liquidation
             min(
                 borrow.borrowed_amount,
@@ -746,10 +764,6 @@ module suilend::obligation {
         };
 
         let repay_value = reserve::market_value(repay_reserve, repay_amount);
-        let bonus = add(
-            liquidation_bonus(config(withdraw_reserve)),
-            protocol_liquidation_fee(config(withdraw_reserve)),
-        );
 
         let withdraw_value = mul(
             repay_value,
