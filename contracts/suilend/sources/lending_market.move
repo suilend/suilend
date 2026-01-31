@@ -1436,7 +1436,7 @@ module suilend::lending_market {
     }
 
     /// Creates a new coin_registry::Currency reserve in a lending market
-    public fun add_registry_reserve<P, T>(
+    public fun add_reserve_v2<P, T>(
         _lending_market_owner_cap: &LendingMarketOwnerCap<P>,
         lending_market: &mut LendingMarket<P>,
         price_info: &PriceInfoObject,
