@@ -1442,7 +1442,7 @@ module suilend::lending_market {
         lending_market: &mut LendingMarket<P>,
         price_info: &PriceInfoObject,
         config: ReserveConfig,
-        coin_metadata: &sui::coin_registry::Currency<T>,
+        currency: &sui::coin_registry::Currency<T>,
         clock: &Clock,
         ctx: &mut TxContext,
     ) {
@@ -1451,7 +1451,7 @@ module suilend::lending_market {
             lending_market,
             price_info,
             config,
-            coin_metadata.decimals(),
+            currency.decimals(),
             clock,
             ctx,
         );
