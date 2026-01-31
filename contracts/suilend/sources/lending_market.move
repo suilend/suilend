@@ -1426,7 +1426,7 @@ module suilend::lending_market {
         ctx: &mut TxContext,
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-        add_reserve_internal<_, T>(
+        add_reserve_internal<P, T>(
             lending_market,
             price_info,
             config,
@@ -1447,7 +1447,7 @@ module suilend::lending_market {
         ctx: &mut TxContext,
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-        add_reserve_internal<_, T>(
+        add_reserve_internal<P, T>(
             lending_market,
             price_info,
             config,
