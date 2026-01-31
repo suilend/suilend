@@ -1425,6 +1425,7 @@ module suilend::lending_market {
         clock: &Clock,
         ctx: &mut TxContext,
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         add_reserve_internal<_, T>(
             lending_market,
             price_info,
@@ -1445,6 +1446,7 @@ module suilend::lending_market {
         clock: &Clock,
         ctx: &mut TxContext,
     ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         add_reserve_internal<_, T>(
             lending_market,
             price_info,
@@ -1984,7 +1986,6 @@ module suilend::lending_market {
         clock: &Clock,
         ctx: &mut TxContext,
     ) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(
             reserve_array_index<P, T>(lending_market) == vector::length(&lending_market.reserves),
             EDuplicateReserve,
