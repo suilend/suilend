@@ -76,7 +76,7 @@ fun setup_deposit_assumptions(
     cvlm_assume_msg(zero.lt(open_ltv), b"0 < open_ltv");
     cvlm_assume_msg(open_ltv.le(close_ltv), b"open_ltv <= close_ltv");
     cvlm_assume_msg(close_ltv.lt(one), b"close_ltv < 1");
-    cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one), b"ctoken_ratio = 1");
+    // cvlm_assume_msg(deposit_reserve.ctoken_ratio().ge(one), b"ctoken_ratio = 1");
 
     let fees = deposit_reserve
         .config()
@@ -135,7 +135,7 @@ fun setup_borrow_assumptions(
 
     let borrow_weight = borrow_reserve.config().borrow_weight();
     cvlm_assume_msg(borrow_weight.ge(one), b"Borrow weight >= 1");
-    cvlm_assume_msg(borrow_reserve.ctoken_ratio().eq(one), b"ctoken_ratio = 1");
+    // cvlm_assume_msg(borrow_reserve.ctoken_ratio().ge(one), b"ctoken_ratio = 1");
 
     let (
         unweighted_borrowed_value_usd,
@@ -480,7 +480,7 @@ public fun refresh_health_deposit<P>(
         cvlm_assume_msg(zero.lt(open_ltv), b"0 < open_ltv");
         cvlm_assume_msg(open_ltv.le(close_ltv), b"open_ltv <= close_ltv");
         cvlm_assume_msg(close_ltv.lt(one()), b"close_ltv < 1");
-        cvlm_assume_msg(deposit_reserve.ctoken_ratio().eq(one()), b"ctoken_ratio = 1");
+        // cvlm_assume_msg(deposit_reserve.ctoken_ratio().ge(one()), b"ctoken_ratio = 1");
 
         let (
             deposited_value_usd_i,
