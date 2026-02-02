@@ -1,5 +1,6 @@
 module liquidation::summaries;
 
+use commons::helper::one;
 use cvlm::asserts::{cvlm_assume_msg, cvlm_assert};
 use cvlm::ghost::ghost_destroy;
 use cvlm::manifest::{summary, ghost};
@@ -9,12 +10,11 @@ use sui::clock::Clock;
 use suilend::decimal::{Self, Decimal, min};
 use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::{Obligation, Borrow, ExistStaleOracles};
-use suilend::reserve::{Reserve, CToken, market_value, ctoken_ratio};
-use suilend::reserve_config::{ReserveConfig};
+use suilend::reserve::{Reserve, CToken, market_value};
+use suilend::reserve_config::ReserveConfig;
 
 public fun cvlm_manifest() {
     /* Obligation Summaries */
-
 
     summary(b"obligation_log_obligation_data", @suilend, b"obligation", b"log_obligation_data");
     summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
@@ -48,7 +48,7 @@ public fun cvlm_manifest() {
     summary(b"reserve_mint_decimals", @suilend, b"reserve", b"mint_decimals");
     summary(b"reserve_withdraw_ctokens", @suilend, b"reserve", b"withdraw_ctokens");
     summary(b"reserve_repay_liquidity", @suilend, b"reserve", b"repay_liquidity");
-
+    summary(b"ctoken_ratio", @suilend, b"reserve", b"ctoken_ratio");
 
     summary(b"reserve_market_value", @suilend, b"reserve", b"market_value");
     summary(b"reserve_market_value_upper_bound", @suilend, b"reserve", b"market_value_upper_bound");
@@ -68,8 +68,7 @@ public fun cvlm_manifest() {
     );
 }
 
-public fun reserve_mint_decimals<P>(_: &Reserve<P>): u8 {0}
-
+public fun reserve_mint_decimals<P>(_: &Reserve<P>): u8 { 0 }
 
 public(package) fun obligation_zero_out_rewards_if_looped<P>(
     _obligation: &mut Obligation<P>,
@@ -130,8 +129,6 @@ public fun obligation_log_obligation_data<P>(_obligation: &Obligation<P>) {} // 
 
 public fun reserve_compound_interest<P>(_: &mut Reserve<P>, _: &Clock) {}
 
-
-
 fun mv<P>(r: &Reserve<P>, liquidity_amount: Decimal): Decimal {
     cvlm_assert(r.mint_decimals() == 0);
     liquidity_amount
@@ -157,7 +154,6 @@ public fun reserve_market_value_lower_bound<P>(
 
 public fun reserve_log_reserve_data<P>(_reserve: &Reserve<P>) {}
 
-
 public fun obligation_refresh<P>(
     _obligation: &mut Obligation<P>,
     _reserves: &mut vector<Reserve<P>>,
@@ -182,7 +178,6 @@ public fun reserve_withdraw_ctokens<P, T>(
     cvlm_assume_msg(bal.value() == amount, b"");
     bal
 }
-
 
 // no nothing
 public fun obligation_compound_debt<P>(_borrow: &mut Borrow, _reserve: &Reserve<P>) {}
@@ -232,4 +227,8 @@ public fun ctoken_market_value_upper_bound<P>(reserve: &Reserve<P>, ctoken_amoun
     cvlm_assert(reserve.ctoken_ratio().eq(decimal::from(1)));
     let liquidity_amount = decimal::from(ctoken_amount);
     reserve.market_value_upper_bound(liquidity_amount)
+}
+
+public fun ctoken_ratio<P>(_reserve: &Reserve<P>): Decimal {
+    one()
 }
