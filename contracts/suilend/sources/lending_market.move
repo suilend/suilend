@@ -305,7 +305,7 @@ module suilend::lending_market {
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
         reserve::compound_interest(reserve, clock);
 
         let deposit_amount = coin::value(&deposit);
@@ -318,7 +318,7 @@ module suilend::lending_market {
 
         event::emit(MintEvent {
             lending_market_id,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             reserve_id: object::id_address(reserve),
             liquidity_amount: deposit_amount,
             ctoken_amount: balance::value(&ctokens),
@@ -417,7 +417,7 @@ module suilend::lending_market {
         let ctoken_amount = coin::value(&ctokens);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
 
@@ -446,7 +446,7 @@ module suilend::lending_market {
 
         event::emit(RedeemEvent {
             lending_market_id,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             reserve_id: object::id_address(reserve),
             ctoken_amount,
             liquidity_amount: reserve::liquidity_request_amount(&liquidity_request),
@@ -550,6 +550,20 @@ module suilend::lending_market {
         reserve.compound_interest(clock);
     }
 
+    /// Refresh the obligation's state and assert no stale oracles
+    public fun refresh_obligation<P>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_id: ID,
+        clock: &Clock,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let obligation = lending_market.obligations.borrow_mut(obligation_id);
+
+        let exist_stale_oracles = obligation.refresh(&mut lending_market.reserves, clock);
+        obligation::assert_no_stale_oracles(exist_stale_oracles);
+    }
+
     /// Borrows a specified amount of a token from a reserve. A fee is charged on the borrowed amount.
     ///
     /// # Arguments
@@ -597,7 +611,7 @@ module suilend::lending_market {
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
         reserve::assert_price_is_fresh(reserve, clock);
@@ -627,7 +641,7 @@ module suilend::lending_market {
 
         event::emit(BorrowEvent {
             lending_market_id,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
             liquidity_amount: reserve::liquidity_request_amount(&liquidity_request),
@@ -670,7 +684,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         coin::from_balance(
             reserve::fulfill_liquidity_request(reserve, liquidity_request),
@@ -725,7 +739,7 @@ module suilend::lending_market {
         let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         if (amount == U64_MAX) {
             amount =
@@ -736,7 +750,7 @@ module suilend::lending_market {
 
         event::emit(WithdrawEvent {
             lending_market_id,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
             ctoken_amount: amount,
@@ -815,7 +829,7 @@ module suilend::lending_market {
             &mut lending_market.reserves,
             repay_reserve_array_index,
         );
-        assert!(reserve::coin_type(repay_reserve) == type_name::get<Repay>(), EWrongType);
+        assert!(reserve::coin_type(repay_reserve) == type_name::with_defining_ids<Repay>(), EWrongType);
         reserve::repay_liquidity<P, Repay>(
             repay_reserve,
             coin::into_balance(required_repay_coins),
@@ -826,7 +840,7 @@ module suilend::lending_market {
             &mut lending_market.reserves,
             withdraw_reserve_array_index,
         );
-        assert!(reserve::coin_type(withdraw_reserve) == type_name::get<Withdraw>(), EWrongType);
+        assert!(reserve::coin_type(withdraw_reserve) == type_name::with_defining_ids<Withdraw>(), EWrongType);
         let mut ctokens = reserve::withdraw_ctokens<P, Withdraw>(
             withdraw_reserve,
             withdraw_ctoken_amount,
@@ -847,8 +861,8 @@ module suilend::lending_market {
             repay_reserve_id: object::id_address(repay_reserve),
             withdraw_reserve_id: object::id_address(withdraw_reserve),
             obligation_id: object::id_address(obligation),
-            repay_coin_type: type_name::get<Repay>(),
-            withdraw_coin_type: type_name::get<Withdraw>(),
+            repay_coin_type: type_name::with_defining_ids<Repay>(),
+            withdraw_coin_type: type_name::with_defining_ids<Withdraw>(),
             repay_amount: ceil(required_repay_amount),
             withdraw_amount: withdraw_ctoken_amount,
             protocol_fee_amount,
@@ -899,7 +913,7 @@ module suilend::lending_market {
         );
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         reserve::compound_interest(reserve, clock);
         let repay_amount = obligation::repay<P>(
@@ -914,7 +928,7 @@ module suilend::lending_market {
 
         event::emit(RepayEvent {
             lending_market_id,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
             liquidity_amount: ceil(repay_amount),
@@ -965,7 +979,7 @@ module suilend::lending_market {
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         let forgive_amount = obligation::forgive<P>(
             obligation,
@@ -978,7 +992,7 @@ module suilend::lending_market {
 
         event::emit(ForgiveEvent {
             lending_market_id,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
             liquidity_amount: ceil(forgive_amount),
@@ -1104,7 +1118,7 @@ module suilend::lending_market {
         let deposit_reserve = vector::borrow_mut(&mut lending_market.reserves, deposit_reserve_id);
         let expected_ctokens = {
             assert!(
-                reserve::coin_type(deposit_reserve) == type_name::get<RewardType>(),
+                reserve::coin_type(deposit_reserve) == type_name::with_defining_ids<RewardType>(),
                 EWrongType,
             );
 
@@ -1169,7 +1183,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<SUI>(), EWrongType);
 
         reserve::init_staker<P, S>(reserve, treasury_cap, ctx);
     }
@@ -1201,7 +1215,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<SUI>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<SUI>(), EWrongType);
 
         reserve::rebalance_staker<P>(reserve, system_state, ctx);
     }
@@ -1234,7 +1248,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, sui_reserve_array_index);
-        if (reserve::coin_type(reserve) != type_name::get<SUI>()) {
+        if (reserve::coin_type(reserve) != type_name::with_defining_ids<SUI>()) {
             return
         };
 
@@ -1342,7 +1356,7 @@ module suilend::lending_market {
         let mut i = 0;
         while (i < vector::length(&lending_market.reserves)) {
             let reserve = vector::borrow(&lending_market.reserves, i);
-            if (reserve::coin_type(reserve) == type_name::get<T>()) {
+            if (reserve::coin_type(reserve) == type_name::with_defining_ids<T>()) {
                 return i
             };
 
@@ -1457,7 +1471,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         reserve::update_reserve_config<P>(reserve, config);
     }
@@ -1491,7 +1505,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         reserve::change_price_feed<P>(reserve, price_info_obj, clock);
     }
@@ -1753,7 +1767,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         let (mut ctoken_fees, mut fees) = reserve::claim_fees<P, T>(reserve, system_state, ctx);
         let total_ctoken_fees = balance::value(&ctoken_fees);
@@ -1857,7 +1871,7 @@ module suilend::lending_market {
         assert!(coin::value(&deposit) > 0, ETooSmall);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
-        assert!(reserve::coin_type(reserve) == type_name::get<T>(), EWrongType);
+        assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
 
         let obligation = object_table::borrow_mut(
             &mut lending_market.obligations,
@@ -1866,7 +1880,7 @@ module suilend::lending_market {
 
         event::emit(DepositEvent {
             lending_market_id,
-            coin_type: type_name::get<T>(),
+            coin_type: type_name::with_defining_ids<T>(),
             reserve_id: object::id_address(reserve),
             obligation_id: object::id_address(obligation),
             ctoken_amount: coin::value(&deposit),
@@ -1897,7 +1911,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         // assert!(
-        //     type_name::borrow_string(&type_name::get<RewardType>()) != 
+        //     type_name::borrow_string(&type_name::with_defining_ids<RewardType>()) != 
         //     &ascii::string(b"97d2a76efce8e7cdf55b781bd3d23382237fb1d095f9b9cad0bf1fd5f7176b62::suilend_point_2::SUILEND_POINT_2"),
         //     ECannotClaimReward,
         // );
@@ -1944,7 +1958,7 @@ module suilend::lending_market {
             obligation_id: object::id_address(obligation),
             is_deposit_reward,
             pool_reward_id: object::id_to_address(&pool_reward_id),
-            coin_type: type_name::get<RewardType>(),
+            coin_type: type_name::with_defining_ids<RewardType>(),
             liquidity_amount: coin::value(&rewards),
         });
 

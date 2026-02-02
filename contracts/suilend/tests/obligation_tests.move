@@ -1,6 +1,6 @@
 #[test_only]
 module suilend::obligation_tests {
-    use std::type_name;
+    use std::{type_name, unit_test};
     use sui::clock;
     use sui::test_scenario;
     use suilend::decimal::{Self, add};
@@ -31,6 +31,8 @@ module suilend::obligation_tests {
     public struct TEST_ETH {}
 
     public struct TEST_AUSD {}
+
+    public struct TEST_DUST {}
 
     fun sui_reserve<P>(ctx: &mut TxContext): Reserve<P> {
         let config = default_reserve_config(ctx);
@@ -239,7 +241,7 @@ module suilend::obligation_tests {
         let mut i = 0;
         while (i < vector::length(reserves)) {
             let reserve = vector::borrow(reserves, i);
-            if (type_name::get<T>() == reserve::coin_type(reserve)) {
+            if (type_name::with_defining_ids<T>() == reserve::coin_type(reserve)) {
                 return i
             };
 
@@ -251,13 +253,13 @@ module suilend::obligation_tests {
 
     fun get_reserve<P, T>(reserves: &vector<Reserve<P>>): &Reserve<P> {
         let i = get_reserve_array_index<P, T>(reserves);
-        assert!(i < vector::length(reserves), 0);
+        assert!(i < vector::length(reserves));
         vector::borrow(reserves, i)
     }
 
     fun get_reserve_mut<P, T>(reserves: &mut vector<Reserve<P>>): &mut Reserve<P> {
         let i = get_reserve_array_index<P, T>(reserves);
-        assert!(i < vector::length(reserves), 0);
+        assert!(i < vector::length(reserves));
         vector::borrow_mut(reserves, i)
     }
 
@@ -297,30 +299,30 @@ module suilend::obligation_tests {
         deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
 
         let deposits = obligation.deposits();
-        assert!(deposits.length() == 2, 0);
+        assert!(deposits.length() == 2);
 
         let usdc_deposit = &deposits[0];
-        assert!(usdc_deposit.deposited_ctoken_amount() == 200 * 1_000_000, 1);
-        assert!(usdc_deposit.market_value() == decimal::from(200), 2);
+        assert!(usdc_deposit.deposited_ctoken_amount() == 200 * 1_000_000);
+        assert!(usdc_deposit.market_value() == decimal::from(200));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 200 * 1_000_000, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 200 * 1_000_000);
 
         let sui_deposit = &deposits[1];
-        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(1000), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(1000));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000, 6);
+        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000);
 
-        assert!(obligation.borrows().length() == 0, 0);
-        assert!(obligation.deposited_value_usd() == decimal::from(1200), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(270), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(660), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(0), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(0), 4);
+        assert!(obligation.borrows().length() == 0);
+        assert!(obligation.deposited_value_usd() == decimal::from(1200));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(270));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(660));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(0));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(0));
 
         sui::test_utils::destroy(lending_market_id);
         test_utils::destroy(usdc_reserve);
@@ -623,7 +625,7 @@ module suilend::obligation_tests {
         deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
 
         let max_borrow = obligation.max_borrow_amount(&usdc_reserve);
-        assert!(max_borrow == 25_000_000, 0);
+        assert!(max_borrow == 25_000_000);
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -665,33 +667,33 @@ module suilend::obligation_tests {
         borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
         borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 12_500_000);
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(1000), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(1000));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000, 3);
+        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000);
 
-        assert!(obligation.borrows().length() == 1, 0);
+        assert!(obligation.borrows().length() == 1);
 
         let usdc_borrow = &obligation.borrows()[0];
-        assert!(usdc_borrow.borrowed_amount() == decimal::from(25 * 1_000_000), 1);
-        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from(2), 2);
-        assert!(usdc_borrow.market_value() == decimal::from(25), 3);
+        assert!(usdc_borrow.borrowed_amount() == decimal::from(25 * 1_000_000));
+        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from(2));
+        assert!(usdc_borrow.market_value() == decimal::from(25));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 25 * 1_000_000 / 2, 4);
+        assert!(liquidity_mining::shares(user_reward_manager) == 25 * 1_000_000 / 2);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(1000), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(100), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(25), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(50), 4);
-        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(100), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(1000));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(100));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(25));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(50));
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(100));
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -803,7 +805,7 @@ module suilend::obligation_tests {
         deposit<TEST_MARKET>(&mut obligation, &mut sui_reserve, &clock, 100 * 1_000_000_000);
 
         let amount = obligation.max_withdraw_amount(&sui_reserve);
-        assert!(amount == 100 * 1_000_000_000, 0);
+        assert!(amount == 100 * 1_000_000_000);
 
         borrow<TEST_MARKET>(&mut obligation, &mut usdc_reserve, &clock, 20 * 1_000_000);
 
@@ -812,12 +814,12 @@ module suilend::obligation_tests {
         // weighted upper bound borrow value = 20 * 2 * 2 = 80
         // => max withdraw amount should be 20
         let amount = obligation.max_withdraw_amount(&sui_reserve);
-        assert!(amount == 20 * 1_000_000_000, 0);
+        assert!(amount == 20 * 1_000_000_000);
 
         deposit<TEST_MARKET>(&mut obligation, &mut usdt_reserve, &clock, 100 * 1_000_000);
 
         let amount = obligation.max_withdraw_amount(&usdt_reserve);
-        assert!(amount == 100 * 1_000_000, 0);
+        assert!(amount == 100 * 1_000_000);
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -866,33 +868,33 @@ module suilend::obligation_tests {
             option::none(),
         );
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 80 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(800), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 80 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(800));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 80 * 1_000_000_000, 3);
+        assert!(liquidity_mining::shares(user_reward_manager) == 80 * 1_000_000_000);
 
-        assert!(obligation.borrows().length() == 1, 0);
+        assert!(obligation.borrows().length() == 1);
 
         let usdc_borrow = &obligation.borrows()[0];
-        assert!(usdc_borrow.borrowed_amount() == decimal::from(20 * 1_000_000), 1);
-        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from(2), 2);
-        assert!(usdc_borrow.market_value() == decimal::from(20), 3);
+        assert!(usdc_borrow.borrowed_amount() == decimal::from(20 * 1_000_000));
+        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from(2));
+        assert!(usdc_borrow.market_value() == decimal::from(20));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 20 * 1_000_000 / 2, 4);
+        assert!(liquidity_mining::shares(user_reward_manager) == 20 * 1_000_000 / 2);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(800), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(80), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(400), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(20), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(40), 4);
-        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(80), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(800));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(80));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(400));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(20));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(40));
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(80));
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -943,37 +945,37 @@ module suilend::obligation_tests {
             &clock,
             decimal::from(25 * 1_000_000),
         );
-        assert!(repay_amount == decimal::from(25 * 1_000_000), 0);
+        assert!(repay_amount == decimal::from(25 * 1_000_000));
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(1000), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(1000));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000);
 
-        assert!(obligation.borrows().length() == 1, 0);
+        assert!(obligation.borrows().length() == 1);
 
         // borrow was compounded by 1% so there should be borrows outstanding
         let usdc_borrow = &obligation.borrows()[0];
-        assert!(usdc_borrow.borrowed_amount() == decimal::from(250_000), 1);
-        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from_percent(202), 2);
-        assert!(usdc_borrow.market_value() == decimal::from_percent(25), 3);
+        assert!(usdc_borrow.borrowed_amount() == decimal::from(250_000));
+        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from_percent(202));
+        assert!(usdc_borrow.market_value() == decimal::from_percent(25));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_borrow.user_reward_manager_index()];
         // 250_000 / 2.02 = 123762.376238
-        assert!(liquidity_mining::shares(user_reward_manager) == 123_762, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 123_762);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(1000), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(100), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent(25), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from_percent(50), 4);
-        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(1), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(1000));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(100));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent(25));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from_percent(50));
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(1));
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -1011,36 +1013,36 @@ module suilend::obligation_tests {
             &clock,
             decimal::from(500_000),
         );
-        assert!(repay_amount == decimal::from(500_000), 0);
+        assert!(repay_amount == decimal::from(500_000));
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(1000), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(1000));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000_000);
 
-        assert!(obligation.borrows().length() == 1, 0);
+        assert!(obligation.borrows().length() == 1);
 
         // borrow was compounded by 1% so there should be borrows outstanding
         let usdc_borrow = &obligation.borrows()[0];
-        assert!(usdc_borrow.borrowed_amount() == decimal::from(101 * 1_000_000 - 500_000), 1);
-        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from_percent(202), 2);
-        assert!(usdc_borrow.market_value() == decimal::from_percent_u64(10_050), 3);
+        assert!(usdc_borrow.borrowed_amount() == decimal::from(101 * 1_000_000 - 500_000));
+        assert!(usdc_borrow.cumulative_borrow_rate() == decimal::from_percent(202));
+        assert!(usdc_borrow.market_value() == decimal::from_percent_u64(10_050));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_borrow.user_reward_manager_index()];
         // (101 * 1e6 - 500_000) / 2.02 == 49752475.2475
-        assert!(liquidity_mining::shares(user_reward_manager) == 49752475, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 49752475);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(1000), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(200), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent_u64(10_050), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from_percent_u64(20_100), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(1000));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(200));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent_u64(10_050));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from_percent_u64(20_100));
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -1118,27 +1120,27 @@ module suilend::obligation_tests {
             &clock,
             decimal::from(101 * 1_000_000),
         );
-        assert!(repay_amount == decimal::from(100 * 1_000_000), 0);
+        assert!(repay_amount == decimal::from(100 * 1_000_000));
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(1000), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(1000));
 
-        assert!(obligation.borrows().length() == 0, 0);
+        assert!(obligation.borrows().length() == 0);
 
         let user_reward_manager_index = obligation.find_user_reward_manager_index(
             reserve::borrows_pool_reward_manager_mut(&mut usdc_reserve),
         );
         let user_reward_manager = &obligation.user_reward_managers()[user_reward_manager_index];
-        assert!(liquidity_mining::shares(user_reward_manager) == 0, 0);
+        assert!(liquidity_mining::shares(user_reward_manager) == 0);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(1000), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(200), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent_u64(0), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from_percent_u64(0), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(1000));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(200));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(500));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent_u64(0));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from_percent_u64(0));
 
         sui::test_utils::destroy(lending_market_id);
         sui::test_utils::destroy(usdc_reserve);
@@ -1300,29 +1302,29 @@ module suilend::obligation_tests {
         );
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
-        assert!(obligation.deposits().length() == 2, 0);
+        assert!(obligation.deposits().length() == 2);
 
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(1000), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 100 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(1000));
 
         let usdc_deposit = &obligation.deposits()[1];
-        assert!(usdc_deposit.deposited_ctoken_amount() == 100 * 1_000_000, 3);
-        assert!(usdc_deposit.market_value() == decimal::from(100), 4);
+        assert!(usdc_deposit.deposited_ctoken_amount() == 100 * 1_000_000);
+        assert!(usdc_deposit.market_value() == decimal::from(100));
 
-        assert!(obligation.borrows().length() == 1, 0);
+        assert!(obligation.borrows().length() == 1);
 
         let usdt_borrow = &obligation.borrows()[0];
-        assert!(usdt_borrow.borrowed_amount() == decimal::from(101 * 1_000_000), 1);
-        assert!(usdt_borrow.cumulative_borrow_rate() == decimal::from_percent(202), 2);
-        assert!(usdt_borrow.market_value() == decimal::from(101), 3);
+        assert!(usdt_borrow.borrowed_amount() == decimal::from(101 * 1_000_000));
+        assert!(usdt_borrow.cumulative_borrow_rate() == decimal::from_percent(202));
+        assert!(usdt_borrow.market_value() == decimal::from(101));
 
-        assert!(obligation.deposited_value_usd() == decimal::from(1100), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(230), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(580), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(101), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(202), 4);
-        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(404), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(1100));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(230));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(580));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(101));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(202));
+        assert!(obligation.weighted_borrowed_value_upper_bound_usd() == decimal::from(404));
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1450,46 +1452,45 @@ module suilend::obligation_tests {
             &clock,
             100 * 1_000_000_000,
         );
-        assert!(withdraw_amount == 4_400_000_000, 0);
-        assert!(repay_amount == decimal::from(40 * 1_000_000), 1);
+        assert!(withdraw_amount == 4_400_000_000);
+        assert!(repay_amount == decimal::from(40 * 1_000_000));
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         // $40 was liquidated with a 10% bonus = $44 = 4.4 sui => 95.6 sui remaining
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 95 * 1_000_000_000 + 600_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(956), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 95 * 1_000_000_000 + 600_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(956));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
         assert!(
-            liquidity_mining::shares(user_reward_manager) == 95 * 1_000_000_000 + 600_000_000,
-            5,
+            liquidity_mining::shares(user_reward_manager) == 95 * 1_000_000_000 + 600_000_000
         );
 
-        assert!(obligation.borrows().length() == 2, 0);
+        assert!(obligation.borrows().length() == 2);
 
         let usdc_borrow = &obligation.borrows()[0];
-        assert!(usdc_borrow.borrowed_amount() == decimal::from(10 * 1_000_000), 1);
-        assert!(usdc_borrow.market_value() == decimal::from(10), 3);
+        assert!(usdc_borrow.borrowed_amount() == decimal::from(10 * 1_000_000));
+        assert!(usdc_borrow.market_value() == decimal::from(10));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 10 * 1_000_000 / 2, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 10 * 1_000_000 / 2);
 
         let usdt_borrow = &obligation.borrows()[1];
-        assert!(usdt_borrow.borrowed_amount() == decimal::from(50 * 1_000_000), 1);
-        assert!(usdt_borrow.market_value() == decimal::from(50), 3);
+        assert!(usdt_borrow.borrowed_amount() == decimal::from(50 * 1_000_000));
+        assert!(usdt_borrow.market_value() == decimal::from(50));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdt_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 50 * 1_000_000 / 2, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 50 * 1_000_000 / 2);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(956), 0);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(60), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(120), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(956));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(60));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(120));
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1576,10 +1577,10 @@ module suilend::obligation_tests {
             &clock,
             100 * 1_000_000_000,
         );
-        assert!(withdraw_amount == 1_100_000_000, 0);
-        assert!(repay_amount == decimal::from(10 * 1_000_000), 1);
+        assert!(withdraw_amount == 1_100_000_000);
+        assert!(repay_amount == decimal::from(10 * 1_000_000));
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         let user_reward_manager_index = obligation.find_user_reward_manager_index(
             reserve::deposits_pool_reward_manager_mut(
@@ -1587,31 +1588,31 @@ module suilend::obligation_tests {
             ),
         );
         let user_reward_manager = &obligation.user_reward_managers()[user_reward_manager_index];
-        assert!(liquidity_mining::shares(user_reward_manager) == 0, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 0);
 
         let eth_deposit = &obligation.deposits()[0];
-        assert!(eth_deposit.deposited_ctoken_amount() == 2 * 100_000_000, 3);
-        assert!(eth_deposit.market_value() == decimal::from(4000), 4);
+        assert!(eth_deposit.deposited_ctoken_amount() == 2 * 100_000_000);
+        assert!(eth_deposit.market_value() == decimal::from(4000));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[eth_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 2 * 100_000_000, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 2 * 100_000_000);
 
-        assert!(obligation.borrows().length() == 1, 0);
+        assert!(obligation.borrows().length() == 1);
 
         let usdc_borrow = &obligation.borrows()[0];
-        assert!(usdc_borrow.borrowed_amount() == decimal::from(90 * 1_000_000), 1);
-        assert!(usdc_borrow.market_value() == decimal::from(90), 3);
+        assert!(usdc_borrow.borrowed_amount() == decimal::from(90 * 1_000_000));
+        assert!(usdc_borrow.market_value() == decimal::from(90));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 90 * 1_000_000 / 2, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 90 * 1_000_000 / 2);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(4000), 4000);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0), 0);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(90), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(180), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(4000));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(90));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(180));
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1680,27 +1681,25 @@ module suilend::obligation_tests {
             &clock,
             1_000_000_000,
         );
-        assert!(withdraw_amount == 110_000_000, 0);
-        assert!(repay_amount == decimal::from(1_000_000), 1);
+        assert!(withdraw_amount == 110_000_000);
+        assert!(repay_amount == decimal::from(1_000_000));
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         // $1 was liquidated with a 10% bonus = $1.1 => 0.11 sui => 99.89 sui remaining
         let sui_deposit = obligation.find_deposit(get_reserve<TEST_MARKET, TEST_SUI>(&reserves));
-        assert!(sui_deposit.deposited_ctoken_amount() == 99 * 1_000_000_000 + 890_000_000, 3);
+        assert!(sui_deposit.deposited_ctoken_amount() == 99 * 1_000_000_000 + 890_000_000);
         assert!(
-            sui_deposit.market_value() == add(decimal::from(998), decimal::from_percent(90)),
-            4,
+            sui_deposit.market_value() == add(decimal::from(998), decimal::from_percent(90))
         );
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
         assert!(
-            liquidity_mining::shares(user_reward_manager) == 99 * 1_000_000_000 + 890_000_000,
-            5,
+            liquidity_mining::shares(user_reward_manager) == 99 * 1_000_000_000 + 890_000_000
         );
 
-        assert!(obligation.borrows().length() == 0, 0);
+        assert!(obligation.borrows().length() == 0);
 
         let user_reward_manager_index = obligation.find_user_reward_manager_index(
             reserve::borrows_pool_reward_manager_mut(
@@ -1708,16 +1707,15 @@ module suilend::obligation_tests {
             ),
         );
         let user_reward_manager = &obligation.user_reward_managers()[user_reward_manager_index];
-        assert!(liquidity_mining::shares(user_reward_manager) == 0, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 0);
 
         assert!(
-            obligation.deposited_value_usd() == add(decimal::from(998), decimal::from_percent(90)),
-            0,
+            obligation.deposited_value_usd() == add(decimal::from(998), decimal::from_percent(90))
         );
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0), 1);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(0), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(0), 4);
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(0));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(0));
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1807,19 +1805,19 @@ module suilend::obligation_tests {
             &clock,
             100 * 1_000_000_000,
         );
-        assert!(withdraw_amount == 550_000, 0);
-        assert!(repay_amount == decimal::from(500_000), 1);
+        assert!(withdraw_amount == 550_000);
+        assert!(repay_amount == decimal::from(500_000));
 
-        assert!(obligation.deposits().length() == 1, 0);
+        assert!(obligation.deposits().length() == 1);
 
         // unchanged
         let sui_deposit = obligation.find_deposit(get_reserve<TEST_MARKET, TEST_SUI>(&reserves));
-        assert!(sui_deposit.deposited_ctoken_amount() == 10_000_000_000, 3);
-        assert!(sui_deposit.market_value() == decimal::from(100), 4);
+        assert!(sui_deposit.deposited_ctoken_amount() == 10_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(100));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 10_000_000_000, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 10_000_000_000);
 
         let user_reward_manager_index = obligation.find_user_reward_manager_index(
             reserve::deposits_pool_reward_manager_mut(
@@ -1827,23 +1825,23 @@ module suilend::obligation_tests {
             ),
         );
         let user_reward_manager = &obligation.user_reward_managers()[user_reward_manager_index];
-        assert!(liquidity_mining::shares(user_reward_manager) == 0, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 0);
 
-        assert!(obligation.borrows().length() == 1, 0);
+        assert!(obligation.borrows().length() == 1);
 
         let usdt_borrow = obligation.find_borrow(get_reserve<TEST_MARKET, TEST_USDT>(&reserves));
-        assert!(usdt_borrow.borrowed_amount() == decimal::from(9_500_000), 1);
-        assert!(usdt_borrow.market_value() == decimal::from_percent_u64(950), 3);
+        assert!(usdt_borrow.borrowed_amount() == decimal::from(9_500_000));
+        assert!(usdt_borrow.market_value() == decimal::from_percent_u64(950));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdt_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 9_500_000 / 2, 5);
+        assert!(liquidity_mining::shares(user_reward_manager) == 9_500_000 / 2);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(100), 4000);
-        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0), 0);
-        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0), 2);
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent_u64(950), 3);
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(19), 4);
+        assert!(obligation.deposited_value_usd() == decimal::from(100));
+        assert!(obligation.allowed_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from_percent_u64(950));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(19));
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1925,7 +1923,7 @@ module suilend::obligation_tests {
             1_000_000_000,
         );
 
-        assert!(!obligation.is_looped(), 0);
+        assert!(!obligation.is_looped());
 
         borrow<TEST_MARKET>(
             &mut obligation,
@@ -1934,7 +1932,7 @@ module suilend::obligation_tests {
             1_000_000,
         );
 
-        assert!(obligation.is_looped(), 0);
+        assert!(obligation.is_looped());
 
         repay<TEST_MARKET>(
             &mut obligation,
@@ -1943,12 +1941,12 @@ module suilend::obligation_tests {
             decimal::from(1_000_000),
         );
 
-        assert!(!obligation.is_looped(), 0);
+        assert!(!obligation.is_looped());
 
         vector::push_back(
             obligation.borrows_mut(),
             create_borrow_for_testing(
-                type_name::get<TEST_USDC>(),
+                type_name::with_defining_ids<TEST_USDC>(),
                 2,
                 decimal::from(1_000_000),
                 decimal::from_percent(100),
@@ -1957,7 +1955,7 @@ module suilend::obligation_tests {
             ),
         );
 
-        assert!(obligation.is_looped(), 0);
+        assert!(obligation.is_looped());
 
         test_utils::destroy(reserves);
         sui::test_utils::destroy(lending_market_id);
@@ -1998,7 +1996,7 @@ module suilend::obligation_tests {
                 1_000_000_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2007,7 +2005,7 @@ module suilend::obligation_tests {
                 1_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2016,7 +2014,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2025,7 +2023,7 @@ module suilend::obligation_tests {
                 decimal::from(1_000_000),
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2034,7 +2032,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2043,12 +2041,12 @@ module suilend::obligation_tests {
                 decimal::from(1_000_000),
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             vector::push_back(
                 obligation.borrows_mut(),
                 create_borrow_for_testing(
-                    type_name::get<TEST_USDC>(),
+                    type_name::with_defining_ids<TEST_USDC>(),
                     1,
                     decimal::from(1_000_000),
                     decimal::from_percent(100),
@@ -2057,7 +2055,7 @@ module suilend::obligation_tests {
                 ),
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
             sui::test_utils::destroy(obligation);
         };
 
@@ -2081,7 +2079,7 @@ module suilend::obligation_tests {
                 1_000_000_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2090,7 +2088,7 @@ module suilend::obligation_tests {
                 1_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2099,7 +2097,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2108,7 +2106,7 @@ module suilend::obligation_tests {
                 decimal::from(1_000_000),
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2117,7 +2115,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2126,12 +2124,12 @@ module suilend::obligation_tests {
                 decimal::from(1_000_000),
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             vector::push_back(
                 obligation.borrows_mut(),
                 create_borrow_for_testing(
-                    type_name::get<TEST_USDT>(),
+                    type_name::with_defining_ids<TEST_USDT>(),
                     2,
                     decimal::from(1_000_000),
                     decimal::from_percent(100),
@@ -2140,7 +2138,7 @@ module suilend::obligation_tests {
                 ),
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
             sui::test_utils::destroy(obligation);
         };
 
@@ -2164,7 +2162,7 @@ module suilend::obligation_tests {
                 1_000_000_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2173,7 +2171,7 @@ module suilend::obligation_tests {
                 1_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2182,7 +2180,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2191,7 +2189,7 @@ module suilend::obligation_tests {
                 decimal::from(1_000_000),
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2200,7 +2198,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2209,12 +2207,12 @@ module suilend::obligation_tests {
                 decimal::from(1_000_000),
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             vector::push_back(
                 obligation.borrows_mut(),
                 create_borrow_for_testing(
-                    type_name::get<TEST_AUSD>(),
+                    type_name::with_defining_ids<TEST_AUSD>(),
                     5,
                     decimal::from(1_000_000),
                     decimal::from_percent(100),
@@ -2223,7 +2221,7 @@ module suilend::obligation_tests {
                 ),
             );
 
-            assert!(obligation.is_looped(), 0);
+            assert!(obligation.is_looped());
             sui::test_utils::destroy(obligation);
         };
 
@@ -2244,7 +2242,7 @@ module suilend::obligation_tests {
             vector::push_back(
                 obligation.borrows_mut(),
                 create_borrow_for_testing(
-                    type_name::get<TEST_SUI>(),
+                    type_name::with_defining_ids<TEST_SUI>(),
                     0,
                     decimal::from(1_000_000),
                     decimal::from_percent(100),
@@ -2253,7 +2251,7 @@ module suilend::obligation_tests {
                 ),
             );
 
-            assert!(obligation.is_looped(), 9);
+            assert!(obligation.is_looped());
 
             sui::test_utils::destroy(vector::pop_back(obligation.borrows_mut()));
 
@@ -2264,7 +2262,7 @@ module suilend::obligation_tests {
                 1_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2273,7 +2271,7 @@ module suilend::obligation_tests {
                 1_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             borrow<TEST_MARKET>(
                 &mut obligation,
@@ -2282,7 +2280,7 @@ module suilend::obligation_tests {
                 1_000,
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2291,7 +2289,7 @@ module suilend::obligation_tests {
                 decimal::from(1_000),
             );
 
-            assert!(!obligation.is_looped(), 0);
+            assert!(!obligation.is_looped());
 
             sui::test_utils::destroy(obligation);
         };
@@ -2337,7 +2335,7 @@ module suilend::obligation_tests {
         let mut i = 0;
         while (i < vector::length(obligation.user_reward_managers())) {
             let user_reward_manager = vector::borrow(obligation.user_reward_managers(), i);
-            assert!(liquidity_mining::shares(user_reward_manager) != 0, 0);
+            assert!(liquidity_mining::shares(user_reward_manager) != 0);
             i = i + 1;
         };
 
@@ -2354,7 +2352,7 @@ module suilend::obligation_tests {
         let mut i = 0;
         while (i < vector::length(obligation.user_reward_managers())) {
             let user_reward_manager = vector::borrow(obligation.user_reward_managers(), i);
-            assert!(liquidity_mining::shares(user_reward_manager) == 0, 0);
+            assert!(liquidity_mining::shares(user_reward_manager) == 0);
             i = i + 1;
         };
 
@@ -2363,5 +2361,56 @@ module suilend::obligation_tests {
         clock::destroy_for_testing(clock);
         sui::test_utils::destroy(obligation);
         test_scenario::end(scenario);
+    }
+
+    /// Test that borrowing dust amounts (where market_value truncates to 0) is rejected.
+    /// This prevents users from borrowing without meaningful collateral.
+    #[test]
+    #[expected_failure(abort_code = suilend::obligation::EBorrowTooSmall)]
+    public fun test_borrow_fail_dust_amount() {
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
+        let lending_market_id = object::new(test_scenario::ctx(&mut scenario));
+        let mut usdc_reserve = usdc_reserve(scenario.ctx());
+
+        // Create a reserve with low price ($1e-18) and 18 decimals.
+        // Borrowing 1 unit results in market_value = 0.
+        let mut dust_reserve = {
+            let config = default_reserve_config(scenario.ctx());
+            let mut builder = reserve_config::from(&config, scenario.ctx());
+            reserve_config::set_open_ltv_pct(&mut builder, 50);
+            reserve_config::set_close_ltv_pct(&mut builder, 80);
+            reserve_config::set_max_close_ltv_pct(&mut builder, 80);
+            reserve_config::set_borrow_weight_bps(&mut builder, 10_000);
+            reserve_config::set_interest_rate_utils(&mut builder, vector[0, 100]);
+            reserve_config::set_interest_rate_aprs(&mut builder, vector[0, 0]);
+            unit_test::destroy(config);
+            let config = reserve_config::build(builder, scenario.ctx());
+            reserve::create_for_testing<TEST_MARKET, TEST_DUST>(
+                config,
+                6,
+                18, // decimals
+                decimal::from_scaled_val(1), // price = $1e-18
+                0, 0, 0,
+                decimal::from(0),
+                decimal::from(1),
+                0,
+                scenario.ctx(),
+            )
+        };
+
+        let mut obligation = create_obligation<TEST_MARKET>(
+            object::uid_to_inner(&lending_market_id),
+            test_scenario::ctx(&mut scenario),
+        );
+
+        // Deposit collateral
+        obligation.deposit<TEST_MARKET>(&mut usdc_reserve, &clock, 100 * 1_000_000);
+
+        // Try to borrow 1 unit of the dust asset. Should abort
+        obligation.borrow<TEST_MARKET>(&mut dust_reserve, &clock, 1);
+
+        abort 999 // should not reach
     }
 }

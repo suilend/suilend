@@ -5,6 +5,7 @@ module suilend::test_usdc {
     public struct TEST_USDC has drop {}
 
     #[test_only]
+    #[allow(deprecated_usage)] // create_currency -> coin_registry::new_currency_with_otw
     public fun create_currency(
         ctx: &mut TxContext,
     ): (TreasuryCap<TEST_USDC>, CoinMetadata<TEST_USDC>) {
@@ -27,6 +28,7 @@ module suilend::test_sui {
     public struct TEST_SUI has drop {}
 
     #[test_only]
+    #[allow(deprecated_usage)] // create_currency -> coin_registry::new_currency_with_otw
     public fun create_currency(
         ctx: &mut TxContext,
     ): (TreasuryCap<TEST_SUI>, CoinMetadata<TEST_SUI>) {
@@ -64,8 +66,8 @@ module suilend::mock_metadata {
         test_utils::destroy(test_usdc_cap);
         test_utils::destroy(test_sui_cap);
 
-        bag::add(&mut bag, type_name::get<TEST_USDC>(), test_usdc_metadata);
-        bag::add(&mut bag, type_name::get<TEST_SUI>(), test_sui_metadata);
+        bag::add(&mut bag, type_name::with_defining_ids<TEST_USDC>(), test_usdc_metadata);
+        bag::add(&mut bag, type_name::with_defining_ids<TEST_SUI>(), test_sui_metadata);
 
         Metadata {
             metadata: bag,
@@ -73,6 +75,6 @@ module suilend::mock_metadata {
     }
 
     public fun get<T>(metadata: &Metadata): &CoinMetadata<T> {
-        bag::borrow(&metadata.metadata, type_name::get<T>())
+        bag::borrow(&metadata.metadata, type_name::with_defining_ids<T>())
     }
 }

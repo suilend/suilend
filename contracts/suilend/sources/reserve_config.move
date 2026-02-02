@@ -27,16 +27,16 @@ module suilend::reserve_config {
         deposit_limit: u64,
         // Maximum borrow amount in token units
         borrow_limit: u64,
-        // Maximum deposit amount in USD
-        deposit_limit_usd: u64,
-        // Maximum borrow amount in USD
-        borrow_limit_usd: u64,
         // Liquidation parameters
         //
         // Bonus for liquidators in basis points
         liquidation_bonus_bps: u64,
         // Maximum liquidation bonus (unused)
         max_liquidation_bonus_bps: u64,
+        // Maximum deposit amount in USD
+        deposit_limit_usd: u64,
+        // Maximum borrow amount in USD
+        borrow_limit_usd: u64,
         // Interest rate parameters
         //
         // Utilization rates for interest rate calculation
@@ -857,16 +857,14 @@ module suilend::reserve_config {
                 v
             };
 
-        assert!(calculate_apr(&config, decimal::from_percent(0)) == decimal::from(0), 0);
-        assert!(calculate_apr(&config, decimal::from_percent(5)) == decimal::from_percent(50), 0);
-        assert!(calculate_apr(&config, decimal::from_percent(10)) == decimal::from_percent(100), 0);
+        assert!(calculate_apr(&config, decimal::from_percent(0)) == decimal::from(0));
+        assert!(calculate_apr(&config, decimal::from_percent(5)) == decimal::from_percent(50));
+        assert!(calculate_apr(&config, decimal::from_percent(10)) == decimal::from_percent(100));
         assert!(
-            calculate_apr(&config, decimal::from_percent(55)) == decimal::from_percent_u64(550),
-            0,
+            calculate_apr(&config, decimal::from_percent(55)) == decimal::from_percent_u64(550)
         );
         assert!(
-            calculate_apr(&config, decimal::from_percent(100)) == decimal::from_percent_u64(1000),
-            0,
+            calculate_apr(&config, decimal::from_percent(100)) == decimal::from_percent_u64(1000)
         );
 
         destroy(config);

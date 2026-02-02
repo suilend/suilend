@@ -50,14 +50,14 @@ module suilend::reserve_tests {
             balance::create_for_testing(1000),
         );
 
-        assert!(balance::value(&ctokens) == 200, 0);
-        assert!(reserve.available_amount() == 1500, 0);
-        assert!(reserve.ctoken_supply() == 400, 0);
+        assert!(balance::value(&ctokens) == 200);
+        assert!(reserve.available_amount() == 1500);
+        assert!(reserve.ctoken_supply() == 400);
 
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
 
-        assert!(balance::value(balances.available_amount()) == 1500, 0);
-        assert!(balance::supply_value(balances.ctoken_supply()) == 400, 0);
+        assert!(balance::value(balances.available_amount()) == 1500);
+        assert!(balance::supply_value(balances.ctoken_supply()) == 400);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(ctokens);
@@ -169,19 +169,19 @@ module suilend::reserve_tests {
 
         let ctokens = balance::create_for_testing(10);
         let liquidity_request = redeem_ctokens<TEST_LM, TEST_USDC>(&mut reserve, ctokens);
-        assert!(reserve::liquidity_request_amount(&liquidity_request) == 50, 0);
-        assert!(reserve::liquidity_request_fee(&liquidity_request) == 0, 0);
+        assert!(reserve::liquidity_request_amount(&liquidity_request) == 50);
+        assert!(reserve::liquidity_request_fee(&liquidity_request) == 0);
 
         let tokens = reserve::fulfill_liquidity_request(&mut reserve, liquidity_request);
 
-        assert!(balance::value(&tokens) == 50, 0);
-        assert!(reserve.available_amount() == available_amount_old - 50, 0);
-        assert!(reserve.ctoken_supply() == ctoken_supply_old - 10, 0);
+        assert!(balance::value(&tokens) == 50);
+        assert!(reserve.available_amount() == available_amount_old - 50);
+        assert!(reserve.ctoken_supply() == ctoken_supply_old - 10);
 
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
 
-        assert!(balance::value(balances.available_amount()) == available_amount_old - 50, 0);
-        assert!(balance::supply_value(balances.ctoken_supply()) == ctoken_supply_old - 10, 0);
+        assert!(balance::value(balances.available_amount()) == available_amount_old - 50);
+        assert!(balance::supply_value(balances.ctoken_supply()) == ctoken_supply_old - 10);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(tokens);
@@ -227,26 +227,26 @@ module suilend::reserve_tests {
         let borrowed_amount_old = reserve.borrowed_amount();
 
         let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 400);
-        assert!(reserve::liquidity_request_amount(&liquidity_request) == 404, 0);
-        assert!(reserve::liquidity_request_fee(&liquidity_request) == 4, 0);
+        assert!(reserve::liquidity_request_amount(&liquidity_request) == 404);
+        assert!(reserve::liquidity_request_fee(&liquidity_request) == 4);
 
         let tokens = reserve::fulfill_liquidity_request(&mut reserve, liquidity_request);
-        assert!(balance::value(&tokens) == 400, 0);
+        assert!(balance::value(&tokens) == 400);
 
-        assert!(reserve.available_amount() == available_amount_old - 404, 0);
-        assert!(reserve.borrowed_amount() == add(borrowed_amount_old, decimal::from(404)), 0);
+        assert!(reserve.available_amount() == available_amount_old - 404);
+        assert!(reserve.borrowed_amount() == add(borrowed_amount_old, decimal::from(404)));
 
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
 
-        assert!(balance::value(balances.available_amount()) == available_amount_old - 404, 0);
-        assert!(balance::value(balances.fees()) == 4, 0);
+        assert!(balance::value(balances.available_amount()) == available_amount_old - 404);
+        assert!(balance::value(balances.fees()) == 4);
 
         let mut system_state = test_scenario::take_shared<SuiSystemState>(&scenario);
         let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(&mut reserve, &mut system_state, test_scenario::ctx(&mut scenario));
         test_scenario::return_shared(system_state);
 
-        assert!(balance::value(&fees) == 4, 0);
-        assert!(balance::value(&ctoken_fees) == 0, 0);
+        assert!(balance::value(&fees) == 4);
+        assert!(balance::value(&ctoken_fees) == 0);
 
         sui::test_utils::destroy(fees);
         sui::test_utils::destroy(ctoken_fees);
@@ -411,17 +411,16 @@ module suilend::reserve_tests {
         test_scenario::return_shared(system_state);
 
         // 0.5% interest a second with 50% take rate => 0.25% fee on 50 USDC = 0.125 USDC
-        assert!(balance::value(&fees) == 125_000, 0);
-        assert!(balance::value(&ctoken_fees) == 0, 0);
+        assert!(balance::value(&fees) == 125_000);
+        assert!(balance::value(&ctoken_fees) == 0);
 
-        assert!(reserve.available_amount() == old_available_amount - 125_000, 0);
+        assert!(reserve.available_amount() == old_available_amount - 125_000);
         assert!(
-            reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000)),
-            0,
+            reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000))
         );
 
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
-        assert!(balance::value(balances.available_amount()) == old_available_amount - 125_000, 0);
+        assert!(balance::value(balances.available_amount()) == old_available_amount - 125_000);
 
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(ctoken_fees);
@@ -442,6 +441,7 @@ module suilend::reserve_tests {
 
     const SUILEND_VALIDATOR: address = @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
 
+    #[allow(deprecated_usage)] // governance_test_utils -> sui_system::test_runner
     fun setup_sui_system(scenario: &mut Scenario) {
         test_scenario::next_tx(scenario, SUILEND_VALIDATOR);
         let validator = create_validator_for_testing(SUILEND_VALIDATOR, 100, test_scenario::ctx(scenario));
@@ -516,14 +516,14 @@ module suilend::reserve_tests {
         let (ctoken_fees, fees) = claim_fees<TEST_LM, SUI>(&mut reserve, &mut system_state, test_scenario::ctx(&mut scenario));
 
         // 0.5% interest a second with 50% take rate => 0.25% fee on 50 SUI = 0.125 SUI
-        assert!(balance::value(&fees) == 125_000_000, 0);
-        assert!(balance::value(&ctoken_fees) == 0, 0);
+        assert!(balance::value(&fees) == 125_000_000);
+        assert!(balance::value(&ctoken_fees) == 0);
 
-        assert!(reserve.available_amount() == old_available_amount - 125_000_000, 0);
-        assert!(reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000_000)), 0);
+        assert!(reserve.available_amount() == old_available_amount - 125_000_000);
+        assert!(reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000_000)));
 
         let balances: &Balances<TEST_LM, SUI> = reserve::balances(&reserve);
-        assert!(balance::value(balances.available_amount()) == 0, 0); // all the sui has been staked
+        assert!(balance::value(balances.available_amount()) == 0); // all the sui has been staked
 
         test_scenario::return_shared(system_state);
 
@@ -579,14 +579,13 @@ module suilend::reserve_tests {
 
         repay_liquidity(&mut reserve, tokens, decimal::from_percent_u64(39_901));
 
-        assert!(reserve.available_amount() == available_amount_old + 400, 0);
+        assert!(reserve.available_amount() == available_amount_old + 400);
         assert!(
-            reserve.borrowed_amount() == sub(borrowed_amount_old, decimal::from_percent_u64(39_901)),
-            0,
+            reserve.borrowed_amount() == sub(borrowed_amount_old, decimal::from_percent_u64(39_901))
         );
 
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
-        assert!(balance::value(balances.available_amount()) == available_amount_old + 400, 0);
+        assert!(balance::value(balances.available_amount()) == available_amount_old + 400);
 
         sui::test_utils::destroy(reserve);
         sui::test_utils::destroy(ctokens);

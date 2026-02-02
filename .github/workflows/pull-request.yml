@@ -9,16 +9,12 @@ jobs:
   move-test:
     runs-on: ubuntu-latest
     container: 
-      image: mysten/sui-tools:mainnet 
+      image: mysten/sui-tools:mainnet-v1.62.1
       ports:
         - 80
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
-
-      # bugfix: install git
-      - name: install git
-        run: apt-get install -y git
+        uses: actions/checkout@v6
 
       - name: build-suilend
         run: cd contracts/suilend && sui move build
@@ -28,12 +24,12 @@ jobs:
 
       - name: build-oracles
         run: cd contracts/oracles && sui move build
-      
+
       - name: test
         run: cd contracts/oracles && sui move test
-      
+
       - name: build-strategy-wrapper
         run: cd contracts/strategy_wrapper && sui move build
-      
+
       - name: test-strategy-wrapper
         run: cd contracts/strategy_wrapper && sui move test

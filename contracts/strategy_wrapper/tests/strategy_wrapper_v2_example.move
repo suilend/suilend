@@ -3,7 +3,6 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     use std::ascii::{Self, String};
     use sui::dynamic_field;
     use sui::event;
-    use suilend::lending_market::ObligationOwnerCap;
     use strategy_wrapper::strategy_wrapper::{Self, StrategyOwnerCap};
 
     // === Errors ===
@@ -48,6 +47,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
         version: u64,
     }
 
+    #[allow(unused_field)]
     public struct AutoRebalanceTriggered has copy, drop {
         cap_id: address,
         threshold_reached: u64,
@@ -63,6 +63,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     // === V2 Feature Functions ===
 
     /// Initialize auto-rebalance configuration
+    #[allow(lint(prefer_mut_tx_context))]
     public fun init_auto_rebalance<P>(
         strategy_cap: &mut StrategyOwnerCap<P>,
         threshold_bps: u64,
@@ -88,6 +89,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     }
 
     /// Initialize performance tracking
+    #[allow(lint(prefer_mut_tx_context))]
     public fun init_performance_metrics<P>(
         strategy_cap: &mut StrategyOwnerCap<P>,
         _ctx: &TxContext
@@ -112,6 +114,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     }
 
     /// Set custom parameters
+    #[allow(lint(prefer_mut_tx_context))]
     public fun set_custom_parameters<P>(
         strategy_cap: &mut StrategyOwnerCap<P>,
         risk_level: u8,
@@ -121,7 +124,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     ) {
         // Auto-migration will happen in borrow_uid_mut
         assert!(strategy_wrapper::get_version(strategy_cap) >= MIN_VERSION_FOR_FEATURES, EFeatureNotAvailable);
-        assert!(risk_level >= 1 && risk_level <= 10, 3);
+        assert!(risk_level >= 1 && risk_level <= 10);
         
         let params = CustomParams {
             risk_level,
@@ -203,6 +206,7 @@ module strategy_wrapper::strategy_wrapper_v2_example {
     
     /// Enhanced entry function that can add new features to any version
     /// Auto-migration will handle version upgrades automatically
+    #[allow(lint(public_entry,prefer_mut_tx_context))]
     public entry fun enable_v2_features<P>(
         strategy_cap: &mut StrategyOwnerCap<P>,
         enable_auto_rebalance: bool,

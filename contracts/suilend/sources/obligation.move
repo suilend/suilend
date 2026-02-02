@@ -40,6 +40,7 @@ module suilend::obligation {
     const EObligationIsNotForgivable: u64 = 7;
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
     const EOraclesAreStale: u64 = 9;
+    const EBorrowTooSmall: u64 = 10;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -455,6 +456,11 @@ module suilend::obligation {
 
         // update health values
         let borrow_market_value = reserve::market_value(reserve, decimal::from(amount));
+
+        // Abort if borrow amount is too small to have a meaningful market value.
+        // This prevents borrowing dust without collateral
+        assert!(borrow_market_value.gt(decimal::from(0)), EBorrowTooSmall);
+
         let borrow_market_value_upper_bound = reserve::market_value_upper_bound(
             reserve,
             decimal::from(amount),
@@ -714,8 +720,26 @@ module suilend::obligation {
         let borrow = find_borrow(obligation, repay_reserve);
         let deposit = find_deposit(obligation, withdraw_reserve);
 
-        // invariant: repay_amount <= borrow.borrowed_amount
-        let repay_amount = if (le(borrow.market_value, decimal::from(1))) {
+        let reserve_config = withdraw_reserve.config();
+        let configured_bonus = reserve_config.liquidation_bonus().add(
+            reserve_config.protocol_liquidation_fee()
+        );
+
+        // Cap the bonus to prevent liquidation from worsening the obligation's LTV
+        let bonus = if (obligation.unweighted_borrowed_value_usd.gt(decimal::from(0))) {
+            let max_safe_bonus = obligation.deposited_value_usd
+                .saturating_sub(obligation.unweighted_borrowed_value_usd)
+                .div(obligation.unweighted_borrowed_value_usd);
+            max_safe_bonus.min(configured_bonus)
+        } else {
+            configured_bonus // No debt, any bonus is safe
+        };
+
+        // Allow full liquidation when borrow is dust, or when bonus is capped
+        let allow_full_liquidation = borrow.market_value.le(decimal::from(1)) ||
+            bonus.lt(configured_bonus);
+
+        let repay_amount = if (allow_full_liquidation) {
             // full liquidation
             min(
                 borrow.borrowed_amount,
@@ -740,10 +764,6 @@ module suilend::obligation {
         };
 
         let repay_value = reserve::market_value(repay_reserve, repay_amount);
-        let bonus = add(
-            liquidation_bonus(config(withdraw_reserve)),
-            protocol_liquidation_fee(config(withdraw_reserve)),
-        );
 
         let withdraw_value = mul(
             repay_value,
@@ -1008,7 +1028,7 @@ module suilend::obligation {
         let mut i = 0;
         while (i < vector::length(&obligation.deposits)) {
             let deposit = vector::borrow(&obligation.deposits, i);
-            if (deposit.coin_type == type_name::get<T>()) {
+            if (deposit.coin_type == type_name::with_defining_ids<T>()) {
                 return deposit.deposited_ctoken_amount
             };
 
@@ -1023,7 +1043,7 @@ module suilend::obligation {
         let mut i = 0;
         while (i < vector::length(&obligation.borrows)) {
             let borrow = vector::borrow(&obligation.borrows, i);
-            if (borrow.coin_type == type_name::get<T>()) {
+            if (borrow.coin_type == type_name::with_defining_ids<T>()) {
                 return borrow.borrowed_amount
             };
 
