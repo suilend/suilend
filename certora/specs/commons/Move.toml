@@ -5,8 +5,8 @@ edition = "2024.beta"
 [dependencies]
 suilend = { local = "../../../contracts/suilend" }
 dummy_pool = { local = "../dummy_pool" }
-cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm", rev = "main" }
-certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries", rev = "main" }
+cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm", rev = "sui-v1.55.0" }
+certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries", rev = "sui-v1.55.0" }
 
 [addresses]
 commons = "0x0"
