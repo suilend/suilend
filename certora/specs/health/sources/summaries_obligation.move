@@ -11,6 +11,8 @@ use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::{Obligation, ExistStaleOracles, Borrow, is_healthy};
 use suilend::reserve::{Reserve, config};
 use suilend::reserve_config::{isolated, open_ltv, borrow_weight};
+use cvlm::ghost::ghost_destroy;
+use commons::helper::zero;
 
 public fun cvlm_manifest() {
     // Debt compounding: Debt is compounded by multiplying the current borrowed amount
