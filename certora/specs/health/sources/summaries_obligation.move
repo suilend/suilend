@@ -11,6 +11,8 @@ use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::{Obligation, ExistStaleOracles, Borrow, is_healthy};
 use suilend::reserve::{Reserve, config};
 use suilend::reserve_config::{isolated, open_ltv, borrow_weight};
+use cvlm::ghost::ghost_destroy;
+use commons::helper::zero;
 
 public fun cvlm_manifest() {
     // Debt compounding: Debt is compounded by multiplying the current borrowed amount
@@ -117,6 +119,9 @@ public fun borrow<P>(
     let borrow = &mut obligation.borrows_mut()[borrow_index];
     *borrow.borrowed_amount_mut() = borrow.borrowed_amount().add(suilend::decimal::from(amount));
 
+    let borrow_market_value = reserve.market_value( decimal::from(amount));
+    cvlm_assume_msg(borrow_market_value.gt(decimal::from(0)), b"Borrow not too small");
+     
     let borrow_market_value_upper_bound = reserve.market_value_upper_bound(
         decimal::from(amount),
     );
@@ -152,7 +157,14 @@ public fun repay<P>(
 
     let repay_amount = min(max_repay_amount, borrow.borrowed_amount());
 
-    *borrow.borrowed_amount_mut() = borrow.borrowed_amount().sub(repay_amount);
+    let new_borrow_amount = borrow.borrowed_amount().sub(repay_amount);
+    *borrow.borrowed_amount_mut() = new_borrow_amount;
+
+    if (new_borrow_amount.eq(zero())) {
+        let d = vector::remove(obligation.borrows_mut(), borrow_index);
+        ghost_destroy(d);
+    };
+
     repay_amount
 }
 
@@ -189,9 +201,10 @@ public fun withdraw_unchecked<P>(
     let deposit_index = obligation.find_deposit_index(reserve);
     cvlm_assume_msg(deposit_index < obligation.deposits().length(), b"Deposit exists");
     let deposit = vector::borrow_mut(obligation.deposits_mut(), deposit_index);
+    let new_ctokens = deposit.deposited_ctoken_amount() - ctoken_amount;
+    *deposit.deposited_ctoken_amount_mut() = new_ctokens;
 
-    *deposit.deposited_ctoken_amount_mut() = deposit.deposited_ctoken_amount() - ctoken_amount;
-
+    // Cache update allowed borrow value
     *obligation.allowed_borrow_value_usd_mut() =
         obligation
             .allowed_borrow_value_usd()
@@ -200,6 +213,11 @@ public fun withdraw_unchecked<P>(
                 .mul(
                     open_ltv(config(reserve)),
                 ));
+
+    if (new_ctokens == 0) {
+        let d = vector::remove(obligation.deposits_mut(), deposit_index);
+        ghost_destroy(d);
+    };
 }
 
 /// No-op refresh function that returns a nondeterministic result.
