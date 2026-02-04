@@ -489,7 +489,6 @@ public fun refresh_health_deposit<P>(
         cvlm_assume_msg(zero.lt(open_ltv), b"0 < open_ltv");
         cvlm_assume_msg(open_ltv.le(close_ltv), b"open_ltv <= close_ltv");
         cvlm_assume_msg(close_ltv.lt(one()), b"close_ltv < 1");
-        // cvlm_assume_msg(deposit_reserve.ctoken_ratio().ge(one()), b"ctoken_ratio = 1");
 
         let (
             deposited_value_usd_i,

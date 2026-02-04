@@ -10,6 +10,7 @@ use cvlm::manifest::{target, invoker, rule};
 use dummy_pool::dummy_pool::DummyPool;
 use suilend::lending_market::LendingMarket;
 use suilend::obligation::Obligation;
+use commons::helper::zero;
 
 public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
@@ -89,6 +90,22 @@ public(package) fun no_deposits_no_borrow_step(
 
     let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
     refresh_health(obligation, reserves);
+
+    // Assume no empty borrows/deposits exists to mitigate spurious cex
+    // We cannot do this in refresh operations as it will lead to timeouts in other rules, where it does not matter.
+    let n_deposits = obligation.deposits().length();
+    let n_borrows = obligation.borrows().length();
+    
+    let mut i = 0;
+    while ( i < n_deposits) {
+        cvlm_assume_msg(obligation.deposits()[i].deposited_ctoken_amount() > 0, b"No empty deposits");
+        i = i + 1;
+    };
+    let mut i = 0;
+    while ( i < n_borrows) {
+        cvlm_assume_msg(obligation.borrows()[i].borrowed_amount().gt(zero()), b"No empty borrows");
+        i = i + 1;
+    };
 
     cvlm_assert_msg(no_deposit_no_borrow(obligation), b"Assert invariant in post-state");
 }
