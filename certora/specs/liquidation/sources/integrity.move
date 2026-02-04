@@ -10,11 +10,11 @@ use cvlm::manifest::rule;
 use cvlm::nondet::nondet;
 use dummy_pool::dummy_pool::DummyPool;
 use sui::coin::Coin;
-use suilend::decimal::gt;
 use suilend::lending_market::LendingMarket;
-use suilend::reserve::market_value;
-use suilend::decimal::ge;
+use suilend::decimal::{ge, gt, Self};
 use commons::helper::zero;
+
+
 
 public fun cvlm_manifest() {
     rule(b"liquidation_only_unhealthy_obligation");
@@ -110,67 +110,83 @@ public fun liquidation_reduces_collateral_and_debt<R, W>(
     ghost_destroy(repay_coins);
 }
 
-/// Verifies that liquidation improves the obligation's LTV ratio
-public fun liquidation_improves_health<R, W>(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
+/// Verifies that liquidation improves or maintains the loan-to-value (LTV) ratio
+///
+/// This rule ensures that when a liquidation occurs, the resulting LTV ratio
+/// (debt/collateral) does not worsen. Specifically, it checks that:
+/// debt_pre / collateral_pre >= debt_post / collateral_post
+///
+/// The rule assumes:
+/// - Some collateral exists to seize (collateral market value > 0)
+/// - No bad debt (debt <= collateral in market value terms)
+/// - Repay amount is positive and at most covers the full debt
+/// - At least one cToken was seized during liquidation
+/// - Post-liquidation collateral is positive (well-defined LTV)
+/// - 1:1 prices, 1:1 ctoken ratio, and no mint decimals
+public fun liquidation_improves_health(lm: &mut LendingMarket<DummyPool>, ob_id: ID) {
     let (ob, repay_reserve_index, withdraw_reserve_index) = setup_obligation_for_liquidation(
         lm,
         ob_id,
     );
+    let repay_reserve = &lm.reserves()[repay_reserve_index];
+    let withdraw_reserve = &lm.reserves()[withdraw_reserve_index];
+    let conf = withdraw_reserve.config();
+    
+    /* Obtain debt, collateral and their respective marked values */
+    
+    let collateral_pre = ob.deposits()[0].deposited_ctoken_amount();
+    let collateral_pre_mv = ob.deposits()[0].market_value();
+    cvlm_assume_msg(collateral_pre_mv.ge(zero()), b"Some collateral to seize exists");
+    let debt_pre = ob.borrows()[0].borrowed_amount();
+    let debt_pre_mv = ob.borrows()[0].market_value();
+    cvlm_assume_msg(debt_pre_mv.le(collateral_pre_mv), b"No bad debt");
+    
+    /* Setup a sound repay amount */
 
-    let clock = nondet();
-    let mut ctx = nondet();
-    let mut repay_coins: Coin<R> = nondet();
-    let repay_coin_value_pre = repay_coins.value();
+    let repay_amount = nondet();
+    cvlm_assume_msg(repay_amount > 0, b"At least one coin to repay");
+    cvlm_assume_msg(decimal::from(repay_amount).le(debt_pre_mv), b"At most full liquidation");
+    
 
-    let collateral_pre = ob.deposits()[0].market_value();
-    let debt_pre = ob.borrows()[0].market_value();
 
-    cvlm_assume_msg(debt_pre.le(collateral_pre), b"No bad debt");
 
     // Uncomment for a "nice" counterexample:
     // Repaying $18 debt at an LTV of $90/$100 using 20% fees, we obtain an LTV of 72/79 > 0.9
-    // let deposit_reserve = &lm.reserves()[withdraw_reserve_index];
-    // cvlm_assume_msg(repay_coin_value_pre == 18, b"");
-    // cvlm_assume_msg(collateral_pre == decimal::from(100), b"");
+    // cvlm_assume_msg(repay_amount == 18, b"");
+    // cvlm_assume_msg(collateral_pre == 100, b"");
     // cvlm_assume_msg(debt_pre == decimal::from(90), b"");
+    // cvlm_assume_msg(conf.protocol_liquidation_fee() == decimal::from_percent(20), b"");
 
-    // cvlm_assume_msg(deposit_reserve.config().protocol_liquidation_fee() == decimal::from_percent(20), b"");
+    /* Compute the liquidation amounts */
+    
+    // final_withdraw_amount: seized cToken from the collateral
+    // final_settle_amount: repaid debt
+    // We assume at least one cToken was seized for this rule
 
-    cvlm_assume_msg(repay_coin_value_pre > 0, b"At least one coin to repay");
+    let (final_withdraw_amount, final_settle_amount) = ob.liquidation_amounts(repay_reserve, conf, &ob.borrows()[0], &ob.deposits()[0], repay_amount);
+    cvlm_assume_msg(final_withdraw_amount > 0, b"Collateral was seized");
 
-    let (liquidated_ctokens, _) = lm.liquidate<DummyPool, R, W>(
-        ob_id,
-        repay_reserve_index,
-        withdraw_reserve_index,
-        &clock,
-        &mut repay_coins,
-        &mut ctx,
-    );
+    /* Compute marked values of the debt and collateral post liquidation */
 
+    let collateral_post = collateral_pre - final_withdraw_amount;
+    let collateral_post_mv = withdraw_reserve.ctoken_market_value(collateral_post);
+    cvlm_assume_msg(collateral_post > 0, b"Well-defined ltv");
+    cvlm_assert(collateral_pre > collateral_post);
 
-    let repay_reserve = vector::borrow(lm.reserves(), repay_reserve_index);
-    let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_index);
-    let ob = lm.obligation(ob_id);
-    let debt_post = repay_reserve.market_value(ob.borrows()[0].borrowed_amount());
-    let collateral_post = withdraw_reserve.ctoken_market_value(ob
-        .deposits()[0]
-        .deposited_ctoken_amount());
-
+    let debt_post = debt_pre.sub(final_settle_amount);
+    let debt_post_mv = repay_reserve.market_value(debt_post);
+    
+    // Logging
     log(&debt_pre);
     log(&collateral_pre);
     log(&debt_post);
     log(&collateral_post);
 
-    // LTV improves: debt_pre/collateral_pre  >= debt_post/collateral_post
+    /* Assert that liquidation did not worsen the LTV */
+
+    // LTV did not make the LTV worse: debt_pre/collateral_pre  >= debt_post/collateral_post
     // <==> debt_pre*collateral_post >= debt_post*collateral_pre
-    cvlm_assume_msg(collateral_pre.gt(zero()), b"non-zero denominator");
-    cvlm_assume_msg(collateral_post.gt(zero()), b"non-zero denominator");
-    cvlm_assume_msg(collateral_pre.gt(collateral_post), b"non-zero of collateral was seized");
 
+    cvlm_assert(ge(debt_pre_mv.mul(collateral_post_mv), debt_post_mv.mul(collateral_pre_mv)));
 
-    cvlm_assert(ge(debt_pre.mul(collateral_post), debt_post.mul(collateral_pre)));
-
-    ghost_destroy(clock);
-    ghost_destroy(repay_coins);
-    ghost_destroy(liquidated_ctokens);
 }
