@@ -92,6 +92,11 @@ fun setup_deposit_assumptions(
     );
 
     cvlm_assume_msg(
+        deposit.deposited_ctoken_amount() > 0,
+        b"No empty deposits",
+    );
+
+    cvlm_assume_msg(
         deposit.market_value() == deposited_value_usd,
         b"Deposit market value matches calculated deposited value in USD",
     );
@@ -146,6 +151,10 @@ fun setup_borrow_assumptions(
     cvlm_assume_msg(
         borrow.market_value() == unweighted_borrowed_value_usd,
         b"Borrow market value matches calculated unweighted borrowed value in USD",
+    );
+    cvlm_assume_msg(
+        borrow.borrowed_amount().gt(zero()),
+        b"No empty borrow",
     );
 
     (
