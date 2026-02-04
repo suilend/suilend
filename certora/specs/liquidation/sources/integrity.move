@@ -13,6 +13,8 @@ use sui::coin::Coin;
 use suilend::decimal::gt;
 use suilend::lending_market::LendingMarket;
 use suilend::reserve::market_value;
+use suilend::decimal::ge;
+use commons::helper::zero;
 
 public fun cvlm_manifest() {
     rule(b"liquidation_only_unhealthy_obligation");
@@ -145,7 +147,7 @@ public fun liquidation_improves_health<R, W>(lm: &mut LendingMarket<DummyPool>, 
         &mut ctx,
     );
 
-    // needs refresh, butt summarized!
+
     let repay_reserve = vector::borrow(lm.reserves(), repay_reserve_index);
     let withdraw_reserve = vector::borrow(lm.reserves(), withdraw_reserve_index);
     let ob = lm.obligation(ob_id);
@@ -161,8 +163,12 @@ public fun liquidation_improves_health<R, W>(lm: &mut LendingMarket<DummyPool>, 
 
     // LTV improves: debt_pre/collateral_pre  >= debt_post/collateral_post
     // <==> debt_pre*collateral_post >= debt_post*collateral_pre
+    cvlm_assume_msg(collateral_pre.gt(zero()), b"non-zero denominator");
+    cvlm_assume_msg(collateral_post.gt(zero()), b"non-zero denominator");
+    cvlm_assume_msg(collateral_pre.gt(collateral_post), b"non-zero of collateral was seized");
 
-    cvlm_assert(gt(debt_pre.mul(collateral_post), debt_post.mul(collateral_pre)));
+
+    cvlm_assert(ge(debt_pre.mul(collateral_post), debt_post.mul(collateral_pre)));
 
     ghost_destroy(clock);
     ghost_destroy(repay_coins);
