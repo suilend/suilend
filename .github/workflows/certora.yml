@@ -55,7 +55,8 @@ jobs:
           working-directory: certora/specs/solvency
           configurations: |-
             confs/accounting.conf
-            confs/ratios.conf
+            confs/ratios_p1.conf
+            confs/ratios_p2.conf
             confs/solvency.conf
           job-name: "Verify Reserve Solvency Rules"
           certora-key: ${{ secrets.CERTORAKEY }}

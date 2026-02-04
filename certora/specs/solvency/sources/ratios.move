@@ -66,7 +66,6 @@ public fun ratio_monotonicity(
     let reserve = &lending_market.reserves()[i];
     cvlm_assume_msg(is_solvent(reserve), b"Require invariant reserve is solvent");
 
-    // let ratio_pre = reserve.ctoken_ratio();
     let (assets_pre, shares_pre) = {
         let assets = reserve.total_supply();
         let shares = suilend::decimal::from(reserve.ctoken_supply());
@@ -78,7 +77,6 @@ public fun ratio_monotonicity(
     invoke(target, lending_market);
 
     let reserve = &lending_market.reserves()[i];
-    // let ratio_post = reserve.ctoken_ratio();
 
     let (assets_post, shares_post) = {
         let assets = reserve.total_supply();
@@ -89,7 +87,6 @@ public fun ratio_monotonicity(
     // Assert that the ratio assets/shares did not decrease:
     //      assets_pre/shares_pre <= assets_post/shares_post
     // <==> assets_pre * shares_post <= assets_post * shares_pre
-
+    
     cvlm_assert(suilend::decimal::le(assets_pre.mul(shares_post), assets_post.mul(shares_pre)));
-    // cvlm_assert(ratio_pre.le(ratio_post));
 }
