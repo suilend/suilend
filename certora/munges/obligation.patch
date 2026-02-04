@@ -1,8 +1,16 @@
 diff --git a/contracts/suilend/sources/obligation.move b/contracts/suilend/sources/obligation.move
-index df13b62..f8f2b2c 100644
+index df13b62..08f14e1 100644
 --- a/contracts/suilend/sources/obligation.move
 +++ b/contracts/suilend/sources/obligation.move
-@@ -155,7 +155,7 @@ module suilend::obligation {
+@@ -28,6 +28,7 @@ module suilend::obligation {
+         protocol_liquidation_fee,
+         isolated
+     };
++    use suilend::reserve_config::ReserveConfig;
+ 
+     // === Errors ===
+     const EObligationIsNotLiquidatable: u64 = 0;
+@@ -155,7 +156,7 @@ module suilend::obligation {
      /// # Returns
      ///
      /// * `Obligation<P>` - A new `Obligation` instance.
@@ -11,7 +19,7 @@ index df13b62..f8f2b2c 100644
          lending_market_id: ID,
          ctx: &mut TxContext,
      ): Obligation<P> {
-@@ -202,7 +202,7 @@ module suilend::obligation {
+@@ -202,7 +203,7 @@ module suilend::obligation {
      ///
      /// * If any `reserve_array_index` in the obligation's deposits or borrows is out
      /// of bounds for the `reserves` vector.
@@ -20,7 +28,7 @@ index df13b62..f8f2b2c 100644
          obligation: &mut Obligation<P>,
          reserves: &mut vector<Reserve<P>>,
          clock: &Clock,
-@@ -349,7 +349,7 @@ module suilend::obligation {
+@@ -349,7 +350,7 @@ module suilend::obligation {
      /// * If the obligation already has a borrow for the same asset as the deposit (`ECannotDepositAndBorrowSameAsset`).
      /// * If the `reserve_array_index` of the deposit is invalid or out of bounds for the `reserves` vector.
      /// * If the `user_reward_manager_index` is invalid or out of bounds for the `user_reward_managers` vector.
@@ -29,7 +37,7 @@ index df13b62..f8f2b2c 100644
          obligation: &mut Obligation<P>,
          reserve: &mut Reserve<P>,
          clock: &Clock,
-@@ -435,7 +435,7 @@ module suilend::obligation {
+@@ -435,7 +436,7 @@ module suilend::obligation {
      /// non-isolated asset when an isolated asset is already borrowed (`EIsolatedAssetViolation`).
      /// * If the `reserve_array_index` of the borrow is invalid or out of bounds for the `reserves` vector.
      /// * If the `user_reward_manager_index` is invalid or out of bounds for the `user_reward_managers` vector.
@@ -38,7 +46,7 @@ index df13b62..f8f2b2c 100644
          obligation: &mut Obligation<P>,
          reserve: &mut Reserve<P>,
          clock: &Clock,
-@@ -526,7 +526,7 @@ module suilend::obligation {
+@@ -526,7 +527,7 @@ module suilend::obligation {
      /// for the `reserves` vector.
      /// * If the `user_reward_manager_index` is invalid or out of bounds for the
      /// `user_reward_managers` vector.
@@ -47,7 +55,7 @@ index df13b62..f8f2b2c 100644
          obligation: &mut Obligation<P>,
          reserve: &mut Reserve<P>,
          clock: &Clock,
-@@ -647,7 +647,7 @@ module suilend::obligation {
+@@ -647,7 +648,7 @@ module suilend::obligation {
      /// * If the obligation is not healthy after the withdrawal (`EObligationIsNotHealthy`).
      /// * If the `reserve_array_index` of the deposit is invalid or out of bounds for the `reserves` vector.
      /// * If the `user_reward_manager_index` is invalid or out of bounds for the `user_reward_managers` vector.
@@ -56,7 +64,7 @@ index df13b62..f8f2b2c 100644
          obligation: &mut Obligation<P>,
          reserve: &mut Reserve<P>,
          clock: &Clock,
-@@ -699,7 +699,7 @@ module suilend::obligation {
+@@ -699,7 +700,7 @@ module suilend::obligation {
      /// * If the `repay_reserve_array_index` or `withdraw_reserve_array_index` are out of bounds for the `reserves` vector.
      /// * If the obligation does not have a borrow for the specified repay reserve.
      /// * If the obligation does not have a deposit for the specified withdraw reserve.
@@ -65,18 +73,17 @@ index df13b62..f8f2b2c 100644
          obligation: &mut Obligation<P>,
          reserves: &mut vector<Reserve<P>>,
          repay_reserve_array_index: u64,
-@@ -714,7 +714,38 @@ module suilend::obligation {
+@@ -714,7 +715,37 @@ module suilend::obligation {
          let borrow = find_borrow(obligation, repay_reserve);
          let deposit = find_deposit(obligation, withdraw_reserve);
  
-+        let (final_settle_amount, final_withdraw_amount) = liquidation_amounts(
++        let (final_withdraw_amount, final_settle_amount) = liquidation_amounts(
 +            obligation, 
-+            repay_amount, 
-+            withdraw_reserve,
 +            repay_reserve,
++            config(withdraw_reserve),
 +            borrow,
-+            deposit);
-+
++            deposit,
++            repay_amount, );
 +
 +        repay(
 +            obligation,
@@ -95,7 +102,7 @@ index df13b62..f8f2b2c 100644
 +        (final_withdraw_amount, final_settle_amount)
 +    }
 +
-+    public fun liquidation_amounts<P>(obligation: &Obligation<P>, repay_amount: u64, withdraw_reserve: &Reserve<P>, repay_reserve: &Reserve<P>, borrow: &Borrow, deposit: &Deposit): (Decimal, u64) {
++    public fun liquidation_amounts<P>(obligation: &Obligation<P>, repay_reserve: &Reserve<P>, config: &ReserveConfig, borrow: &Borrow, deposit: &Deposit, repay_amount: u64,): (u64, Decimal) {
          // invariant: repay_amount <= borrow.borrowed_amount
 +
 +        // how much we actually repay:
@@ -114,8 +121,10 @@ index df13b62..f8f2b2c 100644
 +
 +        // The bonus: liquidation_bonus + protocol_liquidation_fee < 20%
          let bonus = add(
-             liquidation_bonus(config(withdraw_reserve)),
-             protocol_liquidation_fee(config(withdraw_reserve)),
+-            liquidation_bonus(config(withdraw_reserve)),
+-            protocol_liquidation_fee(config(withdraw_reserve)),
++            config.liquidation_bonus(),
++            config.protocol_liquidation_fee()
          );
  
 +        // The withdraw value: Repay multiplied by (1+bonus)
@@ -129,7 +138,7 @@ index df13b62..f8f2b2c 100644
          // repay amount, but in decimals. called settle amount to keep logic in line with
          // spl-lending
          let final_settle_amount;
-@@ -761,30 +799,16 @@ module suilend::obligation {
+@@ -761,29 +799,15 @@ module suilend::obligation {
              final_settle_amount = mul(repay_amount, repay_pct);
              final_withdraw_amount = deposit.deposited_ctoken_amount;
          } else {
@@ -160,11 +169,9 @@ index df13b62..f8f2b2c 100644
 -        );
 -
 -        log_obligation_data(obligation);
--        (final_withdraw_amount, final_settle_amount)
-+        (final_settle_amount, final_withdraw_amount)
+         (final_withdraw_amount, final_settle_amount)
      }
  
-     /// Forgives a portion of a borrow for an obligation that has no deposits.
 @@ -810,7 +834,7 @@ module suilend::obligation {
      /// This function will panic under the following conditions:
      /// * If the obligation is not forgivable (i.e., it still has deposits).
