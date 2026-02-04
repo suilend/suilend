@@ -37,15 +37,15 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards");
     
     // Excluded: Direct verification is computationally infeasible for this function.
-    // However, ratio monotonicity holds inductively. The function is a sequential composition of operations
-    // that each preserve or improve the ratio:
-    //   1. claim_rewards_by_obligation_id calls compound_interest (verified)
-    //   2. repay (verified) - may reduce borrows but doesn't affect ctoken ratio
+    // However, solvency (ratio >= 1) holds inductively. The function is a sequential composition of operations
+    // that each preserve solvency:
+    //   1. claim_rewards_by_obligation_id calls compound_interest (verified) - accrues interest, preserves ratio >= 1
+    //   2. repay (verified) - repays debt, doesn't affect reserve ctoken ratio
     //   3. join_fees - adds to reserve assets without minting ctokens, strictly increasing the ratio
-    //   4. deposit_liquidity_and_mint_ctokens (verified) - mints ctokens at current ratio
+    //   4. deposit_liquidity_and_mint_ctokens (verified) - mints ctokens proportionally at current ratio
     //   5. deposit_ctokens_into_obligation (verified) - transfers ctokens, no ratio impact
-    // Since each operation preserves ratio monotonicity and the operations are sequential (no interleaving),
-    // the composed function maintains the property.
+    // Since each operation preserves ratio >= 1 and the operations are sequential (no interleaving),
+    // the composed function maintains solvency.
     // target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards_and_deposit");
     target(@dummy_pool, b"dummy_pool_lending_market", b"init_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"rebalance_staker");
