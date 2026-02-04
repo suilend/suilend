@@ -160,10 +160,6 @@ public fun repay<P>(
     let new_borrow_amount = borrow.borrowed_amount().sub(repay_amount);
     *borrow.borrowed_amount_mut() = new_borrow_amount;
 
-    if (new_borrow_amount.eq(zero())) {
-        let d = vector::remove(obligation.borrows_mut(), borrow_index);
-        ghost_destroy(d);
-    };
 
     repay_amount
 }
@@ -213,11 +209,6 @@ public fun withdraw_unchecked<P>(
                 .mul(
                     open_ltv(config(reserve)),
                 ));
-
-    if (new_ctokens == 0) {
-        let d = vector::remove(obligation.deposits_mut(), deposit_index);
-        ghost_destroy(d);
-    };
 }
 
 /// No-op refresh function that returns a nondeterministic result.
