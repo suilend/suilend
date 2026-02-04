@@ -27,7 +27,10 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"borrow_request");
     target(@dummy_pool, b"dummy_pool_lending_market", b"fulfill_liquidity_request");
     target(@dummy_pool, b"dummy_pool_lending_market", b"withdraw_ctokens");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"liquidate");
+    
+    // Liquidation is excluded because it can take all remaining collateral without fully repaying the debt. 
+    // As a result, an obligation can end up with zero deposits but still have an outstanding borrow (bad debt).
+    // target(@dummy_pool, b"dummy_pool_lending_market", b"liquidate");
     target(@dummy_pool, b"dummy_pool_lending_market", b"repay");
     target(@dummy_pool, b"dummy_pool_lending_market", b"forgive");
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards");
