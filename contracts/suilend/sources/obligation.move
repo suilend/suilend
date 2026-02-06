@@ -1070,9 +1070,11 @@ module suilend::obligation {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
     }
 
-    /// Whether the obligation is forgivable.
+    /// An obligation is forgivable when it is underwater (bad debt),
+    /// and its remaining collateral is below a USD dust threshold.
     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
-        vector::length(&obligation.deposits) == 0
+        obligation.deposited_value_usd.lt(obligation.unweighted_borrowed_value_usd) &&
+            obligation.deposited_value_usd.lt(decimal::from(1))
     }
 
     /// Calculates the maximum amount of a token that can be borrowed from a reserve
