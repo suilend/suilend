@@ -163,7 +163,7 @@ public fun liquidation_improves_health(lm: &mut LendingMarket<DummyPool>, ob_id:
     // final_settle_amount: repaid debt
     // We assume at least one cToken was seized for this rule
 
-    let (final_withdraw_amount, final_settle_amount) = ob.liquidation_amounts(repay_reserve, conf, &ob.borrows()[0], &ob.deposits()[0], repay_amount);
+    let (final_withdraw_amount, final_settle_amount) = ob.liquidation_amounts(repay_reserve, withdraw_reserve, &ob.borrows()[0], &ob.deposits()[0], repay_amount);
     cvlm_assume_msg(final_withdraw_amount > 0, b"Collateral was seized");
 
     /* Compute marked values of the debt and collateral post liquidation */
