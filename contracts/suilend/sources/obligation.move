@@ -41,6 +41,7 @@ module suilend::obligation {
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
     const EOraclesAreStale: u64 = 9;
     const EBorrowTooSmall: u64 = 10;
+    const ENotHighestBorrowWeight: u64 = 11;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -719,6 +720,16 @@ module suilend::obligation {
         let withdraw_reserve = vector::borrow(reserves, withdraw_reserve_array_index);
         let borrow = find_borrow(obligation, repay_reserve);
         let deposit = find_deposit(obligation, withdraw_reserve);
+
+        // Enforce that the liquidator withdraws collateral with the highest borrow weight.
+        let withdraw_borrow_weight = borrow_weight(withdraw_reserve.config());
+        obligation.deposits.do_ref!(|d| {
+            let d_reserve = reserves.borrow(d.reserve_array_index);
+            assert!(
+                withdraw_borrow_weight.ge(d_reserve.config().borrow_weight()),
+                ENotHighestBorrowWeight,
+            );
+        });
 
         let reserve_config = withdraw_reserve.config();
         let configured_bonus = reserve_config.liquidation_bonus().add(

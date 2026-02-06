@@ -1555,6 +1555,7 @@ module suilend::obligation_tests {
             );
             reserve_config::set_open_ltv_pct(&mut builder, 0);
             reserve_config::set_close_ltv_pct(&mut builder, 0);
+            reserve_config::set_borrow_weight_bps(&mut builder, 30_000);
             reserve_config::set_liquidation_bonus_bps(&mut builder, 1000);
             reserve_config::set_max_liquidation_bonus_bps(&mut builder, 1000);
 
