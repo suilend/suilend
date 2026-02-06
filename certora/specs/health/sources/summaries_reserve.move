@@ -123,6 +123,7 @@ public fun deposit_ctokens<P, T>(_reserve: &mut Reserve<P>, ctokens: Balance<CTo
 public fun deduct_liquidation_fee<P, T>(
     _reserve: &mut Reserve<P>,
     ctokens: &mut Balance<CToken<P, T>>,
+    _bonus: Decimal
 ): (u64, u64) {
     let fees: u64 = nondet();
     let bonus: u64 = nondet();
