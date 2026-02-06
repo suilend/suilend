@@ -813,6 +813,10 @@ module suilend::lending_market {
         let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
+        // Capture pre-liquidation state for fee calculation
+        let deposited_value_usd = obligation.deposited_value_usd();
+        let borrowed_value_usd = obligation.unweighted_borrowed_value_usd();
+
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
             obligation,
             &mut lending_market.reserves,
@@ -845,10 +849,14 @@ module suilend::lending_market {
             withdraw_reserve,
             withdraw_ctoken_amount,
         );
+        let bonus = withdraw_reserve.calculate_capped_liquidation_bonus(
+            deposited_value_usd,
+            borrowed_value_usd,
+        );
         let (protocol_fee_amount, liquidator_bonus_amount) = reserve::deduct_liquidation_fee<
             P,
             Withdraw,
-        >(withdraw_reserve, &mut ctokens);
+        >(withdraw_reserve, &mut ctokens, bonus);
 
         let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
         let withdraw_reserve = vector::borrow(

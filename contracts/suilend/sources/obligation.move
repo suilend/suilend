@@ -726,14 +726,10 @@ module suilend::obligation {
         );
 
         // Cap the bonus to prevent liquidation from worsening the obligation's LTV
-        let bonus = if (obligation.unweighted_borrowed_value_usd.gt(decimal::from(0))) {
-            let max_safe_bonus = obligation.deposited_value_usd
-                .saturating_sub(obligation.unweighted_borrowed_value_usd)
-                .div(obligation.unweighted_borrowed_value_usd);
-            max_safe_bonus.min(configured_bonus)
-        } else {
-            configured_bonus // No debt, any bonus is safe
-        };
+        let bonus = withdraw_reserve.calculate_capped_liquidation_bonus(
+            obligation.deposited_value_usd,
+            obligation.unweighted_borrowed_value_usd,
+        );
 
         // Allow full liquidation when borrow is dust, or when bonus is capped
         let allow_full_liquidation = borrow.market_value.le(decimal::from(1)) ||
