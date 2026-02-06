@@ -2649,12 +2649,11 @@ module suilend::lending_market_tests {
 
     #[test]
     public fun test_liquidation_ltv_change() {
-        use sui::test_utils::{Self};
+        use std::unit_test;
         use suilend::reserve_config::{Self, default_reserve_config};
         use suilend::mock_pyth::{Self};
         use suilend::test_usdc::{TEST_USDC};
         use suilend::test_sui::{TEST_SUI};
-        use std::{debug, string};
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -2671,7 +2670,7 @@ module suilend::lending_market_tests {
                 reserve_config::set_liquidation_bonus_bps(&mut builder, 300);
                 reserve_config::set_max_liquidation_bonus_bps(&mut builder, 300);
                 reserve_config::set_protocol_liquidation_fee_bps(&mut builder, 400);
-                sui::test_utils::destroy(config);
+                unit_test::destroy(config);
                 reserve_config::build(builder, scenario.ctx())
             };
             bag::add(
@@ -2741,12 +2740,12 @@ module suilend::lending_market_tests {
             borrow_amount,
             scenario.ctx(),
         );
-        test_utils::destroy(sui);
+        unit_test::destroy(sui);
 
         // Increase the borrow asset price until the obligation becomes liquidatable (close LTV breached).
 
         // Solve SUI price to push the obligation to the LTV for full liquidation
-        let ltv_threshold_for_full_liquidation = decimal::from_percent(94); // TODO: play along this parameter
+        let ltv_threshold_for_full_liquidation = decimal::from_percent(97);
         let collateral_usd = decimal::from(1000); // obligation has $1,000 worth of collateral
 
         // price = ltv_threshold_for_full_liquidation * collateral_usd / debt_amount
@@ -2754,9 +2753,8 @@ module suilend::lending_market_tests {
             decimal::mul(ltv_threshold_for_full_liquidation, collateral_usd),
             decimal::from(7) // 7 SUI have been borrowed
         );
-        let new_sui_price = decimal::ceil(new_sui_price);
 
-        mock_pyth::update_price<TEST_SUI>(&mut prices, new_sui_price, 0, &clock);
+        mock_pyth::update_price<TEST_SUI>(&mut prices, new_sui_price.ceil(), 0, &clock);
         lending_market::refresh_reserve_price<LENDING_MARKET>(
             &mut lending_market,
             *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_SUI>()),
@@ -2768,7 +2766,7 @@ module suilend::lending_market_tests {
             lending_market::obligation_id(&obligation_owner_cap),
             &clock,
         );
-        test_utils::destroy(exist_stale_oracles);
+        unit_test::destroy(exist_stale_oracles);
 
         let obligation_before = lending_market::obligation(
             &lending_market,
@@ -2784,6 +2782,7 @@ module suilend::lending_market_tests {
 
         let repay_sui_amount = 100_000 * 1_000_000_000; // overpays to make the test simpler
         let mut repay_sui = coin::mint_for_testing<TEST_SUI>(repay_sui_amount, scenario.ctx());
+        let repay_sui_before = coin::value(&repay_sui);
         let mut total_liquidator_ctokens = 0;
         let mut liquidation_count = 0;
         while (liquidation_count < 30) { // chain multiple liquidations
@@ -2813,7 +2812,7 @@ module suilend::lending_market_tests {
             );
             liquidation_count = liquidation_count + 1;
             total_liquidator_ctokens = total_liquidator_ctokens + coin::value(&ctokens_out);
-            test_utils::destroy(ctokens_out);
+            unit_test::destroy(ctokens_out);
         };
 
         let obligation_after = lending_market::obligation(
@@ -2824,13 +2823,25 @@ module suilend::lending_market_tests {
         assert!(!obligation::is_liquidatable(obligation_after));
         assert!(obligation::is_healthy(obligation_after));
 
-        test_utils::destroy(repay_sui);
-        test_utils::destroy(obligation_owner_cap);
-        test_utils::destroy(owner_cap);
-        test_utils::destroy(lending_market);
-        test_utils::destroy(clock);
-        test_utils::destroy(prices);
-        test_utils::destroy(type_to_index);
+        // Verify liquidator profitability: ctokens value > SUI repaid value
+        let total_sui_repaid = repay_sui_before - coin::value(&repay_sui);
+        let repay_value_usd = decimal::div(
+            decimal::mul(decimal::from(total_sui_repaid), new_sui_price),
+            decimal::from(1_000_000_000)
+        );
+        let ctokens_value_usd = decimal::div(
+            decimal::mul(decimal::from(total_liquidator_ctokens), decimal::from(10)), // $10 per USDC
+            decimal::from(1_000_000)
+        );
+        assert!(ctokens_value_usd.gt(repay_value_usd));
+
+        unit_test::destroy(repay_sui);
+        unit_test::destroy(obligation_owner_cap);
+        unit_test::destroy(owner_cap);
+        unit_test::destroy(lending_market);
+        unit_test::destroy(clock);
+        unit_test::destroy(prices);
+        unit_test::destroy(type_to_index);
         test_scenario::end(scenario);
     }
 }

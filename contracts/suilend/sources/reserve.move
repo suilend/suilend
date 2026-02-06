@@ -986,14 +986,46 @@ module suilend::reserve {
         &mut reserve.borrows_pool_reward_manager
     }
 
+    /// Calculates the liquidation bonus capped such that: `bonus <= (collateral - debt) / debt`
+    ///
+    /// # Arguments
+    ///
+    /// * `reserve` - Reference to the reserve (for config)
+    /// * `deposited_value_usd` - obligation::deposited_value_usd
+    /// * `borrowed_value_usd` - obligation::unweighted_borrowed_value_usd
+    ///
+    /// # Returns
+    ///
+    /// * `Decimal` - The capped liquidation bonus (liquidator_bonus + protocol_fee).
+    public(package) fun calculate_capped_liquidation_bonus<P>(
+        reserve: &Reserve<P>,
+        deposited_value_usd: Decimal,
+        borrowed_value_usd: Decimal,
+    ): Decimal {
+        let config = reserve.config();
+        let configured_total_bonus = config.liquidation_bonus()
+            .add(config.protocol_liquidation_fee());
+
+        if (borrowed_value_usd.gt(decimal::from(0))) {
+            let max_safe_bonus = deposited_value_usd
+                .saturating_sub(borrowed_value_usd)
+                .div(borrowed_value_usd);
+            max_safe_bonus.min(configured_total_bonus)
+        } else {
+            configured_total_bonus // No debt, any bonus is safe
+        }
+    }
+
     /// Deducts liquidation fees from ctokens during liquidation.
     ///
     /// Splits the ctoken amount into protocol fees and liquidator bonus based on configuration.
+    /// When capped, the liquidator gets their full bonus first; the protocol fee takes the remainder.
     ///
     /// # Arguments
     ///
     /// * `reserve` - A mutable reference to the `Reserve` to modify.
     /// * `ctokens` - A mutable reference to the ctoken balance to deduct from.
+    /// * `bonus` - The (possibly capped) total liquidation bonus to apply.
     ///
     /// # Returns
     ///
@@ -1005,23 +1037,22 @@ module suilend::reserve {
     public(package) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,
+        bonus: Decimal,
     ): (u64, u64) {
-        let bonus = liquidation_bonus(config(reserve));
-        let protocol_liquidation_fee = protocol_liquidation_fee(config(reserve));
-        let take_rate = div(
-            protocol_liquidation_fee,
-            add(add(decimal::from(1), bonus), protocol_liquidation_fee)
-        );
-        let protocol_fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
+        let config = reserve.config();
+
+        // Liquidator-first: give liquidator their full bonus, protocol gets remainder
+        let liquidator_bonus = config.liquidation_bonus().min(bonus);
+        let protocol_fee = bonus.saturating_sub(liquidator_bonus);
+
+        let total_ctokens = decimal::from(ctokens.value());
+        let take_rate = protocol_fee.div(decimal::from(1).add(liquidator_bonus).add(protocol_fee));
+        let protocol_fee_amount = take_rate.mul(total_ctokens).ceil();
+        let bonus_rate = liquidator_bonus.div(decimal::from(1).add(liquidator_bonus).add(protocol_fee));
+        let liquidator_bonus_amount = bonus_rate.mul(total_ctokens).ceil();
 
         let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
-        balance::join(&mut balances.ctoken_fees, balance::split(ctokens, protocol_fee_amount));
-
-        let bonus_rate = div(
-            bonus,
-            add(add(decimal::from(1), bonus), protocol_liquidation_fee)
-        );
-        let liquidator_bonus_amount = ceil(mul(bonus_rate, decimal::from(balance::value(ctokens))));
+        balances.ctoken_fees.join(ctokens.split(protocol_fee_amount));
 
         (protocol_fee_amount, liquidator_bonus_amount)
     }
