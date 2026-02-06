@@ -41,6 +41,7 @@ module suilend::obligation {
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
     const EOraclesAreStale: u64 = 9;
     const EBorrowTooSmall: u64 = 10;
+    const ENotHighestBorrowWeight: u64 = 11;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -720,20 +721,26 @@ module suilend::obligation {
         let borrow = find_borrow(obligation, repay_reserve);
         let deposit = find_deposit(obligation, withdraw_reserve);
 
+        // Enforce that the liquidator withdraws collateral with the highest borrow weight.
+        let withdraw_borrow_weight = borrow_weight(withdraw_reserve.config());
+        obligation.deposits.do_ref!(|d| {
+            let d_reserve = reserves.borrow(d.reserve_array_index);
+            assert!(
+                withdraw_borrow_weight.ge(d_reserve.config().borrow_weight()),
+                ENotHighestBorrowWeight,
+            );
+        });
+
         let reserve_config = withdraw_reserve.config();
         let configured_bonus = reserve_config.liquidation_bonus().add(
             reserve_config.protocol_liquidation_fee()
         );
 
         // Cap the bonus to prevent liquidation from worsening the obligation's LTV
-        let bonus = if (obligation.unweighted_borrowed_value_usd.gt(decimal::from(0))) {
-            let max_safe_bonus = obligation.deposited_value_usd
-                .saturating_sub(obligation.unweighted_borrowed_value_usd)
-                .div(obligation.unweighted_borrowed_value_usd);
-            max_safe_bonus.min(configured_bonus)
-        } else {
-            configured_bonus // No debt, any bonus is safe
-        };
+        let bonus = withdraw_reserve.calculate_capped_liquidation_bonus(
+            obligation.deposited_value_usd,
+            obligation.unweighted_borrowed_value_usd,
+        );
 
         // Allow full liquidation when borrow is dust, or when bonus is capped
         let allow_full_liquidation = borrow.market_value.le(decimal::from(1)) ||
@@ -1063,9 +1070,11 @@ module suilend::obligation {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
     }
 
-    /// Whether the obligation is forgivable.
+    /// An obligation is forgivable when it is underwater (bad debt),
+    /// and its remaining collateral is below a USD dust threshold.
     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
-        vector::length(&obligation.deposits) == 0
+        obligation.deposited_value_usd.lt(obligation.unweighted_borrowed_value_usd) &&
+            obligation.deposited_value_usd.lt(decimal::from(1))
     }
 
     /// Calculates the maximum amount of a token that can be borrowed from a reserve
@@ -1267,10 +1276,10 @@ module suilend::obligation {
             if (has_target_borrow_idx) {
                 let disabled_pairs = vector::borrow(&disabled_pairings_map, target_borrow_idx);
                 let pair_count = vector::length(disabled_pairs);
-                let mut i = 0;
+                let mut j = 0;
 
-                while (i < pair_count) {
-                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, i);
+                while (j < pair_count) {
+                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, j);
 
                     let deposit_index = find_deposit_index_by_reserve_array_index(
                         obligation,
@@ -1281,7 +1290,7 @@ module suilend::obligation {
                         return true
                     };
 
-                    i = i +1;
+                    j = j +1;
                 };
             };
 

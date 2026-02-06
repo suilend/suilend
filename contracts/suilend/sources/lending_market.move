@@ -564,7 +564,9 @@ module suilend::lending_market {
         obligation::assert_no_stale_oracles(exist_stale_oracles);
     }
 
-    /// Borrows a specified amount of a token from a reserve. A fee is charged on the borrowed amount.
+    /// Creates a borrow request for a specified amount of a token from a reserve. A fee is charged
+    /// on the borrowed amount. The returned `LiquidityRequest` must be fulfilled by calling
+    /// `fulfill_liquidity_request`.
     ///
     /// # Arguments
     ///
@@ -576,7 +578,7 @@ module suilend::lending_market {
     ///
     /// # Returns
     ///
-    /// * `Coin<T>` - A `Coin` of the borrowed asset.
+    /// * `LiquidityRequest<P, T>` - A request that must be fulfilled to complete the borrow.
     ///
     /// # Panics
     ///
@@ -813,6 +815,10 @@ module suilend::lending_market {
         let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
+        // Capture pre-liquidation state for fee calculation
+        let deposited_value_usd = obligation.deposited_value_usd();
+        let borrowed_value_usd = obligation.unweighted_borrowed_value_usd();
+
         let (withdraw_ctoken_amount, required_repay_amount) = obligation::liquidate<P>(
             obligation,
             &mut lending_market.reserves,
@@ -845,10 +851,14 @@ module suilend::lending_market {
             withdraw_reserve,
             withdraw_ctoken_amount,
         );
+        let bonus = withdraw_reserve.calculate_capped_liquidation_bonus(
+            deposited_value_usd,
+            borrowed_value_usd,
+        );
         let (protocol_fee_amount, liquidator_bonus_amount) = reserve::deduct_liquidation_fee<
             P,
             Withdraw,
-        >(withdraw_reserve, &mut ctokens);
+        >(withdraw_reserve, &mut ctokens, bonus);
 
         let repay_reserve = vector::borrow(&lending_market.reserves, repay_reserve_array_index);
         let withdraw_reserve = vector::borrow(
@@ -1059,7 +1069,8 @@ module suilend::lending_market {
     ///
     /// This is a permissionless function that can be called by anyone to "crank" rewards for a given obligation.
     /// It first claims the rewards from the specified reward pool and then, if the obligation has a borrow of the
-    /// same asset, it repays the borrow. Otherwise, it deposits the rewards into the specified reserve.
+    /// same asset, it repays the borrow. The remaining rewards are deposited as liquidity into the specified
+    /// reserve and the resulting CTokens are deposited into the obligation to be used as collateral.
     ///
     /// # Arguments
     ///
