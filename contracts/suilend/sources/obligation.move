@@ -1276,10 +1276,10 @@ module suilend::obligation {
             if (has_target_borrow_idx) {
                 let disabled_pairs = vector::borrow(&disabled_pairings_map, target_borrow_idx);
                 let pair_count = vector::length(disabled_pairs);
-                let mut i = 0;
+                let mut j = 0;
 
-                while (i < pair_count) {
-                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, i);
+                while (j < pair_count) {
+                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, j);
 
                     let deposit_index = find_deposit_index_by_reserve_array_index(
                         obligation,
@@ -1290,7 +1290,7 @@ module suilend::obligation {
                         return true
                     };
 
-                    i = i +1;
+                    j = j +1;
                 };
             };
 
