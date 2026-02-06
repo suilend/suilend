@@ -660,16 +660,18 @@ module suilend::reserve {
     ///
     /// * `Decimal` - The utilization rate as a decimal (0 to 1).
     public fun calculate_utilization_rate<P>(reserve: &Reserve<P>): Decimal {
-        let total_supply_excluding_fees = add(
-            decimal::from(reserve.available_amount),
+        let available_amount_excluding_fees = decimal::from(reserve.available_amount).sub(
+            reserve.unclaimed_spread_fees
+        );
+        let total_supply_excluding_fees = available_amount_excluding_fees.add(
             reserve.borrowed_amount
         );
 
-        if (eq(total_supply_excluding_fees, decimal::from(0))) {
+        if (total_supply_excluding_fees.eq(decimal::from(0))) {
             decimal::from(0)
         }
         else {
-            div(reserve.borrowed_amount, total_supply_excluding_fees)
+            reserve.borrowed_amount.div(total_supply_excluding_fees)
         }
     }
 
