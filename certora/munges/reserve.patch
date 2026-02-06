@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/reserve.move b/contracts/suilend/sources/reserve.move
-index 5ca1d8d..bf9e332 100644
+index d16de7a..7955d44 100644
 --- a/contracts/suilend/sources/reserve.move
 +++ b/contracts/suilend/sources/reserve.move
 @@ -178,7 +178,7 @@ module suilend::reserve {
@@ -86,7 +86,7 @@ index 5ca1d8d..bf9e332 100644
                  usd_amount
              ),
              price_lower_bound(reserve)
-@@ -870,6 +878,11 @@ module suilend::reserve {
+@@ -872,6 +880,11 @@ module suilend::reserve {
          &balances.available_amount
      }
  
@@ -98,7 +98,7 @@ index 5ca1d8d..bf9e332 100644
      public use fun balances_ctoken_supply as Balances.ctoken_supply;
  
      /// Gets the ctoken supply from the reserve's balances.
-@@ -924,7 +937,7 @@ module suilend::reserve {
+@@ -926,7 +939,7 @@ module suilend::reserve {
      /// # Returns
      ///
      /// * `u64` - The amount in the liquidity request (includes fee).
@@ -107,7 +107,7 @@ index 5ca1d8d..bf9e332 100644
          request.amount
      }
  
-@@ -937,7 +950,7 @@ module suilend::reserve {
+@@ -939,7 +952,7 @@ module suilend::reserve {
      /// # Returns
      ///
      /// * `u64` - The fee in the liquidity request.
@@ -116,7 +116,7 @@ index 5ca1d8d..bf9e332 100644
          request.fee
      }
  
-@@ -1002,7 +1015,7 @@ module suilend::reserve {
+@@ -1036,7 +1049,7 @@ module suilend::reserve {
      /// # Panics
      ///
      /// * If the `BalanceKey` dynamic field is not found.
@@ -124,8 +124,8 @@ index 5ca1d8d..bf9e332 100644
 +    public fun deduct_liquidation_fee<P, T>(
          reserve: &mut Reserve<P>,
          ctokens: &mut Balance<CToken<P, T>>,
-     ): (u64, u64) {
-@@ -1036,7 +1049,7 @@ module suilend::reserve {
+         bonus: Decimal,
+@@ -1069,7 +1082,7 @@ module suilend::reserve {
      /// # Panics
      ///
      /// * If the `BalanceKey` dynamic field is not found.
@@ -134,7 +134,7 @@ index 5ca1d8d..bf9e332 100644
          let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
          balance::join(&mut balances.fees, fees);
      }
-@@ -1049,7 +1062,7 @@ module suilend::reserve {
+@@ -1082,7 +1095,7 @@ module suilend::reserve {
      ///
      /// * `reserve` - A mutable reference to the `Reserve` to modify.
      /// * `config` - The new `ReserveConfig` to set.
@@ -143,7 +143,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          config: ReserveConfig, 
      ) {
-@@ -1069,7 +1082,7 @@ module suilend::reserve {
+@@ -1102,7 +1115,7 @@ module suilend::reserve {
      ///
      /// * If the price identifier does not match the reserve's (`EPriceIdentifierMismatch`).
      /// * If the price information is invalid or missing (`EInvalidPrice`).
@@ -152,7 +152,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          clock: &Clock,
          price_info_obj: &PriceInfoObject
-@@ -1092,25 +1105,15 @@ module suilend::reserve {
+@@ -1125,25 +1138,15 @@ module suilend::reserve {
      ///
      /// * `reserve` - A mutable reference to the `Reserve` to modify.
      /// * `clock` - A reference to the `Clock` for timestamp-based calculations.
@@ -181,7 +181,7 @@ index 5ca1d8d..bf9e332 100644
  
          reserve.cumulative_borrow_rate = mul(
              reserve.cumulative_borrow_rate,
-@@ -1155,6 +1158,22 @@ module suilend::reserve {
+@@ -1188,6 +1191,22 @@ module suilend::reserve {
          });
      }
      
@@ -204,7 +204,7 @@ index 5ca1d8d..bf9e332 100644
      /// Simulates compounding interest and debt for the reserve.
      ///
      /// Calculates the updated borrowed amount and unclaimed spread fees without modifying the reserve.
-@@ -1220,7 +1239,7 @@ module suilend::reserve {
+@@ -1253,7 +1272,7 @@ module suilend::reserve {
      ///
      /// * If the `BalanceKey` dynamic field is not found.
      /// * If the reserve's coin type is SUI and a staker is initialized but the staker type is incorrect (`EWrongType`).
@@ -213,7 +213,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          system_state: &mut SuiSystemState, 
          ctx: &mut TxContext
-@@ -1274,7 +1293,7 @@ module suilend::reserve {
+@@ -1307,7 +1326,7 @@ module suilend::reserve {
      /// * If the total supply exceeds the deposit limit (`EDepositLimitExceeded`).
      /// * If the total supply in USD exceeds the USD deposit limit (`EDepositLimitExceeded`).
      /// * If the `BalanceKey` dynamic field is not found.
@@ -222,7 +222,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>,
          liquidity: Balance<T>,
      ): Balance<CToken<P, T>> {
-@@ -1330,7 +1349,7 @@ module suilend::reserve {
+@@ -1363,7 +1382,7 @@ module suilend::reserve {
      ///
      /// * If the available amount or ctoken supply falls below `MIN_AVAILABLE_AMOUNT` after redemption (`EMinAvailableAmountViolated`).
      /// * If the `BalanceKey` dynamic field is not found.
@@ -231,7 +231,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          ctokens: Balance<CToken<P, T>>
      ): LiquidityRequest<P, T> {
-@@ -1376,7 +1395,7 @@ module suilend::reserve {
+@@ -1409,7 +1428,7 @@ module suilend::reserve {
      /// # Panics
      ///
      /// * If the `BalanceKey` dynamic field is not found.
@@ -240,7 +240,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>,
          request: LiquidityRequest<P, T>,
      ): Balance<T> {
-@@ -1404,7 +1423,7 @@ module suilend::reserve {
+@@ -1437,7 +1456,7 @@ module suilend::reserve {
      ///
      /// * If a staker is already initialized (`EStakerAlreadyInitialized`).
      /// * If the staker's coin type is not SPRUNGSUI (`EWrongType`).
@@ -249,7 +249,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>,
          treasury_cap: TreasuryCap<S>,
          ctx: &mut TxContext
-@@ -1427,12 +1446,12 @@ module suilend::reserve {
+@@ -1460,12 +1479,12 @@ module suilend::reserve {
      ///
      /// * If a staker is not initialized (`EStakerNotInitialized`).
      /// * If the `BalanceKey` dynamic field is not found.
@@ -264,7 +264,7 @@ index 5ca1d8d..bf9e332 100644
          let balances: &mut Balances<P, SUI> = dynamic_field::borrow_mut(
              &mut reserve.id, 
              BalanceKey {}
-@@ -1478,7 +1497,7 @@ module suilend::reserve {
+@@ -1511,7 +1530,7 @@ module suilend::reserve {
      /// * If the reserve's coin type or liquidity request type is not SUI (`EWrongType`).
      /// * If the `BalanceKey` dynamic field is not found.
      /// * If the `StakerKey` dynamic field is found but the staker type is incorrect.
@@ -273,7 +273,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>,
          liquidity_request: &LiquidityRequest<P, T>,
          system_state: &mut SuiSystemState,
-@@ -1526,7 +1545,7 @@ module suilend::reserve {
+@@ -1559,7 +1578,7 @@ module suilend::reserve {
      /// * If the borrowed amount exceeds the borrow limit (`EBorrowLimitExceeded`).
      /// * If the borrowed amount in USD exceeds the USD borrow limit (`EBorrowLimitExceeded`).
      /// * If the available amount or ctoken supply falls below `MIN_AVAILABLE_AMOUNT` after borrowing (`EMinAvailableAmountViolated`).
@@ -282,7 +282,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          amount: u64
      ): LiquidityRequest<P, T> {
-@@ -1575,7 +1594,7 @@ module suilend::reserve {
+@@ -1608,7 +1627,7 @@ module suilend::reserve {
      ///
      /// * If the liquidity amount does not match the ceiling of the settle amount (`EInvalidRepayBalance`).
      /// * If the `BalanceKey` dynamic field is not found.
@@ -291,7 +291,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          liquidity: Balance<T>,
          settle_amount: Decimal
-@@ -1599,7 +1618,7 @@ module suilend::reserve {
+@@ -1632,7 +1651,7 @@ module suilend::reserve {
      ///
      /// * `reserve` - A mutable reference to the `Reserve` to modify.
      /// * `forgive_amount` - The amount of debt to forgive as a decimal.
@@ -300,7 +300,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          forgive_amount: Decimal
      ) {
-@@ -1621,7 +1640,7 @@ module suilend::reserve {
+@@ -1654,7 +1673,7 @@ module suilend::reserve {
      /// # Panics
      ///
      /// * If the `BalanceKey` dynamic field is not found.
@@ -309,7 +309,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          ctokens: Balance<CToken<P, T>>
      ) {
-@@ -1644,7 +1663,7 @@ module suilend::reserve {
+@@ -1677,7 +1696,7 @@ module suilend::reserve {
      /// # Panics
      ///
      /// * If the `BalanceKey` dynamic field is not found.
@@ -318,7 +318,7 @@ index 5ca1d8d..bf9e332 100644
          reserve: &mut Reserve<P>, 
          amount: u64
      ): Balance<CToken<P, T>> {
-@@ -1660,7 +1679,7 @@ module suilend::reserve {
+@@ -1693,7 +1712,7 @@ module suilend::reserve {
      /// * `reserve` - A mutable reference to the `Reserve` to modify.
      /// * `price_info_obj` - The new price information object.
      /// * `clock` - A reference to the `Clock` for timestamp-based calculations.

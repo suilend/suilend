@@ -1,16 +1,8 @@
 diff --git a/contracts/suilend/sources/lending_market.move b/contracts/suilend/sources/lending_market.move
-index 587480d..f584579 100644
+index 7e04a9f..35c4959 100644
 --- a/contracts/suilend/sources/lending_market.move
 +++ b/contracts/suilend/sources/lending_market.move
-@@ -16,6 +16,7 @@ module suilend::lending_market {
-     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
-     use suilend::reserve::{Self, Reserve, CToken, LiquidityRequest};
-     use suilend::reserve_config::{ReserveConfig, borrow_fee};
-+    use suilend::obligation::ExistStaleOracles;
- 
-     // === Errors ===
-     const EIncorrectVersion: u64 = 1;
-@@ -1262,6 +1263,11 @@ module suilend::lending_market {
+@@ -1273,6 +1273,11 @@ module suilend::lending_market {
          &lending_market.reserves
      }
  
@@ -22,7 +14,7 @@ index 587480d..f584579 100644
      fun max_borrow_amount<P>(
          mut rate_limiter: RateLimiter,
          obligation: &Obligation<P>,
-@@ -1377,6 +1383,11 @@ module suilend::lending_market {
+@@ -1388,6 +1393,11 @@ module suilend::lending_market {
          object_table::borrow(&lending_market.obligations, obligation_id)
      }
  
@@ -34,7 +26,7 @@ index 587480d..f584579 100644
      /// Get the fee receiver address.
      public fun fee_receiver<P>(lending_market: &LendingMarket<P>): address {
          lending_market.fee_receiver
-@@ -2001,6 +2012,15 @@ module suilend::lending_market {
+@@ -2012,6 +2022,15 @@ module suilend::lending_market {
          let obligation = lending_market.obligations.borrow_mut(obligation_id);
          obligation.refresh(&mut lending_market.reserves, clock)
      }
