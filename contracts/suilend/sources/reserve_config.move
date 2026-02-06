@@ -52,7 +52,7 @@ module suilend::reserve_config {
         // Protocol fee on liquidations in basis points
         protocol_liquidation_fee_bps: u64,
         // Isolation flag
-        // If true, asset cannot be used as collateral and can only be borrowed in isolation
+        // If true, asset can only be borrowed in isolation
         isolated: bool,
         // Unused fields
         //
@@ -90,7 +90,7 @@ module suilend::reserve_config {
     /// * `protocol_liquidation_fee_bps` - Protocol fee on liquidations in basis points.
     /// * `interest_rate_utils` - Vector of utilization rates for interest rate calculation (0-100).
     /// * `interest_rate_aprs` - Vector of APRs corresponding to utilization rates.
-    /// * `isolated` - If true, asset is isolated (cannot be collateral, only borrowed in isolation).
+    /// * `isolated` - If true, asset is isolated (can only be borrowed in isolation).
     /// * `open_attributed_borrow_limit_usd` - Open attributed borrow limit in USD (unused).
     /// * `close_attributed_borrow_limit_usd` - Close attributed borrow limit in USD (unused).
     ///

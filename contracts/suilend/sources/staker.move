@@ -17,7 +17,7 @@ module suilend::staker {
         @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
 
     // This is mostly so i don't hit the "zero lst coin mint" error.
-    const MIN_DEPLOY_AMOUNT: u64 = 1_000_000; // 1 SUI
+    const MIN_DEPLOY_AMOUNT: u64 = 1_000_000; // 0.001 SUI
     const MIST_PER_SUI: u64 = 1_000_000_000;
 
     public struct Staker<phantom P> has store {

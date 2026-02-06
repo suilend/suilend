@@ -564,7 +564,9 @@ module suilend::lending_market {
         obligation::assert_no_stale_oracles(exist_stale_oracles);
     }
 
-    /// Borrows a specified amount of a token from a reserve. A fee is charged on the borrowed amount.
+    /// Creates a borrow request for a specified amount of a token from a reserve. A fee is charged
+    /// on the borrowed amount. The returned `LiquidityRequest` must be fulfilled by calling
+    /// `fulfill_liquidity_request`.
     ///
     /// # Arguments
     ///
@@ -576,7 +578,7 @@ module suilend::lending_market {
     ///
     /// # Returns
     ///
-    /// * `Coin<T>` - A `Coin` of the borrowed asset.
+    /// * `LiquidityRequest<P, T>` - A request that must be fulfilled to complete the borrow.
     ///
     /// # Panics
     ///
@@ -1067,7 +1069,8 @@ module suilend::lending_market {
     ///
     /// This is a permissionless function that can be called by anyone to "crank" rewards for a given obligation.
     /// It first claims the rewards from the specified reward pool and then, if the obligation has a borrow of the
-    /// same asset, it repays the borrow. Otherwise, it deposits the rewards into the specified reserve.
+    /// same asset, it repays the borrow. The remaining rewards are deposited as liquidity into the specified
+    /// reserve and the resulting CTokens are deposited into the obligation to be used as collateral.
     ///
     /// # Arguments
     ///
