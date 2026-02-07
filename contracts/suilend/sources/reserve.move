@@ -1048,13 +1048,21 @@ module suilend::reserve {
         let protocol_fee = bonus.saturating_sub(liquidator_bonus);
 
         let total_ctokens = decimal::from(ctokens.value());
-        let take_rate = protocol_fee.div(decimal::from(1).add(liquidator_bonus).add(protocol_fee));
-        let protocol_fee_amount = take_rate.mul(total_ctokens).ceil();
+
+        // When protocol_fee is zero, skip fee calculation
+        let protocol_fee_amount = if (protocol_fee.eq(decimal::from(0))) {
+            0
+        } else {
+            let take_rate = protocol_fee.div(decimal::from(1).add(liquidator_bonus).add(protocol_fee));
+            take_rate.mul(total_ctokens).ceil()
+        };
         let bonus_rate = liquidator_bonus.div(decimal::from(1).add(liquidator_bonus).add(protocol_fee));
         let liquidator_bonus_amount = bonus_rate.mul(total_ctokens).ceil();
 
-        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
-        balances.ctoken_fees.join(ctokens.split(protocol_fee_amount));
+        if (protocol_fee_amount > 0) {
+            let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+            balances.ctoken_fees.join(ctokens.split(protocol_fee_amount));
+        };
 
         (protocol_fee_amount, liquidator_bonus_amount)
     }
