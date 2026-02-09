@@ -788,13 +788,12 @@ module suilend::obligation {
             final_settle_amount = mul(repay_amount, repay_pct);
             final_withdraw_amount = deposit.deposited_ctoken_amount;
         } else {
-            let withdraw_pct = div(withdraw_value, deposit.market_value);
-
             final_settle_amount = repay_amount;
             final_withdraw_amount =
-                floor(
-                    mul(decimal::from(deposit.deposited_ctoken_amount), withdraw_pct),
-                );
+                withdraw_value
+                    .mul(decimal::from(deposit.deposited_ctoken_amount))
+                    .div(deposit.market_value)
+                    .floor();
         };
 
         repay(
