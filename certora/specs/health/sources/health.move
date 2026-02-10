@@ -96,6 +96,14 @@ public(package) fun obligation_health_step(
     cvlm_assume_msg(debt_factor().eq(decimal::from(1)), b"No debt accumulates");
     cvlm_assume_msg(obligation.is_healthy(), b"Assume obligation is healthy in pre-state");
 
+    let mut i = 0;
+    while (i < lending_market.reserves().length()) {
+        cvlm_assume_msg(
+            lending_market.reserves()[i].array_index() == i,
+            b"Correct reserve indices",
+        );
+        i = i+1;
+    };
     require_sound_obligation_state(obligation);
 
     invoke(target, lending_market, id);
