@@ -18,47 +18,33 @@ public fun cvlm_manifest() {
 
 // Worst-case rounding loss bound (ctoken base units):
 ///
-/// Due to truncating division in the computation of liquidation amountst he liquidator can receive
-/// *up to* `SHORTFALL` fewer **base units of ctokens** than the ideal real-number math would give.
+/// Due to floor operation in the computation of liquidation amounts, the liquidator can receive
+/// *up to* `SHORTFALL` fewer base units of ctokens than the ideal real-number math would give.
 ///
 /// In other words: the liquidator can make a loss purely due to rounding, but that loss is
 /// bounded by `SHORTFALL` ctoken base units. Equivalently, giving the liquidator an extra
-/// `SHORTFALL` base units of ctokens is sufficient to ensure “no loss” in the zero-bonus case.
-///
-/// In addition, with a bonus `b` (e.g. 3% => b=0.03), profitability must cover this rounding tax:
-///
-///     repay * (1 + b) - SHORTFALL >= repay
-///  <=> b * repay >= SHORTFALL
-///  <=> repay >= ceil(SHORTFALL / b)
-///
-/// Examples (SHORTFALL = 20):
-///   - b = 1%  => repay >= 2000
-///   - b = 3%  => repay >= 667
-///   - b = 10% => repay >= 200
-///
-/// All quantities above are in base units unless otherwise noted.
-const SHORTFALL: u64 = 20;
+/// `SHORTFALL` base units of ctokens is sufficient to ensure "no loss" in the zero-bonus case.
+const SHORTFALL: u64 = 1;
 
 /// Verifies that liquidation with zero bonus is not a loss for the liquidator, up to a bounded rounding error:
 ///
 ///     market_value(returned_ctokens + SHORTFALL) >= market_value(repaid_debt)
 ///
 /// Rationale:
-/// - The liquidation path computes `withdraw_pct` via truncating WAD division, then multiplies by a (possibly huge)
-///   deposited ctoken amount, and finally floors to `u64` base units. Separately, the repay-side may ceil the
-///   required repay coins.
-/// - In the worst case, these truncations can cause the liquidator to receive fewer ctokens than the ideal
+/// - The liquidation path computes the ctoken amount as:
+///   `floor(withdraw_value * deposited_ctoken_amount / deposit_market_value)`.
+/// - The floor operation can cause the liquidator to receive up to 1 fewer ctoken base unit than the ideal
 ///   real-number computation would.
 /// - `SHORTFALL` bounds this pure-rounding based loss in **ctoken base units**, so adding `SHORTFALL` ctokens
-///   makes the “no loss” inequality hold in the worst case.
-/// 
-/// Note that the given SHORTFALL is a tight bound on the rounding error: using less than SHORTFALL to 
+///   makes the "no loss" inequality hold in the worst case.
+///
+/// Note that the given SHORTFALL is a tight bound on the rounding error: using less than SHORTFALL to
 /// offset the obtained ctoken is not sufficient.
 ///
 /// Notes:
 /// - We keep the rule at `mint_decimals = 0` to maximize/cover for performance reasons; modeling arbitrary
 ///   non-zero decimals precisely in the verifier is currently infeasible.
-///     - `SHORTFALL` is expressed in base units, so for `mint_decimals = 0` this is “up to 20 whole ctokens”.
+///     - `SHORTFALL` is expressed in base units, so for `mint_decimals = 0` this is "up to 1 whole ctoken".
 ///     - For `mint_decimals > 0`, the bound is still `SHORTFALL` base units, but that corresponds to a much smaller
 ///   amount of tokens (i.e., `SHORTFALL / 10^decimals` tokens).
 /// - For the same performance reason, we assume 1:1 prices and 1:1 ctoken ratio
