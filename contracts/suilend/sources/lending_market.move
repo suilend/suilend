@@ -30,6 +30,12 @@ module suilend::lending_market {
     // === Constants ===
     const CURRENT_VERSION: u64 = 7;
     const U64_MAX: u64 = 18_446_744_073_709_551_615;
+    const POINTS_SEASON_1: vector<u8> =
+        b"34fe4f3c9e450fed4d0a3c587ed842eec5313c30c3cc3c0841247c49425e246b::suilend_point::SUILEND_POINT";
+    const POINTS_SEASON_2: vector<u8> =
+        b"97d2a76efce8e7cdf55b781bd3d23382237fb1d095f9b9cad0bf1fd5f7176b62::suilend_point_2::SUILEND_POINT_2";
+    const STEAMM_POINTS: vector<u8> =
+        b"d86d5f22641acb7a2880b3884bfe8e98bf3f8e74af3e38fb3eec7b758766d628::steamm_point::STEAMM_POINT";
 
     // === One time Witness ===
     public struct LENDING_MARKET has drop {}
@@ -1675,6 +1681,43 @@ module suilend::lending_market {
         );
 
         coin::from_balance(unallocated_rewards, ctx)
+    }
+
+    /// Drains all remaining balance from a Suilend/Steamm points reward after its period has ended.
+    /// UserReward entries are cleaned up when users next interact with the protocol.
+    /// cancel_pool_reward must be called first to stop accumulation, then drain_points_reward to reclaim the remaining balance.
+    public fun drain_points_reward<P, RewardType>(
+        _lending_market_owner_cap: &LendingMarketOwnerCap<P>,
+        lending_market: &mut LendingMarket<P>,
+        reserve_array_index: u64,
+        is_deposit_reward: bool,
+        reward_index: u64,
+        clock: &Clock,
+        ctx: &mut TxContext,
+    ): Coin<RewardType> {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let coin_tag = type_name::with_defining_ids<RewardType>().as_string();
+        assert!(
+            coin_tag == std::ascii::string(POINTS_SEASON_1)
+            || coin_tag == std::ascii::string(POINTS_SEASON_2)
+            || coin_tag == std::ascii::string(STEAMM_POINTS),
+            EWrongType,
+        );
+
+        let reserve = lending_market.reserves.borrow_mut(reserve_array_index);
+        let pool_reward_manager = if (is_deposit_reward) {
+            reserve.deposits_pool_reward_manager_mut()
+        } else {
+            reserve.borrows_pool_reward_manager_mut()
+        };
+
+        let drained = pool_reward_manager.drain_pool_reward_balance<RewardType>(
+            reward_index,
+            clock,
+        );
+
+        coin::from_balance(drained, ctx)
     }
 
     /// Updates the rate limiter configuration.

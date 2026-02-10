@@ -236,6 +236,27 @@ module suilend::liquidity_mining {
         reward_balance
     }
 
+    /// Drains all remaining balance from a pool reward after its period has ended.
+    /// The PoolReward object stays alive with a zero balance, so UserReward entries
+    /// will be removed in any subsequent claim_rewards calls.
+    public(package) fun drain_pool_reward_balance<T>(
+        pool_reward_manager: &mut PoolRewardManager,
+        index: u64,
+        clock: &Clock,
+    ): Balance<T> {
+        pool_reward_manager.update_pool_reward_manager(clock);
+
+        let pool_reward = pool_reward_manager.pool_rewards.borrow_mut(index).borrow_mut();
+        assert!(pool_reward.coin_type == type_name::with_defining_ids<T>(), EInvalidType);
+        assert!(clock.timestamp_ms() >= pool_reward.end_time_ms, EPoolRewardPeriodNotOver);
+
+        let reward_balance: &mut Balance<T> = pool_reward.additional_fields.borrow_mut(
+            RewardBalance<T> {}
+        );
+
+        reward_balance.withdraw_all()
+    }
+
     /// Cancels a pool reward campaign, claims unallocated rewards, and sets the end time to the current time.
     ///
     /// The function updates the pool reward manager, calculates unallocated rewards, and returns
@@ -526,13 +547,16 @@ module suilend::liquidity_mining {
         let optional_reward = vector::borrow_mut(&mut user_reward_manager.rewards, reward_index);
         let reward = option::borrow_mut(optional_reward);
 
-        let claimable_rewards = floor(reward.earned_rewards);
-
-        reward.earned_rewards = sub(reward.earned_rewards, decimal::from(claimable_rewards));
         let reward_balance: &mut Balance<T> = bag::borrow_mut(
             &mut pool_reward.additional_fields,
             RewardBalance<T> {},
         );
+
+        let claimable_rewards = reward.earned_rewards.floor().min(
+            reward_balance.value()
+        );
+
+        reward.earned_rewards = reward.earned_rewards.sub(decimal::from(claimable_rewards));
 
         if (clock::timestamp_ms(clock) >= pool_reward.end_time_ms) {
             let UserReward {
@@ -894,6 +918,81 @@ module suilend::liquidity_mining {
         sui::test_utils::destroy(clock);
         sui::test_utils::destroy(pool_reward_manager);
         sui::test_utils::destroy(user_reward_manager_1);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    fun test_pool_reward_drain_and_claim() {
+        use sui::test_scenario;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let mut clock = clock::create_for_testing(ctx);
+        clock.set_for_testing(0);
+
+        let mut pool_reward_manager = new_pool_reward_manager(ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
+
+        // Two users with equal share
+        let mut user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_1,
+            100,
+            &clock,
+        );
+        let mut user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_2,
+            100,
+            &clock,
+        );
+
+        // At day 10, cancel the campaign (stops accumulation, reclaims unallocated)
+        clock.set_for_testing(10 * MILLISECONDS_IN_DAY);
+        let unallocated = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&unallocated) == 50 * 1_000_000);
+
+        // Drain the remaining balance (the 50M allocated but unclaimed)
+        let drained = drain_pool_reward_balance<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&drained) == 50 * 1_000_000);
+
+        // User 1 claims - gets 0 because balance is drained, UserReward will be cleaned up
+        clock.set_for_testing(11 * MILLISECONDS_IN_DAY);
+        let user_1_rewards = claim_rewards<USDC>(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_1,
+            &clock,
+            0,
+        );
+        assert!(balance::value(&user_1_rewards) == 0);
+
+        // User 2 claims
+        let user_2_rewards = claim_rewards<USDC>(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_2,
+            &clock,
+            0,
+        );
+        assert!(balance::value(&user_2_rewards) == 0);
+
+        // Will pass because num_user_reward_managers == 0
+        let dust = close_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&dust) == 0);
+
+        std::unit_test::destroy(unallocated);
+        std::unit_test::destroy(drained);
+        std::unit_test::destroy(user_1_rewards);
+        std::unit_test::destroy(user_2_rewards);
+        std::unit_test::destroy(dust);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
+        std::unit_test::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 
