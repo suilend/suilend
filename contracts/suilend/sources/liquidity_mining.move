@@ -15,7 +15,7 @@ module suilend::liquidity_mining {
     const EPoolRewardPeriodNotOver: u64 = 5;
 
     // === Constants ===
-    const MAX_REWARDS: u64 = 50;
+    const MAX_REWARDS: u64 = 75;
     const MIN_REWARD_PERIOD_MS: u64 = 3_600_000;
 
     /// This struct manages all pool_rewards for a given stake pool.
