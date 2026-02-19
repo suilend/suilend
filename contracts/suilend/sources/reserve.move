@@ -1021,7 +1021,7 @@ module suilend::reserve {
     /// Deducts liquidation fees from ctokens during liquidation.
     ///
     /// Splits the ctoken amount into protocol fees and liquidator bonus based on configuration.
-    /// When capped, the liquidator gets their full bonus first; the protocol fee takes the remainder.
+    /// When capped, the protocol gets its full fee first; the liquidator bonus takes the remainder.
     ///
     /// # Arguments
     ///
@@ -1043,9 +1043,9 @@ module suilend::reserve {
     ): (u64, u64) {
         let config = reserve.config();
 
-        // Liquidator-first: give liquidator their full bonus, protocol gets remainder
-        let liquidator_bonus = config.liquidation_bonus().min(bonus);
-        let protocol_fee = bonus.saturating_sub(liquidator_bonus);
+        // Protocol-first: give protocol their full fee, liquidator gets remainder
+        let protocol_fee = config.protocol_liquidation_fee().min(bonus);
+        let liquidator_bonus = bonus.saturating_sub(protocol_fee);
 
         let total_ctokens = decimal::from(ctokens.value());
 
