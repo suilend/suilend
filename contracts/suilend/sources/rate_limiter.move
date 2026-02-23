@@ -11,7 +11,7 @@ module suilend::rate_limiter {
         config: RateLimiterConfig,
         /// The sum of all outflows from the previous window.
         prev_qty: Decimal,
-        /// The timestamp (in milliseconds) when the current window started.
+        /// The timestamp (in seconds) when the current window started.
         window_start: u64,
         /// The sum of all outflows in the current window.
         cur_qty: Decimal,
@@ -19,7 +19,7 @@ module suilend::rate_limiter {
 
     /// Configuration for the rate limiter, defining the window duration and maximum outflow.
     public struct RateLimiterConfig has copy, drop, store {
-        /// The duration of the rate limiter window in milliseconds.
+        /// The duration of the rate limiter window in seconds.
         window_duration: u64,
         /// The maximum allowed outflow in a single window.
         max_outflow: u64,
@@ -29,7 +29,7 @@ module suilend::rate_limiter {
     ///
     /// # Arguments
     ///
-    /// * `window_duration` - The duration of the rate limiter window in milliseconds.
+    /// * `window_duration` - The duration of the rate limiter window in seconds.
     /// * `max_outflow` - The maximum allowed outflow in a single window.
     ///
     /// # Returns
@@ -55,7 +55,7 @@ module suilend::rate_limiter {
     /// # Arguments
     ///
     /// * `config` - The `RateLimiterConfig` defining the window duration and max outflow.
-    /// * `cur_time` - The current timestamp in milliseconds.
+    /// * `cur_time` - The current timestamp in seconds.
     ///
     /// # Returns
     ///
@@ -79,7 +79,7 @@ module suilend::rate_limiter {
     /// # Arguments
     ///
     /// * `rate_limiter` - A mutable reference to the `RateLimiter` to update.
-    /// * `cur_time` - The current timestamp in milliseconds.
+    /// * `cur_time` - The current timestamp in seconds.
     ///
     /// # Panics
     ///
@@ -114,7 +114,7 @@ module suilend::rate_limiter {
     /// # Arguments
     ///
     /// * `rate_limiter` - A reference to the `RateLimiter` to query.
-    /// * `cur_time` - The current timestamp in milliseconds.
+    /// * `cur_time` - The current timestamp in seconds.
     ///
     /// # Returns
     ///
@@ -148,7 +148,7 @@ module suilend::rate_limiter {
     /// # Arguments
     ///
     /// * `rate_limiter` - A mutable reference to the `RateLimiter` to update.
-    /// * `cur_time` - The current timestamp in milliseconds.
+    /// * `cur_time` - The current timestamp in seconds.
     /// * `qty` - The outflow quantity to process, as a `Decimal`.
     ///
     /// # Panics
@@ -178,7 +178,7 @@ module suilend::rate_limiter {
     /// # Arguments
     ///
     /// * `rate_limiter` - A mutable reference to the `RateLimiter` to query.
-    /// * `cur_time` - The current timestamp in milliseconds.
+    /// * `cur_time` - The current timestamp in seconds.
     ///
     /// # Returns
     ///

@@ -660,16 +660,18 @@ module suilend::reserve {
     ///
     /// * `Decimal` - The utilization rate as a decimal (0 to 1).
     public fun calculate_utilization_rate<P>(reserve: &Reserve<P>): Decimal {
-        let total_supply_excluding_fees = add(
-            decimal::from(reserve.available_amount),
+        let available_amount_excluding_fees = decimal::from(reserve.available_amount).sub(
+            reserve.unclaimed_spread_fees
+        );
+        let total_supply_excluding_fees = available_amount_excluding_fees.add(
             reserve.borrowed_amount
         );
 
-        if (eq(total_supply_excluding_fees, decimal::from(0))) {
+        if (total_supply_excluding_fees.eq(decimal::from(0))) {
             decimal::from(0)
         }
         else {
-            div(reserve.borrowed_amount, total_supply_excluding_fees)
+            reserve.borrowed_amount.div(total_supply_excluding_fees)
         }
     }
 
@@ -986,14 +988,46 @@ module suilend::reserve {
         &mut reserve.borrows_pool_reward_manager
     }
 
+    /// Calculates the liquidation bonus capped such that: `bonus <= (collateral - debt) / debt`
+    ///
+    /// # Arguments
+    ///
+    /// * `reserve` - Reference to the reserve (for config)
+    /// * `deposited_value_usd` - obligation::deposited_value_usd
+    /// * `borrowed_value_usd` - obligation::unweighted_borrowed_value_usd
+    ///
+    /// # Returns
+    ///
+    /// * `Decimal` - The capped liquidation bonus (liquidator_bonus + protocol_fee).
+    public(package) fun calculate_capped_liquidation_bonus<P>(
+        reserve: &Reserve<P>,
+        deposited_value_usd: Decimal,
+        borrowed_value_usd: Decimal,
+    ): Decimal {
+        let config = reserve.config();
+        let configured_total_bonus = config.liquidation_bonus()
+            .add(config.protocol_liquidation_fee());
+
+        if (borrowed_value_usd.gt(decimal::from(0))) {
+            let max_safe_bonus = deposited_value_usd
+                .saturating_sub(borrowed_value_usd)
+                .div(borrowed_value_usd);
+            max_safe_bonus.min(configured_total_bonus)
+        } else {
+            configured_total_bonus // No debt, any bonus is safe
+        }
+    }
+
     /// Deducts liquidation fees from ctokens during liquidation.
     ///
     /// Splits the ctoken amount into protocol fees and liquidator bonus based on configuration.
+    /// When capped, the protocol gets its full fee first; the liquidator bonus takes the remainder.
     ///
     /// # Arguments
     ///
     /// * `reserve` - A mutable reference to the `Reserve` to modify.
     /// * `ctokens` - A mutable reference to the ctoken balance to deduct from.
+    /// * `bonus` - The (possibly capped) total liquidation bonus to apply.
     ///
     /// # Returns
     ///
@@ -1005,23 +1039,30 @@ module suilend::reserve {
     public(package) fun deduct_liquidation_fee<P, T>(
         reserve: &mut Reserve<P>,
         ctokens: &mut Balance<CToken<P, T>>,
+        bonus: Decimal,
     ): (u64, u64) {
-        let bonus = liquidation_bonus(config(reserve));
-        let protocol_liquidation_fee = protocol_liquidation_fee(config(reserve));
-        let take_rate = div(
-            protocol_liquidation_fee,
-            add(add(decimal::from(1), bonus), protocol_liquidation_fee)
-        );
-        let protocol_fee_amount = ceil(mul(take_rate, decimal::from(balance::value(ctokens))));
+        let config = reserve.config();
 
-        let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
-        balance::join(&mut balances.ctoken_fees, balance::split(ctokens, protocol_fee_amount));
+        // Protocol-first: give protocol their full fee, liquidator gets remainder
+        let protocol_fee = config.protocol_liquidation_fee().min(bonus);
+        let liquidator_bonus = bonus.saturating_sub(protocol_fee);
 
-        let bonus_rate = div(
-            bonus,
-            add(add(decimal::from(1), bonus), protocol_liquidation_fee)
-        );
-        let liquidator_bonus_amount = ceil(mul(bonus_rate, decimal::from(balance::value(ctokens))));
+        let total_ctokens = decimal::from(ctokens.value());
+
+        // When protocol_fee is zero, skip fee calculation
+        let protocol_fee_amount = if (protocol_fee.eq(decimal::from(0))) {
+            0
+        } else {
+            let take_rate = protocol_fee.div(decimal::from(1).add(liquidator_bonus).add(protocol_fee));
+            take_rate.mul(total_ctokens).ceil()
+        };
+        let bonus_rate = liquidator_bonus.div(decimal::from(1).add(liquidator_bonus).add(protocol_fee));
+        let liquidator_bonus_amount = bonus_rate.mul(total_ctokens).ceil();
+
+        if (protocol_fee_amount > 0) {
+            let balances: &mut Balances<P, T> = dynamic_field::borrow_mut(&mut reserve.id, BalanceKey {});
+            balances.ctoken_fees.join(ctokens.split(protocol_fee_amount));
+        };
 
         (protocol_fee_amount, liquidator_bonus_amount)
     }

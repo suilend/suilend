@@ -40,6 +40,8 @@ module suilend::obligation {
     const EObligationIsNotForgivable: u64 = 7;
     const ECannotDepositAndBorrowSameAsset: u64 = 8;
     const EOraclesAreStale: u64 = 9;
+    const EBorrowTooSmall: u64 = 10;
+    const ENotHighestBorrowWeight: u64 = 11;
 
     // === Constants ===
     const CLOSE_FACTOR_PCT: u8 = 20;
@@ -451,31 +453,28 @@ module suilend::obligation {
         );
 
         let borrow = vector::borrow_mut(&mut obligation.borrows, borrow_index);
-        borrow.borrowed_amount = add(borrow.borrowed_amount, decimal::from(amount));
 
-        // update health values
-        let borrow_market_value = reserve::market_value(reserve, decimal::from(amount));
-        let borrow_market_value_upper_bound = reserve::market_value_upper_bound(
-            reserve,
-            decimal::from(amount),
-        );
+        // Abort if borrow amount is too small to have a meaningful market value.
+        // This prevents borrowing dust without collateral
+        let borrow_market_value_delta = reserve::market_value(reserve, decimal::from(amount));
+        assert!(borrow_market_value_delta.gt(decimal::from(0)), EBorrowTooSmall);
 
-        borrow.market_value = add(borrow.market_value, borrow_market_value);
-        obligation.unweighted_borrowed_value_usd =
-            add(
-                obligation.unweighted_borrowed_value_usd,
-                borrow_market_value,
-            );
-        obligation.weighted_borrowed_value_usd =
-            add(
-                obligation.weighted_borrowed_value_usd,
-                mul(borrow_market_value, borrow_weight(config(reserve))),
-            );
-        obligation.weighted_borrowed_value_upper_bound_usd =
-            add(
-                obligation.weighted_borrowed_value_upper_bound_usd,
-                mul(borrow_market_value_upper_bound, borrow_weight(config(reserve))),
-            );
+        let weight = reserve.config().borrow_weight();
+
+        // Snapshot old values
+        let old_market_value = borrow.market_value;
+        let old_market_value_upper_bound = reserve::market_value_upper_bound(reserve, borrow.borrowed_amount);
+
+        borrow.borrowed_amount = borrow.borrowed_amount.add(decimal::from(amount));
+        borrow.market_value = reserve::market_value(reserve, borrow.borrowed_amount);
+        let new_market_value_upper_bound = reserve::market_value_upper_bound(reserve, borrow.borrowed_amount);
+
+        obligation.unweighted_borrowed_value_usd = obligation.unweighted_borrowed_value_usd
+            .sub(old_market_value).add(borrow.market_value);
+        obligation.weighted_borrowed_value_usd = obligation.weighted_borrowed_value_usd
+            .sub(old_market_value.mul(weight)).add(borrow.market_value.mul(weight));
+        obligation.weighted_borrowed_value_upper_bound_usd = obligation.weighted_borrowed_value_upper_bound_usd
+            .sub(old_market_value_upper_bound.mul(weight)).add(new_market_value_upper_bound.mul(weight));
 
         let user_reward_manager = vector::borrow_mut(
             &mut obligation.user_reward_managers,
@@ -714,8 +713,32 @@ module suilend::obligation {
         let borrow = find_borrow(obligation, repay_reserve);
         let deposit = find_deposit(obligation, withdraw_reserve);
 
-        // invariant: repay_amount <= borrow.borrowed_amount
-        let repay_amount = if (le(borrow.market_value, decimal::from(1))) {
+        // Enforce that the liquidator withdraws collateral with the highest borrow weight.
+        let withdraw_borrow_weight = borrow_weight(withdraw_reserve.config());
+        obligation.deposits.do_ref!(|d| {
+            let d_reserve = reserves.borrow(d.reserve_array_index);
+            assert!(
+                withdraw_borrow_weight.ge(d_reserve.config().borrow_weight()),
+                ENotHighestBorrowWeight,
+            );
+        });
+
+        let reserve_config = withdraw_reserve.config();
+        let configured_bonus = reserve_config.liquidation_bonus().add(
+            reserve_config.protocol_liquidation_fee()
+        );
+
+        // Cap the bonus to prevent liquidation from worsening the obligation's LTV
+        let bonus = withdraw_reserve.calculate_capped_liquidation_bonus(
+            obligation.deposited_value_usd,
+            obligation.unweighted_borrowed_value_usd,
+        );
+
+        // Allow full liquidation when borrow is dust, or when bonus is capped
+        let allow_full_liquidation = borrow.market_value.le(decimal::from(1)) ||
+            bonus.lt(configured_bonus);
+
+        let repay_amount = if (allow_full_liquidation) {
             // full liquidation
             min(
                 borrow.borrowed_amount,
@@ -740,10 +763,6 @@ module suilend::obligation {
         };
 
         let repay_value = reserve::market_value(repay_reserve, repay_amount);
-        let bonus = add(
-            liquidation_bonus(config(withdraw_reserve)),
-            protocol_liquidation_fee(config(withdraw_reserve)),
-        );
 
         let withdraw_value = mul(
             repay_value,
@@ -761,13 +780,12 @@ module suilend::obligation {
             final_settle_amount = mul(repay_amount, repay_pct);
             final_withdraw_amount = deposit.deposited_ctoken_amount;
         } else {
-            let withdraw_pct = div(withdraw_value, deposit.market_value);
-
             final_settle_amount = repay_amount;
             final_withdraw_amount =
-                floor(
-                    mul(decimal::from(deposit.deposited_ctoken_amount), withdraw_pct),
-                );
+                withdraw_value
+                    .mul(decimal::from(deposit.deposited_ctoken_amount))
+                    .div(deposit.market_value)
+                    .floor();
         };
 
         repay(
@@ -1043,9 +1061,11 @@ module suilend::obligation {
         gt(obligation.weighted_borrowed_value_usd, obligation.unhealthy_borrow_value_usd)
     }
 
-    /// Whether the obligation is forgivable.
+    /// An obligation is forgivable when it is underwater (bad debt),
+    /// and its remaining collateral is below a USD dust threshold.
     public fun is_forgivable<P>(obligation: &Obligation<P>): bool {
-        vector::length(&obligation.deposits) == 0
+        obligation.deposited_value_usd.lt(obligation.unweighted_borrowed_value_usd) &&
+            obligation.deposited_value_usd.lt(decimal::from(1))
     }
 
     /// Calculates the maximum amount of a token that can be borrowed from a reserve
@@ -1247,10 +1267,10 @@ module suilend::obligation {
             if (has_target_borrow_idx) {
                 let disabled_pairs = vector::borrow(&disabled_pairings_map, target_borrow_idx);
                 let pair_count = vector::length(disabled_pairs);
-                let mut i = 0;
+                let mut j = 0;
 
-                while (i < pair_count) {
-                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, i);
+                while (j < pair_count) {
+                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, j);
 
                     let deposit_index = find_deposit_index_by_reserve_array_index(
                         obligation,
@@ -1261,7 +1281,7 @@ module suilend::obligation {
                         return true
                     };
 
-                    i = i +1;
+                    j = j +1;
                 };
             };
 
@@ -1402,29 +1422,23 @@ module suilend::obligation {
         assert!(deposit_index < vector::length(&obligation.deposits), EDepositNotFound);
         let deposit = vector::borrow_mut(&mut obligation.deposits, deposit_index);
 
-        let withdraw_market_value = reserve::ctoken_market_value(reserve, ctoken_amount);
+        let open = reserve.config().open_ltv();
+        let close = reserve.config().close_ltv();
 
-        // update health values
-        deposit.market_value = sub(deposit.market_value, withdraw_market_value);
+        // Snapshot old values
+        let old_market_value = deposit.market_value;
+        let old_market_value_lower_bound = reserve::ctoken_market_value_lower_bound(reserve, deposit.deposited_ctoken_amount);
+
         deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount - ctoken_amount;
+        deposit.market_value = reserve::ctoken_market_value(reserve, deposit.deposited_ctoken_amount);
+        let new_market_value_lower_bound = reserve::ctoken_market_value_lower_bound(reserve, deposit.deposited_ctoken_amount);
 
-        obligation.deposited_value_usd = sub(obligation.deposited_value_usd, withdraw_market_value);
-        obligation.allowed_borrow_value_usd =
-            sub(
-                obligation.allowed_borrow_value_usd,
-                mul(
-                    reserve::ctoken_market_value_lower_bound(reserve, ctoken_amount),
-                    open_ltv(config(reserve)),
-                ),
-            );
-        obligation.unhealthy_borrow_value_usd =
-            sub(
-                obligation.unhealthy_borrow_value_usd,
-                mul(
-                    withdraw_market_value,
-                    close_ltv(config(reserve)),
-                ),
-            );
+        obligation.deposited_value_usd = obligation.deposited_value_usd
+            .sub(old_market_value).add(deposit.market_value);
+        obligation.allowed_borrow_value_usd = obligation.allowed_borrow_value_usd
+            .sub(old_market_value_lower_bound.mul(open)).add(new_market_value_lower_bound.mul(open));
+        obligation.unhealthy_borrow_value_usd = obligation.unhealthy_borrow_value_usd
+            .sub(old_market_value.mul(close)).add(deposit.market_value.mul(close));
 
         let user_reward_manager = vector::borrow_mut(
             &mut obligation.user_reward_managers,
