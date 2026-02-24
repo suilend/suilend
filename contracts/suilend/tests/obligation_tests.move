@@ -1399,19 +1399,19 @@ module suilend::obligation_tests {
             &mut obligation,
             get_reserve_mut<TEST_MARKET, TEST_SUI>(&mut reserves),
             &clock,
-            100 * 1_000_000_000,
+            1000 * 1_000_000_000,
         );
         borrow<TEST_MARKET>(
             &mut obligation,
             get_reserve_mut<TEST_MARKET, TEST_USDC>(&mut reserves),
             &clock,
-            50 * 1_000_000,
+            500 * 1_000_000,
         );
         borrow<TEST_MARKET>(
             &mut obligation,
             get_reserve_mut<TEST_MARKET, TEST_USDT>(&mut reserves),
             &clock,
-            50 * 1_000_000,
+            500 * 1_000_000,
         );
 
         let config = {
@@ -1443,45 +1443,45 @@ module suilend::obligation_tests {
             1,
             0,
             &clock,
-            100 * 1_000_000_000,
+            1000 * 1_000_000_000,
         );
-        assert!(withdraw_amount == 4_400_000_000);
-        assert!(repay_amount == decimal::from(40 * 1_000_000));
+        assert!(withdraw_amount == 44_000_000_000);
+        assert!(repay_amount == decimal::from(400 * 1_000_000));
 
         assert!(obligation.deposits().length() == 1);
 
-        // $40 was liquidated with a 10% bonus = $44 = 4.4 sui => 95.6 sui remaining
+        // $400 was liquidated with a 10% bonus = $440 = 44 sui => 956 sui remaining
         let sui_deposit = &obligation.deposits()[0];
-        assert!(sui_deposit.deposited_ctoken_amount() == 95 * 1_000_000_000 + 600_000_000);
-        assert!(sui_deposit.market_value() == decimal::from(956));
+        assert!(sui_deposit.deposited_ctoken_amount() == 956 * 1_000_000_000);
+        assert!(sui_deposit.market_value() == decimal::from(9560));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 95 * 1_000_000_000 + 600_000_000);
+        assert!(liquidity_mining::shares(user_reward_manager) == 956 * 1_000_000_000);
 
         assert!(obligation.borrows().length() == 2);
 
         let usdc_borrow = &obligation.borrows()[0];
-        assert!(usdc_borrow.borrowed_amount() == decimal::from(10 * 1_000_000));
-        assert!(usdc_borrow.market_value() == decimal::from(10));
+        assert!(usdc_borrow.borrowed_amount() == decimal::from(100 * 1_000_000));
+        assert!(usdc_borrow.market_value() == decimal::from(100));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdc_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 10 * 1_000_000 / 2);
+        assert!(liquidity_mining::shares(user_reward_manager) == 100 * 1_000_000 / 2);
 
         let usdt_borrow = &obligation.borrows()[1];
-        assert!(usdt_borrow.borrowed_amount() == decimal::from(50 * 1_000_000));
-        assert!(usdt_borrow.market_value() == decimal::from(50));
+        assert!(usdt_borrow.borrowed_amount() == decimal::from(500 * 1_000_000));
+        assert!(usdt_borrow.market_value() == decimal::from(500));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[usdt_borrow.user_reward_manager_index()];
-        assert!(liquidity_mining::shares(user_reward_manager) == 50 * 1_000_000 / 2);
+        assert!(liquidity_mining::shares(user_reward_manager) == 500 * 1_000_000 / 2);
 
-        assert!(obligation.deposited_value_usd() == decimal::from(956));
+        assert!(obligation.deposited_value_usd() == decimal::from(9560));
         assert!(obligation.allowed_borrow_value_usd() == decimal::from(0));
         assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0));
-        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(60));
-        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(120));
+        assert!(obligation.unweighted_borrowed_value_usd() == decimal::from(600));
+        assert!(obligation.weighted_borrowed_value_usd() == decimal::from(1200));
 
         unit_test::destroy(reserves);
         std::unit_test::destroy(lending_market_id);

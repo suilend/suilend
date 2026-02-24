@@ -1063,7 +1063,7 @@ module suilend::lending_market_tests {
 
                             reserve_config::build(builder, scenario.ctx())
                         },
-                        initial_deposit: 100 * 1_000_000,
+                        initial_deposit: 1000 * 1_000_000,
                     },
                 );
                 bag::add(
@@ -1071,7 +1071,7 @@ module suilend::lending_market_tests {
                     type_name::with_defining_ids<TEST_SUI>(),
                     ReserveArgs {
                         config: reserve_config::default_reserve_config(scenario.ctx()),
-                        initial_deposit: 100 * 1_000_000_000,
+                        initial_deposit: 1000 * 1_000_000_000,
                     },
                 );
 
@@ -1091,7 +1091,7 @@ module suilend::lending_market_tests {
         );
 
         let coins = coin::mint_for_testing<TEST_USDC>(
-            100 * 1_000_000,
+            1000 * 1_000_000,
             scenario.ctx(),
         );
         let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<LENDING_MARKET, TEST_USDC>(
@@ -1128,7 +1128,7 @@ module suilend::lending_market_tests {
             *bag::borrow(&type_to_index, type_name::with_defining_ids<TEST_SUI>()),
             &obligation_owner_cap,
             &clock,
-            5 * 1_000_000_000,
+            50 * 1_000_000_000,
             scenario.ctx(),
         );
         unit_test::destroy(sui);
@@ -1170,7 +1170,7 @@ module suilend::lending_market_tests {
 
         // liquidate the obligation
         let mut sui = coin::mint_for_testing<TEST_SUI>(
-            5 * 1_000_000_000,
+            50 * 1_000_000_000,
             scenario.ctx(),
         );
         let (usdc, exemption) = lending_market::liquidate<LENDING_MARKET, TEST_SUI, TEST_USDC>(
@@ -1183,9 +1183,9 @@ module suilend::lending_market_tests {
             scenario.ctx(),
         );
 
-        assert!(coin::value(&sui) == 4 * 1_000_000_000);
-        assert!(coin::value(&usdc) == 10 * 1_000_000 + 400_000);
-        assert!(exemption.amount() == 10 * 1_000_000 + 400_000);
+        assert!(coin::value(&sui) == 40 * 1_000_000_000);
+        assert!(coin::value(&usdc) == 100 * 1_000_000 + 4_000_000);
+        assert!(exemption.amount() == 100 * 1_000_000 + 4_000_000);
 
         let obligation = lending_market::obligation(
             &lending_market,
@@ -1201,10 +1201,10 @@ module suilend::lending_market_tests {
         let borrowed_amount = obligation::borrowed_amount<LENDING_MARKET, TEST_SUI>(obligation);
 
         assert!(
-            reserve_borrowed_amount == sub(old_reserve_borrowed_amount, decimal::from(1_000_000_000)),
+            reserve_borrowed_amount == sub(old_reserve_borrowed_amount, decimal::from(10_000_000_000)),
         );
-        assert!(borrowed_amount == sub(old_borrowed_amount, decimal::from(1_000_000_000)));
-        assert!(deposited_amount == old_deposited_amount - 11 * 1_000_000);
+        assert!(borrowed_amount == sub(old_borrowed_amount, decimal::from(10_000_000_000)));
+        assert!(deposited_amount == old_deposited_amount - 110 * 1_000_000);
 
         // check to see if we can do a full redeem even with rate limiter is disabled
         lending_market::update_rate_limiter_config<LENDING_MARKET>(
@@ -1225,7 +1225,7 @@ module suilend::lending_market_tests {
             option::some(exemption),
             scenario.ctx(),
         );
-        assert!(coin::value(&tokens) == 10 * 1_000_000 + 400_000);
+        assert!(coin::value(&tokens) == 100 * 1_000_000 + 4_000_000);
 
         // claim fees
         test_scenario::next_tx(&mut scenario, owner);
@@ -1243,7 +1243,7 @@ module suilend::lending_market_tests {
             &scenario,
             lending_market::fee_receiver(&lending_market),
         );
-        assert!(coin::value(&ctoken_fees) == 600_000);
+        assert!(coin::value(&ctoken_fees) == 6_000_000);
 
         unit_test::destroy(ctoken_fees);
         unit_test::destroy(sui);
