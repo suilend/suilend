@@ -1,10 +1,7 @@
 /// Stake unlent Sui.
 module suilend::staker {
-    use liquid_staking::fees;
-    use liquid_staking::liquid_staking::{Self, LiquidStakingInfo, AdminCap};
-    use sui::balance::{Self, Balance};
-    use sui::coin::{Self, TreasuryCap};
-    use sui::sui::SUI;
+    use liquid_staking::{fees, liquid_staking::{Self, LiquidStakingInfo, AdminCap}};
+    use sui::{balance::{Self, Balance}, coin::{Self, TreasuryCap}, sui::SUI};
     use sui_system::sui_system::SuiSystemState;
 
     // errors
@@ -303,7 +300,7 @@ module suilend::staker {
         staker.liabilities = staker.liabilities + sui.value();
         staker.sui_balance.join(sui);
     }
-    
+
     #[test_only]
     public fun rebalance_for_testing<P: drop>(
         staker: &mut Staker<P>,

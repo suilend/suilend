@@ -1,9 +1,7 @@
 /// A user_reward_manager farms pool_rewards to receive rewards proportional to their stake in the pool.
 module suilend::liquidity_mining {
     use std::type_name::{Self, TypeName};
-    use sui::bag::{Self, Bag};
-    use sui::balance::{Self, Balance};
-    use sui::clock::{Self, Clock};
+    use sui::{bag::{Self, Bag}, balance::{Self, Balance}, clock::{Self, Clock}};
     use suilend::decimal::{Self, Decimal, add, sub, mul, div, floor};
 
     // === Errors ===
@@ -250,9 +248,9 @@ module suilend::liquidity_mining {
         assert!(pool_reward.coin_type == type_name::with_defining_ids<T>(), EInvalidType);
         assert!(clock.timestamp_ms() >= pool_reward.end_time_ms, EPoolRewardPeriodNotOver);
 
-        let reward_balance: &mut Balance<T> = pool_reward.additional_fields.borrow_mut(
-            RewardBalance<T> {}
-        );
+        let reward_balance: &mut Balance<T> = pool_reward
+            .additional_fields
+            .borrow_mut(RewardBalance<T> {});
 
         reward_balance.withdraw_all()
     }
@@ -552,9 +550,7 @@ module suilend::liquidity_mining {
             RewardBalance<T> {},
         );
 
-        let claimable_rewards = reward.earned_rewards.floor().min(
-            reward_balance.value()
-        );
+        let claimable_rewards = reward.earned_rewards.floor().min(reward_balance.value());
 
         reward.earned_rewards = reward.earned_rewards.sub(decimal::from(claimable_rewards));
 
@@ -625,7 +621,7 @@ module suilend::liquidity_mining {
 
         pool_reward_manager
     }
-    
+
     #[test_only]
     public fun create_user_reward_manager_for_testing(
         pool_reward_manager_id: ID,
@@ -642,7 +638,7 @@ module suilend::liquidity_mining {
 
         user_reward_manager
     }
-    
+
     #[test_only]
     public fun create_pool_reward(
         pool_reward_manager_id: ID,

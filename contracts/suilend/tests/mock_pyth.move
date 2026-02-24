@@ -1,12 +1,7 @@
 #[test_only]
 module suilend::mock_pyth {
-    use pyth::i64;
-    use pyth::price;
-    use pyth::price_feed;
-    use pyth::price_identifier;
-    use pyth::price_info::{Self, PriceInfoObject};
-    use sui::bag::{Self, Bag};
-    use sui::clock::{Self, Clock};
+    use pyth::{i64, price, price_feed, price_identifier, price_info::{Self, PriceInfoObject}};
+    use sui::{bag::{Self, Bag}, clock::{Self, Clock}};
 
     public struct PriceState has key {
         id: UID,
@@ -65,7 +60,10 @@ module suilend::mock_pyth {
     }
 
     public fun update_price<T>(state: &mut PriceState, price: u64, expo: u8, clock: &Clock) {
-        let price_info_obj = bag::borrow_mut(&mut state.price_objs, std::type_name::with_defining_ids<T>());
+        let price_info_obj = bag::borrow_mut(
+            &mut state.price_objs,
+            std::type_name::with_defining_ids<T>(),
+        );
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
 
         let price = price::new(
@@ -89,8 +87,17 @@ module suilend::mock_pyth {
         );
     }
 
-    public fun update_decimal_price<T>(state: &mut PriceState, price: u64, expo: u8, is_exp_negative: bool, clock: &Clock) {
-        let price_info_obj = bag::borrow_mut(&mut state.price_objs, std::type_name::with_defining_ids<T>());
+    public fun update_decimal_price<T>(
+        state: &mut PriceState,
+        price: u64,
+        expo: u8,
+        is_exp_negative: bool,
+        clock: &Clock,
+    ) {
+        let price_info_obj = bag::borrow_mut(
+            &mut state.price_objs,
+            std::type_name::with_defining_ids<T>(),
+        );
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
 
         let price = price::new(

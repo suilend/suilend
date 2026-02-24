@@ -91,14 +91,14 @@ module suilend::rate_limiter {
         // |<-prev window->|<-cur window (cur_slot is in here)->|
         if (cur_time < rate_limiter.window_start + rate_limiter.config.window_duration) {
             return
-        } else // |<-prev window->|<-cur window->| (cur_slot is in here) |
-        if (cur_time < rate_limiter.window_start + 2 * rate_limiter.config.window_duration) {
+        } // |<-prev window->|<-cur window->| (cur_slot is in here) |
+        else if (cur_time < rate_limiter.window_start + 2 * rate_limiter.config.window_duration) {
             rate_limiter.prev_qty = rate_limiter.cur_qty;
             rate_limiter.window_start =
                 rate_limiter.window_start + rate_limiter.config.window_duration;
             rate_limiter.cur_qty = decimal::from(0);
-        } else // |<-prev window->|<-cur window->|<-cur window + 1->| ... | (cur_slot is in here) |
-        {
+        } // |<-prev window->|<-cur window->|<-cur window + 1->| ... | (cur_slot is in here) |
+        else {
             rate_limiter.prev_qty = decimal::from(0);
             rate_limiter.window_start = cur_time;
             rate_limiter.cur_qty = decimal::from(0);

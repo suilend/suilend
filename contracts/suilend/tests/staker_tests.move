@@ -1,14 +1,13 @@
 module suilend::staker_tests {
-    use sui::balance;
-    use sui::coin;
-    use sui::sui::SUI;
-    use sui::test_scenario::{Self, Scenario};
-    use sui_system::governance_test_utils::{
-        advance_epoch_with_reward_amounts,
-        create_validator_for_testing,
-        create_sui_system_state_for_testing
+    use sui::{balance, coin, sui::SUI, test_scenario::{Self, Scenario}};
+    use sui_system::{
+        governance_test_utils::{
+            advance_epoch_with_reward_amounts,
+            create_validator_for_testing,
+            create_sui_system_state_for_testing
+        },
+        sui_system::SuiSystemState
     };
-    use sui_system::sui_system::SuiSystemState;
     use suilend::staker::create_staker;
 
     public struct STAKER_TESTS has drop {}

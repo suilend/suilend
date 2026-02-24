@@ -1,32 +1,18 @@
 module suilend::obligation {
     use std::type_name::{Self, TypeName};
-    use sui::balance::Balance;
-    use sui::clock::Clock;
-    use sui::event;
-    use suilend::decimal::{
-        Self,
-        Decimal,
-        mul,
-        add,
-        sub,
-        div,
-        gt,
-        lt,
-        min,
-        floor,
-        le,
-        eq,
-        saturating_sub
-    };
-    use suilend::liquidity_mining::{Self, UserRewardManager, PoolRewardManager};
-    use suilend::reserve::{Self, Reserve, config};
-    use suilend::reserve_config::{
-        open_ltv,
-        close_ltv,
-        borrow_weight,
-        liquidation_bonus,
-        protocol_liquidation_fee,
-        isolated
+    use sui::{balance::Balance, clock::Clock, event};
+    use suilend::{
+        decimal::{Self, Decimal, mul, add, sub, div, gt, lt, min, floor, le, eq, saturating_sub},
+        liquidity_mining::{Self, UserRewardManager, PoolRewardManager},
+        reserve::{Self, Reserve, config},
+        reserve_config::{
+            open_ltv,
+            close_ltv,
+            borrow_weight,
+            liquidation_bonus,
+            protocol_liquidation_fee,
+            isolated
+        }
     };
 
     // === Errors ===
@@ -199,7 +185,7 @@ module suilend::obligation {
     /// * `Option<ExistStaleOracles>`: Returns `Some(ExistStaleOracles)` if any of the oracle
     ///   prices for the involved reserves are stale, indicating that the calculated values
     ///   may not be reliable. Otherwise, it returns `None`.
-    /// 
+    ///
     /// # Panics
     ///
     /// * If any `reserve_array_index` in the obligation's deposits or borrows is out
@@ -344,7 +330,7 @@ module suilend::obligation {
     /// * `reserve`: A mutable reference to the `Reserve` corresponding to the deposit asset.
     /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
     /// * `ctoken_amount`: The amount of ctokens to be deposited.
-    /// 
+    ///
     /// # Panics
     ///
     /// * If the number of deposits exceeds `MAX_DEPOSITS`.
@@ -426,7 +412,7 @@ module suilend::obligation {
     /// * `reserve`: A mutable reference to the `Reserve` from which the asset is borrowed.
     /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
     /// * `amount`: The amount of the asset to borrow.
-    /// 
+    ///
     /// # Panics
     ///
     /// * If the number of borrows exceeds `MAX_BORROWS`.
@@ -463,18 +449,30 @@ module suilend::obligation {
 
         // Snapshot old values
         let old_market_value = borrow.market_value;
-        let old_market_value_upper_bound = reserve::market_value_upper_bound(reserve, borrow.borrowed_amount);
+        let old_market_value_upper_bound = reserve::market_value_upper_bound(
+            reserve,
+            borrow.borrowed_amount,
+        );
 
         borrow.borrowed_amount = borrow.borrowed_amount.add(decimal::from(amount));
         borrow.market_value = reserve::market_value(reserve, borrow.borrowed_amount);
-        let new_market_value_upper_bound = reserve::market_value_upper_bound(reserve, borrow.borrowed_amount);
+        let new_market_value_upper_bound = reserve::market_value_upper_bound(
+            reserve,
+            borrow.borrowed_amount,
+        );
 
-        obligation.unweighted_borrowed_value_usd = obligation.unweighted_borrowed_value_usd
-            .sub(old_market_value).add(borrow.market_value);
-        obligation.weighted_borrowed_value_usd = obligation.weighted_borrowed_value_usd
-            .sub(old_market_value.mul(weight)).add(borrow.market_value.mul(weight));
-        obligation.weighted_borrowed_value_upper_bound_usd = obligation.weighted_borrowed_value_upper_bound_usd
-            .sub(old_market_value_upper_bound.mul(weight)).add(new_market_value_upper_bound.mul(weight));
+        obligation.unweighted_borrowed_value_usd =
+            obligation.unweighted_borrowed_value_usd.sub(old_market_value).add(borrow.market_value);
+        obligation.weighted_borrowed_value_usd =
+            obligation
+                .weighted_borrowed_value_usd
+                .sub(old_market_value.mul(weight))
+                .add(borrow.market_value.mul(weight));
+        obligation.weighted_borrowed_value_upper_bound_usd =
+            obligation
+                .weighted_borrowed_value_upper_bound_usd
+                .sub(old_market_value_upper_bound.mul(weight))
+                .add(new_market_value_upper_bound.mul(weight));
 
         let user_reward_manager = vector::borrow_mut(
             &mut obligation.user_reward_managers,
@@ -517,7 +515,7 @@ module suilend::obligation {
     /// # Returns
     ///
     /// * `Decimal`: The actual amount that was repaid.
-    /// 
+    ///
     /// # Panics
     ///
     /// * If the obligation does not have a borrow for the specified reserve (`EBorrowNotFound`).
@@ -638,7 +636,7 @@ module suilend::obligation {
     /// * `clock`: A reference to the `Clock` for timestamp-based calculations.
     /// * `ctoken_amount`: The amount of ctokens to withdraw.
     /// * `stale_oracles`: An `Option<ExistStaleOracles>` indicating if oracle prices are stale.
-    /// 
+    ///
     /// # Panics
     ///
     /// * If `stale_oracles` is `Some` and the obligation has borrows (`EOraclesAreStale`).
@@ -724,9 +722,9 @@ module suilend::obligation {
         });
 
         let reserve_config = withdraw_reserve.config();
-        let configured_bonus = reserve_config.liquidation_bonus().add(
-            reserve_config.protocol_liquidation_fee()
-        );
+        let configured_bonus = reserve_config
+            .liquidation_bonus()
+            .add(reserve_config.protocol_liquidation_fee());
 
         // Cap the bonus to prevent liquidation from worsening the obligation's LTV
         let bonus = withdraw_reserve.calculate_capped_liquidation_bonus(
@@ -735,7 +733,8 @@ module suilend::obligation {
         );
 
         // Allow full liquidation when borrow is dust, or when bonus is capped
-        let allow_full_liquidation = borrow.market_value.le(decimal::from(1)) ||
+        let allow_full_liquidation =
+            borrow.market_value.le(decimal::from(1)) ||
             bonus.lt(configured_bonus);
 
         let repay_amount = if (allow_full_liquidation) {
@@ -1427,18 +1426,31 @@ module suilend::obligation {
 
         // Snapshot old values
         let old_market_value = deposit.market_value;
-        let old_market_value_lower_bound = reserve::ctoken_market_value_lower_bound(reserve, deposit.deposited_ctoken_amount);
+        let old_market_value_lower_bound = reserve::ctoken_market_value_lower_bound(
+            reserve,
+            deposit.deposited_ctoken_amount,
+        );
 
         deposit.deposited_ctoken_amount = deposit.deposited_ctoken_amount - ctoken_amount;
-        deposit.market_value = reserve::ctoken_market_value(reserve, deposit.deposited_ctoken_amount);
-        let new_market_value_lower_bound = reserve::ctoken_market_value_lower_bound(reserve, deposit.deposited_ctoken_amount);
+        deposit.market_value =
+            reserve::ctoken_market_value(reserve, deposit.deposited_ctoken_amount);
+        let new_market_value_lower_bound = reserve::ctoken_market_value_lower_bound(
+            reserve,
+            deposit.deposited_ctoken_amount,
+        );
 
-        obligation.deposited_value_usd = obligation.deposited_value_usd
-            .sub(old_market_value).add(deposit.market_value);
-        obligation.allowed_borrow_value_usd = obligation.allowed_borrow_value_usd
-            .sub(old_market_value_lower_bound.mul(open)).add(new_market_value_lower_bound.mul(open));
-        obligation.unhealthy_borrow_value_usd = obligation.unhealthy_borrow_value_usd
-            .sub(old_market_value.mul(close)).add(deposit.market_value.mul(close));
+        obligation.deposited_value_usd =
+            obligation.deposited_value_usd.sub(old_market_value).add(deposit.market_value);
+        obligation.allowed_borrow_value_usd =
+            obligation
+                .allowed_borrow_value_usd
+                .sub(old_market_value_lower_bound.mul(open))
+                .add(new_market_value_lower_bound.mul(open));
+        obligation.unhealthy_borrow_value_usd =
+            obligation
+                .unhealthy_borrow_value_usd
+                .sub(old_market_value.mul(close))
+                .add(deposit.market_value.mul(close));
 
         let user_reward_manager = vector::borrow_mut(
             &mut obligation.user_reward_managers,
@@ -1663,7 +1675,7 @@ module suilend::obligation {
             user_reward_manager_index,
         }
     }
-    
+
     #[test_only]
     public fun create_deposit_for_testing(
         coin_type: TypeName,
@@ -1720,6 +1732,5 @@ module suilend::obligation {
         };
 
         obligation
-
     }
 }

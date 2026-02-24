@@ -57,7 +57,11 @@ module suilend::lending_market_registry {
         assert!(registry.version == CURRENT_VERSION, EIncorrectVersion);
 
         let (owner_cap, lending_market) = lending_market::create_lending_market<P>(ctx);
-        table::add(&mut registry.lending_markets, type_name::with_defining_ids<P>(), object::id(&lending_market));
+        table::add(
+            &mut registry.lending_markets,
+            type_name::with_defining_ids<P>(),
+            object::id(&lending_market),
+        );
         (owner_cap, lending_market)
     }
 

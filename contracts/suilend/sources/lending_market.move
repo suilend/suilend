@@ -1,21 +1,25 @@
 module suilend::lending_market {
     use pyth::price_info::PriceInfoObject;
     use std::type_name::{Self, TypeName};
-    use sui::balance;
-    use sui::clock::{Self, Clock};
-    use sui::coin::{Self, Coin, CoinMetadata, TreasuryCap};
-    use sui::dynamic_field;
-    use sui::event;
-    use sui::object_table::{Self, ObjectTable};
-    use sui::package;
-    use sui::sui::SUI;
+    use sui::{
+        balance,
+        clock::{Self, Clock},
+        coin::{Self, Coin, CoinMetadata, TreasuryCap},
+        dynamic_field,
+        event,
+        object_table::{Self, ObjectTable},
+        package,
+        sui::SUI
+    };
     use sui_system::sui_system::SuiSystemState;
-    use suilend::decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min, saturating_floor};
-    use suilend::liquidity_mining;
-    use suilend::obligation::{Self, Obligation};
-    use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
-    use suilend::reserve::{Self, Reserve, CToken, LiquidityRequest};
-    use suilend::reserve_config::{ReserveConfig, borrow_fee};
+    use suilend::{
+        decimal::{Self, Decimal, mul, ceil, div, add, floor, gt, min, saturating_floor},
+        liquidity_mining,
+        obligation::{Self, Obligation},
+        rate_limiter::{Self, RateLimiter, RateLimiterConfig},
+        reserve::{Self, Reserve, CToken, LiquidityRequest},
+        reserve_config::{ReserveConfig, borrow_fee}
+    };
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -169,7 +173,7 @@ module suilend::lending_market {
     }
 
     // === Public-Mutative Functions ===
-    
+
     /// Creates a new lending market, and sets the fee receivers.
     ///
     /// The function initializes a `LendingMarket` object with empty reserves
@@ -185,7 +189,7 @@ module suilend::lending_market {
     /// # Panics
     ///
     /// This function calls `set_fee_receivers`, which can panic under the following conditions:
-    /// 
+    ///
     /// * If the `receivers` and `weights` vectors do not have the same length (EInvalidFeeReceivers).
     /// * If the `receivers` vector is empty (EInvalidFeeReceivers).
     /// * If the sum of `weights` is zero (EInvalidFeeReceivers).
@@ -615,7 +619,11 @@ module suilend::lending_market {
             obligation_owner_cap.obligation_id,
         );
 
-        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        let exist_stale_oracles = obligation::refresh<P>(
+            obligation,
+            &mut lending_market.reserves,
+            clock,
+        );
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
@@ -744,7 +752,11 @@ module suilend::lending_market {
             obligation_owner_cap.obligation_id,
         );
 
-        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        let exist_stale_oracles = obligation::refresh<P>(
+            obligation,
+            &mut lending_market.reserves,
+            clock,
+        );
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
         assert!(reserve::coin_type(reserve) == type_name::with_defining_ids<T>(), EWrongType);
@@ -818,7 +830,11 @@ module suilend::lending_market {
             obligation_id,
         );
 
-        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        let exist_stale_oracles = obligation::refresh<P>(
+            obligation,
+            &mut lending_market.reserves,
+            clock,
+        );
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         // Capture pre-liquidation state for fee calculation
@@ -842,7 +858,10 @@ module suilend::lending_market {
             &mut lending_market.reserves,
             repay_reserve_array_index,
         );
-        assert!(reserve::coin_type(repay_reserve) == type_name::with_defining_ids<Repay>(), EWrongType);
+        assert!(
+            reserve::coin_type(repay_reserve) == type_name::with_defining_ids<Repay>(),
+            EWrongType,
+        );
         reserve::repay_liquidity<P, Repay>(
             repay_reserve,
             coin::into_balance(required_repay_coins),
@@ -853,7 +872,10 @@ module suilend::lending_market {
             &mut lending_market.reserves,
             withdraw_reserve_array_index,
         );
-        assert!(reserve::coin_type(withdraw_reserve) == type_name::with_defining_ids<Withdraw>(), EWrongType);
+        assert!(
+            reserve::coin_type(withdraw_reserve) == type_name::with_defining_ids<Withdraw>(),
+            EWrongType,
+        );
         let mut ctokens = reserve::withdraw_ctokens<P, Withdraw>(
             withdraw_reserve,
             withdraw_ctoken_amount,
@@ -992,7 +1014,11 @@ module suilend::lending_market {
             obligation_id,
         );
 
-        let exist_stale_oracles = obligation::refresh<P>(obligation, &mut lending_market.reserves, clock);
+        let exist_stale_oracles = obligation::refresh<P>(
+            obligation,
+            &mut lending_market.reserves,
+            clock,
+        );
         obligation::assert_no_stale_oracles(exist_stale_oracles);
 
         let reserve = vector::borrow_mut(&mut lending_market.reserves, reserve_array_index);
@@ -1830,7 +1856,7 @@ module suilend::lending_market {
         lending_market: &mut LendingMarket<P>,
         reserve_array_index: u64,
         system_state: &mut SuiSystemState,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
@@ -1979,7 +2005,7 @@ module suilend::lending_market {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
 
         // assert!(
-        //     type_name::borrow_string(&type_name::with_defining_ids<RewardType>()) != 
+        //     type_name::borrow_string(&type_name::with_defining_ids<RewardType>()) !=
         //     &ascii::string(b"97d2a76efce8e7cdf55b781bd3d23382237fb1d095f9b9cad0bf1fd5f7176b62::suilend_point_2::SUILEND_POINT_2"),
         //     ECannotClaimReward,
         // );
@@ -2062,7 +2088,10 @@ module suilend::lending_market {
     // === Test Functions ===
 
     #[test_only]
-    public fun new_lending_market_owner_cap_for_testing<P>(lending_market_id: ID, ctx: &mut TxContext): LendingMarketOwnerCap<P> {
+    public fun new_lending_market_owner_cap_for_testing<P>(
+        lending_market_id: ID,
+        ctx: &mut TxContext,
+    ): LendingMarketOwnerCap<P> {
         LendingMarketOwnerCap {
             id: object::new(ctx),
             lending_market_id,
@@ -2091,7 +2120,11 @@ module suilend::lending_market {
     }
 
     #[test_only]
-    public fun refresh_obligation_for_testing<P>(lending_market: &mut LendingMarket<P>, obligation_id: ID, clock: &Clock): Option<obligation::ExistStaleOracles> {
+    public fun refresh_obligation_for_testing<P>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_id: ID,
+        clock: &Clock,
+    ): Option<obligation::ExistStaleOracles> {
         let obligation = lending_market.obligations.borrow_mut(obligation_id);
         obligation.refresh(&mut lending_market.reserves, clock)
     }
@@ -2169,6 +2202,5 @@ module suilend::lending_market {
         };
 
         lending_market
-
     }
 }

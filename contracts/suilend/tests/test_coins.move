@@ -47,11 +47,8 @@ module suilend::test_sui {
 #[test_only]
 module suilend::mock_metadata {
     use std::type_name;
-    use sui::bag::{Self, Bag};
-    use sui::coin::CoinMetadata;
-    use sui::test_utils;
-    use suilend::test_sui::{Self, TEST_SUI};
-    use suilend::test_usdc::{Self, TEST_USDC};
+    use sui::{bag::{Self, Bag}, coin::CoinMetadata, test_utils};
+    use suilend::{test_sui::{Self, TEST_SUI}, test_usdc::{Self, TEST_USDC}};
 
     public struct Metadata {
         metadata: Bag,

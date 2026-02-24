@@ -1,24 +1,29 @@
 module suilend::reserve_tests {
-    use sui::sui::{SUI};
-    use sui::balance::{Self};
     use sprungsui::sprungsui::SPRUNGSUI;
-    use sui::coin::{Self};
-    use suilend::decimal::{Self, add, sub};
-    use suilend::reserve_config;
-    use suilend::reserve::{
-        Self,
-        create_for_testing,
-        deposit_liquidity_and_mint_ctokens,
-        redeem_ctokens,
-        borrow_liquidity,
-        claim_fees,
-        compound_interest,
-        repay_liquidity,
-        Balances
+    use sui::{balance, clock, coin, sui::SUI, test_scenario::{Self, Scenario}};
+    use sui_system::{
+        governance_test_utils::{
+            advance_epoch_with_reward_amounts,
+            create_validator_for_testing,
+            create_sui_system_state_for_testing
+        },
+        sui_system::SuiSystemState
     };
-    use sui::clock::{Self};
-    use sui_system::sui_system::{SuiSystemState};
-    use sui::test_scenario::{Self, Scenario};
+    use suilend::{
+        decimal::{Self, add, sub},
+        reserve::{
+            Self,
+            create_for_testing,
+            deposit_liquidity_and_mint_ctokens,
+            redeem_ctokens,
+            borrow_liquidity,
+            claim_fees,
+            compound_interest,
+            repay_liquidity,
+            Balances
+        },
+        reserve_config
+    };
 
     #[test_only]
     public struct TEST_LM {}
@@ -242,7 +247,11 @@ module suilend::reserve_tests {
         assert!(balance::value(balances.fees()) == 4);
 
         let mut system_state = test_scenario::take_shared<SuiSystemState>(&scenario);
-        let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(&mut reserve, &mut system_state, test_scenario::ctx(&mut scenario));
+        let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(
+            &mut reserve,
+            &mut system_state,
+            test_scenario::ctx(&mut scenario),
+        );
         test_scenario::return_shared(system_state);
 
         assert!(balance::value(&fees) == 4);
@@ -407,7 +416,11 @@ module suilend::reserve_tests {
         let old_unclaimed_spread_fees = reserve.unclaimed_spread_fees();
 
         let mut system_state = test_scenario::take_shared<SuiSystemState>(&scenario);
-        let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(&mut reserve, &mut system_state, test_scenario::ctx(&mut scenario));
+        let (ctoken_fees, fees) = claim_fees<TEST_LM, TEST_USDC>(
+            &mut reserve,
+            &mut system_state,
+            test_scenario::ctx(&mut scenario),
+        );
         test_scenario::return_shared(system_state);
 
         // 0.5% interest a second with 50% take rate => 0.25% fee on 50 USDC = 0.125 USDC
@@ -416,7 +429,7 @@ module suilend::reserve_tests {
 
         assert!(reserve.available_amount() == old_available_amount - 125_000);
         assert!(
-            reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000))
+            reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000)),
         );
 
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
@@ -432,19 +445,17 @@ module suilend::reserve_tests {
         test_scenario::end(scenario);
     }
 
-    use sui_system::governance_test_utils::{
-        advance_epoch_with_reward_amounts,
-        create_validator_for_testing,
-        create_sui_system_state_for_testing,
-    };
-
-
-    const SUILEND_VALIDATOR: address = @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
+    const SUILEND_VALIDATOR: address =
+        @0xce8e537664ba5d1d5a6a857b17bd142097138706281882be6805e17065ecde89;
 
     #[allow(deprecated_usage)] // governance_test_utils -> sui_system::test_runner
     fun setup_sui_system(scenario: &mut Scenario) {
         test_scenario::next_tx(scenario, SUILEND_VALIDATOR);
-        let validator = create_validator_for_testing(SUILEND_VALIDATOR, 100, test_scenario::ctx(scenario));
+        let validator = create_validator_for_testing(
+            SUILEND_VALIDATOR,
+            100,
+            test_scenario::ctx(scenario),
+        );
         create_sui_system_state_for_testing(vector[validator], 0, 0, test_scenario::ctx(scenario));
 
         advance_epoch_with_reward_amounts(0, 0, scenario);
@@ -466,17 +477,17 @@ module suilend::reserve_tests {
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_spread_fee_bps(&mut builder, 5000);
                 reserve_config::set_interest_rate_utils(&mut builder, {
-                    let mut v = vector::empty();
-                    vector::push_back(&mut v, 0);
-                    vector::push_back(&mut v, 100);
-                    v
-                });
+                        let mut v = vector::empty();
+                        vector::push_back(&mut v, 0);
+                        vector::push_back(&mut v, 100);
+                        v
+                    });
                 reserve_config::set_interest_rate_aprs(&mut builder, {
-                    let mut v = vector::empty();
-                    vector::push_back(&mut v, 0);
-                    vector::push_back(&mut v, 3153600000);
-                    v
-                });
+                        let mut v = vector::empty();
+                        vector::push_back(&mut v, 0);
+                        vector::push_back(&mut v, 3153600000);
+                        v
+                    });
 
                 sui::test_utils::destroy(config);
 
@@ -491,12 +502,12 @@ module suilend::reserve_tests {
             decimal::from(0),
             decimal::from(1),
             0,
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
 
         let ctokens = deposit_liquidity_and_mint_ctokens<TEST_LM, SUI>(
-            &mut reserve, 
-            balance::create_for_testing(100 * 1_000_000_000)
+            &mut reserve,
+            balance::create_for_testing(100 * 1_000_000_000),
         );
 
         let liquidity_request = borrow_liquidity<TEST_LM, SUI>(&mut reserve, 50 * 1_000_000_000);
@@ -510,17 +521,31 @@ module suilend::reserve_tests {
 
         let mut system_state = test_scenario::take_shared<SuiSystemState>(&scenario);
         let treasury_cap = coin::create_treasury_cap_for_testing<SPRUNGSUI>(scenario.ctx());
-        reserve::init_staker<TEST_LM, SPRUNGSUI>(&mut reserve, treasury_cap, test_scenario::ctx(&mut scenario));
-        reserve::rebalance_staker<TEST_LM>(&mut reserve, &mut system_state, test_scenario::ctx(&mut scenario));
+        reserve::init_staker<TEST_LM, SPRUNGSUI>(
+            &mut reserve,
+            treasury_cap,
+            test_scenario::ctx(&mut scenario),
+        );
+        reserve::rebalance_staker<TEST_LM>(
+            &mut reserve,
+            &mut system_state,
+            test_scenario::ctx(&mut scenario),
+        );
 
-        let (ctoken_fees, fees) = claim_fees<TEST_LM, SUI>(&mut reserve, &mut system_state, test_scenario::ctx(&mut scenario));
+        let (ctoken_fees, fees) = claim_fees<TEST_LM, SUI>(
+            &mut reserve,
+            &mut system_state,
+            test_scenario::ctx(&mut scenario),
+        );
 
         // 0.5% interest a second with 50% take rate => 0.25% fee on 50 SUI = 0.125 SUI
         assert!(balance::value(&fees) == 125_000_000);
         assert!(balance::value(&ctoken_fees) == 0);
 
         assert!(reserve.available_amount() == old_available_amount - 125_000_000);
-        assert!(reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000_000)));
+        assert!(
+            reserve.unclaimed_spread_fees() == sub(old_unclaimed_spread_fees, decimal::from(125_000_000)),
+        );
 
         let balances: &Balances<TEST_LM, SUI> = reserve::balances(&reserve);
         assert!(balance::value(balances.available_amount()) == 0); // all the sui has been staked
@@ -581,7 +606,7 @@ module suilend::reserve_tests {
 
         assert!(reserve.available_amount() == available_amount_old + 400);
         assert!(
-            reserve.borrowed_amount() == sub(borrowed_amount_old, decimal::from_percent_u64(39_901))
+            reserve.borrowed_amount() == sub(borrowed_amount_old, decimal::from_percent_u64(39_901)),
         );
 
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);

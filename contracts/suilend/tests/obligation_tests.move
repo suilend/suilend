@@ -1,24 +1,25 @@
 #[test_only]
 module suilend::obligation_tests {
     use std::{type_name, unit_test};
-    use sui::clock;
-    use sui::test_scenario;
-    use suilend::decimal::{Self, add};
-    use suilend::liquidity_mining;
-    use suilend::obligation::{
-        Self,
-        create_obligation,
-        deposit,
-        borrow,
-        refresh,
-        withdraw,
-        repay,
-        liquidate,
-        forgive,
-        create_borrow_for_testing
+    use sui::{clock, test_scenario};
+    use suilend::{
+        decimal::{Self, add},
+        liquidity_mining,
+        obligation::{
+            Self,
+            create_obligation,
+            deposit,
+            borrow,
+            refresh,
+            withdraw,
+            repay,
+            liquidate,
+            forgive,
+            create_borrow_for_testing
+        },
+        reserve::{Self, Reserve, config},
+        reserve_config::{Self, default_reserve_config}
     };
-    use suilend::reserve::{Self, Reserve, config};
-    use suilend::reserve_config::{Self, default_reserve_config};
 
     public struct TEST_MARKET {}
 
@@ -71,7 +72,6 @@ module suilend::obligation_tests {
     }
 
     fun usdc_reserve<P>(ctx: &mut TxContext): Reserve<P> {
-
         let config = default_reserve_config(ctx);
         let mut builder = reserve_config::from(&config, ctx);
         reserve_config::set_open_ltv_pct(&mut builder, 50);
@@ -1464,9 +1464,7 @@ module suilend::obligation_tests {
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(
-            liquidity_mining::shares(user_reward_manager) == 95 * 1_000_000_000 + 600_000_000
-        );
+        assert!(liquidity_mining::shares(user_reward_manager) == 95 * 1_000_000_000 + 600_000_000);
 
         assert!(obligation.borrows().length() == 2);
 
@@ -1690,15 +1688,11 @@ module suilend::obligation_tests {
         // $1 was liquidated with a 10% bonus = $1.1 => 0.11 sui => 99.89 sui remaining
         let sui_deposit = obligation.find_deposit(get_reserve<TEST_MARKET, TEST_SUI>(&reserves));
         assert!(sui_deposit.deposited_ctoken_amount() == 99 * 1_000_000_000 + 890_000_000);
-        assert!(
-            sui_deposit.market_value() == add(decimal::from(998), decimal::from_percent(90))
-        );
+        assert!(sui_deposit.market_value() == add(decimal::from(998), decimal::from_percent(90)));
 
         let user_reward_manager =
             &obligation.user_reward_managers()[sui_deposit.user_reward_manager_index()];
-        assert!(
-            liquidity_mining::shares(user_reward_manager) == 99 * 1_000_000_000 + 890_000_000
-        );
+        assert!(liquidity_mining::shares(user_reward_manager) == 99 * 1_000_000_000 + 890_000_000);
 
         assert!(obligation.borrows().length() == 0);
 
@@ -1711,7 +1705,7 @@ module suilend::obligation_tests {
         assert!(liquidity_mining::shares(user_reward_manager) == 0);
 
         assert!(
-            obligation.deposited_value_usd() == add(decimal::from(998), decimal::from_percent(90))
+            obligation.deposited_value_usd() == add(decimal::from(998), decimal::from_percent(90)),
         );
         assert!(obligation.allowed_borrow_value_usd() == decimal::from(0));
         assert!(obligation.unhealthy_borrow_value_usd() == decimal::from(0));
@@ -2393,7 +2387,9 @@ module suilend::obligation_tests {
                 6,
                 18, // decimals
                 decimal::from_scaled_val(1), // price = $1e-18
-                0, 0, 0,
+                0,
+                0,
+                0,
                 decimal::from(0),
                 decimal::from(1),
                 0,
