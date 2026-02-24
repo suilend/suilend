@@ -233,7 +233,7 @@ module oracles::switchboard_tests {
 
         switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
         clock::destroy_for_testing(clock);
-        sui::test_utils::destroy(random_id);
+        std::unit_test::destroy(random_id);
 
         test_scenario::end(scenario);
     }

@@ -12,7 +12,7 @@ module oracles::pyth_tests {
     fun example_price_identifier(): PriceIdentifier {
         let mut v = vector::empty<u8>();
 
-        let mut i = 0;
+        let mut i = 0u64;
         while (i < 32) {
             vector::push_back(&mut v, 0);
             i = i + 1;

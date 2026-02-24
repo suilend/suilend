@@ -81,10 +81,10 @@ module oracles::oracles_tests {
         assert!(price_update.price().is_expo_negative() == false);
         assert!(price_update.metadata().pyth() == mock_pyth::get_price_obj<SUI>(&prices).get_price_info_from_price_info_object().get_price_feed());
 
-        sui::test_utils::destroy(admin_cap);
-        sui::test_utils::destroy(registry);
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(prices);
+        std::unit_test::destroy(admin_cap);
+        std::unit_test::destroy(registry);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(prices);
 
         test_scenario::end(scenario);
     }
@@ -190,12 +190,12 @@ module oracles::oracles_tests {
         assert!(price_update.price().expo() == 18);
         assert!(price_update.price().is_expo_negative() == true);
 
-        sui::test_utils::destroy(admin_cap);
-        sui::test_utils::destroy(registry);
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(prices);
-        sui::test_utils::destroy(aggregator);
-        sui::test_utils::destroy(aggregator2);
+        std::unit_test::destroy(admin_cap);
+        std::unit_test::destroy(registry);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(prices);
+        std::unit_test::destroy(aggregator);
+        std::unit_test::destroy(aggregator2);
 
         test_scenario::end(scenario);
     }
@@ -243,11 +243,11 @@ module oracles::oracles_tests {
             &clock
         );
 
-        sui::test_utils::destroy(admin_cap);
-        sui::test_utils::destroy(registry);
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(prices);
-        sui::test_utils::destroy(aggregator);
+        std::unit_test::destroy(admin_cap);
+        std::unit_test::destroy(registry);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(prices);
+        std::unit_test::destroy(aggregator);
         test_scenario::end(scenario);
     }
 

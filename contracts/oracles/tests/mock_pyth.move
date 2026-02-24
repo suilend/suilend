@@ -32,7 +32,7 @@ module oracles::mock_pyth {
         let mut v = vector::empty<u8>();
         vector::push_back(&mut v, idx);
 
-        let mut i = 1;
+        let mut i = 1u64;
         while (i < 32) {
             vector::push_back(&mut v, 0);
             i = i + 1;
