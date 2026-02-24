@@ -1,24 +1,18 @@
 /// Copied from suilend::mock_pyth
 #[test_only]
 module oracles::mock_pyth {
-    use pyth::price_info::{Self, PriceInfoObject};
-    use pyth::price_feed::{Self};
-    use pyth::price::{Self};
-    use pyth::price_identifier::{Self};
-    use pyth::i64::{Self};
-    use sui::bag::{Self, Bag};
-    use sui::clock::{Clock, Self};
-
+    use pyth::{i64, price, price_feed, price_identifier, price_info::{Self, PriceInfoObject}};
+    use sui::{bag::{Self, Bag}, clock::{Self, Clock}};
 
     public struct PriceState has key {
         id: UID,
-        price_objs: Bag
+        price_objs: Bag,
     }
 
     public fun init_state(ctx: &mut TxContext): PriceState {
         PriceState {
             id: object::new(ctx),
-            price_objs: bag::new(ctx)
+            price_objs: bag::new(ctx),
         }
     }
 
@@ -48,17 +42,17 @@ module oracles::mock_pyth {
                         i64::new(0, false),
                         0,
                         i64::new(0, false),
-                        0
+                        0,
                     ),
                     price::new(
                         i64::new(0, false),
                         0,
                         i64::new(0, false),
-                        0
-                    )
-                )
+                        0,
+                    ),
+                ),
             ),
-            ctx
+            ctx,
         )
     }
 
@@ -67,14 +61,17 @@ module oracles::mock_pyth {
     }
 
     public fun update_price<T>(state: &mut PriceState, price: u64, expo: u8, clock: &Clock) {
-        let price_info_obj = bag::borrow_mut(&mut state.price_objs, std::type_name::with_defining_ids<T>());
+        let price_info_obj = bag::borrow_mut(
+            &mut state.price_objs,
+            std::type_name::with_defining_ids<T>(),
+        );
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
 
         let price = price::new(
             i64::new(price, false),
             0,
             i64::new((expo as u64), false),
-            clock::timestamp_ms(clock) / 1000
+            clock::timestamp_ms(clock) / 1000,
         );
 
         price_info::update_price_info_object_for_testing(
@@ -85,22 +82,29 @@ module oracles::mock_pyth {
                 price_feed::new(
                     price_info::get_price_identifier(&price_info),
                     price,
-                    price
-                )
-            )
+                    price,
+                ),
+            ),
         );
-        
     }
-    
-    public fun update_decimal_price<T>(state: &mut PriceState, price: u64, expo: u8, clock: &Clock) {
-        let price_info_obj = bag::borrow_mut(&mut state.price_objs, std::type_name::with_defining_ids<T>());
+
+    public fun update_decimal_price<T>(
+        state: &mut PriceState,
+        price: u64,
+        expo: u8,
+        clock: &Clock,
+    ) {
+        let price_info_obj = bag::borrow_mut(
+            &mut state.price_objs,
+            std::type_name::with_defining_ids<T>(),
+        );
         let price_info = price_info::get_price_info_from_price_info_object(price_info_obj);
 
         let price = price::new(
             i64::new(price, false),
             0,
             i64::new((expo as u64), true),
-            clock::timestamp_ms(clock) / 1000
+            clock::timestamp_ms(clock) / 1000,
         );
 
         price_info::update_price_info_object_for_testing(
@@ -111,10 +115,9 @@ module oracles::mock_pyth {
                 price_feed::new(
                     price_info::get_price_identifier(&price_info),
                     price,
-                    price
-                )
-            )
+                    price,
+                ),
+            ),
         );
-        
     }
 }

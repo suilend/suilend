@@ -1,5 +1,4 @@
 module oracles::oracle_decimal {
-
     public struct OracleDecimal has copy, drop, store {
         base: u128,
         expo: u64,
@@ -10,7 +9,7 @@ module oracles::oracle_decimal {
         OracleDecimal {
             base,
             expo,
-            is_expo_negative
+            is_expo_negative,
         }
     }
 
@@ -25,5 +24,4 @@ module oracles::oracle_decimal {
     public fun is_expo_negative(decimal: &OracleDecimal): bool {
         decimal.is_expo_negative
     }
-
 }
