@@ -20,4 +20,4 @@ local = "../sprungsui"
 [addresses]
 sui = "0x2"
 # suilend = "0x0"
-suilend = "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf"
+suilend = "0x16273556ccb509904a6c31b3a2d3c73cf763665a945b41798ceae92de95893dc"
