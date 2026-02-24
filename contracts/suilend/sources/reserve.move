@@ -1890,8 +1890,8 @@ module suilend::reserve {
         assert!(calculate_utilization_rate(&reserve) == decimal::from_percent(50));
         assert!(ctoken_ratio(&reserve) == decimal::from(5));
 
-        sui::test_utils::destroy(id);
-        sui::test_utils::destroy(reserve);
+        std::unit_test::destroy(id);
+        std::unit_test::destroy(reserve);
         test_scenario::end(scenario);
     }
 
@@ -1927,7 +1927,7 @@ module suilend::reserve {
                         v
                     });
 
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             }),
             mint_decimals: 9,
@@ -1970,9 +1970,9 @@ module suilend::reserve {
         assert!(reserve.unclaimed_spread_fees == decimal::from_percent(50));
         assert!(reserve.interest_last_update_timestamp_s == 1);
 
-        sui::test_utils::destroy(lending_market_id);
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(reserve);
+        std::unit_test::destroy(lending_market_id);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(reserve);
 
         test_scenario::end(scenario);
     }
@@ -2003,7 +2003,7 @@ module suilend::reserve {
             price_identifier: {
                 let mut v = vector::empty();
                 let mut i = 0;
-                while (i < 32) {
+                while (i < 32u64) {
                     vector::push_back(&mut v, 0);
                     i = i + 1;
                 };
@@ -2032,7 +2032,7 @@ module suilend::reserve {
                 ctoken_supply: {
                     let mut supply = balance::create_supply(CToken<P, T> {});
                     let tokens = balance::increase_supply(&mut supply, ctoken_supply);
-                    sui::test_utils::destroy(tokens);
+                    std::unit_test::destroy(tokens);
                     supply
                 },
                 fees: balance::zero<T>(),
@@ -2041,7 +2041,7 @@ module suilend::reserve {
             },
         );
 
-        sui::test_utils::destroy(lending_market_id);
+        std::unit_test::destroy(lending_market_id);
 
         reserve
     }
@@ -2115,7 +2115,7 @@ module suilend::reserve {
                 ctoken_supply: {
                     let mut supply = balance::create_supply(CToken<P, T> {});
                     let tokens = balance::increase_supply(&mut supply, ctoken_supply);
-                    sui::test_utils::destroy(tokens);
+                    std::unit_test::destroy(tokens);
                     supply
                 },
                 fees: balance::create_for_testing(balance_fees),

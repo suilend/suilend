@@ -95,7 +95,7 @@ module suilend::oracles {
         use pyth::price_identifier::{Self};
         let mut v = vector::empty<u8>();
 
-        let mut i = 0;
+        let mut i = 0u64;
         while (i < 32) {
             vector::push_back(&mut v, 0);
             i = i + 1;

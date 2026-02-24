@@ -95,7 +95,7 @@ module suilend::staker_tests {
         assert!(staker.liquid_staking_info().total_sui_supply() == 101 * MIST_PER_SUI);
         assert!(staker.lst_balance().value() == 50 * MIST_PER_SUI + 500_000_000);
         assert!(staker.total_sui_supply() == 101 * MIST_PER_SUI);
-        sui::test_utils::destroy(sui);
+        std::unit_test::destroy(sui);
 
         // should be no fees to claim
         let sui = staker.claim_fees(&mut system_state, scenario.ctx());
@@ -105,7 +105,7 @@ module suilend::staker_tests {
         assert!(staker.liquid_staking_info().total_sui_supply() == 101 * MIST_PER_SUI);
         assert!(staker.lst_balance().value() == 50 * MIST_PER_SUI + 500_000_000);
         assert!(staker.total_sui_supply() == 101 * MIST_PER_SUI);
-        sui::test_utils::destroy(sui);
+        std::unit_test::destroy(sui);
 
         let sui = staker.withdraw(MIST_PER_SUI + 1, &mut system_state, scenario.ctx());
         assert!(sui.value() == MIST_PER_SUI + 1);
@@ -114,18 +114,18 @@ module suilend::staker_tests {
         assert!(staker.liquid_staking_info().total_sui_supply() == 100 * MIST_PER_SUI - 2);
         assert!(staker.lst_balance().value() == 50 * MIST_PER_SUI - 1);
         assert!(staker.total_sui_supply() == 100 * MIST_PER_SUI - 1);
-        sui::test_utils::destroy(sui);
+        std::unit_test::destroy(sui);
 
         let sui = staker.claim_fees(&mut system_state, scenario.ctx());
         assert!(sui.value() == 0);
-        sui::test_utils::destroy(sui);
+        std::unit_test::destroy(sui);
 
         let sui = staker.withdraw(0, &mut system_state, scenario.ctx());
         assert!(sui.value() == 0);
-        sui::test_utils::destroy(sui);
+        std::unit_test::destroy(sui);
 
         test_scenario::return_shared(system_state);
-        sui::test_utils::destroy(staker);
+        std::unit_test::destroy(staker);
         test_scenario::end(scenario);
     }
 }

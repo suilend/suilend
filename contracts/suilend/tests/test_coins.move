@@ -47,7 +47,7 @@ module suilend::test_sui {
 #[test_only]
 module suilend::mock_metadata {
     use std::type_name;
-    use sui::{bag::{Self, Bag}, coin::CoinMetadata, test_utils};
+    use sui::{bag::{Self, Bag}, coin::CoinMetadata};
     use suilend::{test_sui::{Self, TEST_SUI}, test_usdc::{Self, TEST_USDC}};
 
     public struct Metadata {
@@ -60,8 +60,8 @@ module suilend::mock_metadata {
         let (test_usdc_cap, test_usdc_metadata) = test_usdc::create_currency(ctx);
         let (test_sui_cap, test_sui_metadata) = test_sui::create_currency(ctx);
 
-        test_utils::destroy(test_usdc_cap);
-        test_utils::destroy(test_sui_cap);
+        std::unit_test::destroy(test_usdc_cap);
+        std::unit_test::destroy(test_sui_cap);
 
         bag::add(&mut bag, type_name::with_defining_ids<TEST_USDC>(), test_usdc_metadata);
         bag::add(&mut bag, type_name::with_defining_ids<TEST_SUI>(), test_sui_metadata);

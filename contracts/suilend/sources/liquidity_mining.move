@@ -701,7 +701,7 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 25 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
 
         let mut user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
@@ -721,7 +721,7 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 5 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
         {
             let usdc = claim_rewards<USDC>(
@@ -731,7 +731,7 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 20 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
 
         change_user_reward_manager_share(
@@ -756,7 +756,7 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 25 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
         {
             let usdc = claim_rewards<USDC>(
@@ -766,13 +766,13 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 25 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
 
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(pool_reward_manager);
-        sui::test_utils::destroy(user_reward_manager_1);
-        sui::test_utils::destroy(user_reward_manager_2);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
+        std::unit_test::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 
@@ -827,7 +827,7 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 87_500_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
         {
             let sui = claim_rewards<SUI>(
@@ -837,7 +837,7 @@ module suilend::liquidity_mining {
                 1,
             );
             assert!(balance::value(&sui) == 75 * 1_000_000);
-            sui::test_utils::destroy(sui);
+            std::unit_test::destroy(sui);
         };
 
         {
@@ -848,7 +848,7 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 12_500_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
         {
             let sui = claim_rewards<SUI>(
@@ -858,13 +858,13 @@ module suilend::liquidity_mining {
                 1,
             );
             assert!(balance::value(&sui) == 25 * 1_000_000);
-            sui::test_utils::destroy(sui);
+            std::unit_test::destroy(sui);
         };
 
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(pool_reward_manager);
-        sui::test_utils::destroy(user_reward_manager_1);
-        sui::test_utils::destroy(user_reward_manager_2);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
+        std::unit_test::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 
@@ -908,12 +908,12 @@ module suilend::liquidity_mining {
         let dust_rewards = close_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
         assert!(balance::value(&dust_rewards) == 0);
 
-        sui::test_utils::destroy(unallocated_rewards);
-        sui::test_utils::destroy(user_reward_manager_rewards);
-        sui::test_utils::destroy(dust_rewards);
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(pool_reward_manager);
-        sui::test_utils::destroy(user_reward_manager_1);
+        std::unit_test::destroy(unallocated_rewards);
+        std::unit_test::destroy(user_reward_manager_rewards);
+        std::unit_test::destroy(dust_rewards);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
         test_scenario::end(scenario);
     }
 
@@ -1026,12 +1026,12 @@ module suilend::liquidity_mining {
             );
             // 50 usdc is unallocated since there was zero share from 0-10 seconds
             assert!(balance::value(&usdc) == 50 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
 
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(pool_reward_manager);
-        sui::test_utils::destroy(user_reward_manager_1);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
         test_scenario::end(scenario);
     }
 
@@ -1077,7 +1077,7 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 75 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
         change_user_reward_manager_share(
             &mut pool_reward_manager,
@@ -1093,13 +1093,13 @@ module suilend::liquidity_mining {
                 0,
             );
             assert!(balance::value(&usdc) == 25 * 1_000_000);
-            sui::test_utils::destroy(usdc);
+            std::unit_test::destroy(usdc);
         };
 
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(pool_reward_manager);
-        sui::test_utils::destroy(user_reward_manager_1);
-        sui::test_utils::destroy(user_reward_manager_2);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
+        std::unit_test::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 
@@ -1133,8 +1133,8 @@ module suilend::liquidity_mining {
         let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
         add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
 
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(pool_reward_manager);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
         test_scenario::end(scenario);
     }
 
@@ -1208,14 +1208,14 @@ module suilend::liquidity_mining {
 
         assert!(balance::value(&user_reward_manager_rewards_2) == 50 * 1_000_000);
 
-        sui::test_utils::destroy(unallocated_rewards);
-        sui::test_utils::destroy(user_reward_manager_rewards);
-        sui::test_utils::destroy(user_reward_manager_rewards_2);
-        sui::test_utils::destroy(dust_rewards);
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(pool_reward_manager);
-        sui::test_utils::destroy(user_reward_manager_1);
-        sui::test_utils::destroy(user_reward_manager_2);
+        std::unit_test::destroy(unallocated_rewards);
+        std::unit_test::destroy(user_reward_manager_rewards);
+        std::unit_test::destroy(user_reward_manager_rewards_2);
+        std::unit_test::destroy(dust_rewards);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
+        std::unit_test::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
 }

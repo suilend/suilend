@@ -465,9 +465,8 @@ module suilend::reserve_config {
             i = i + 1;
         };
 
-        // should never get here
-        assert!(1 == 0, EInvalidReserveConfig);
-        decimal::from(0)
+        // should not reach
+        abort EInvalidReserveConfig
     }
 
     /// Calculates the supply APR based on the current utilization and borrow APR.

@@ -64,8 +64,8 @@ module suilend::reserve_tests {
         assert!(balance::value(balances.available_amount()) == 1500);
         assert!(balance::supply_value(balances.ctoken_supply()) == 400);
 
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(ctokens);
 
         test_scenario::end(scenario);
     }
@@ -84,7 +84,7 @@ module suilend::reserve_tests {
                 let config = default_reserve_config(scenario.ctx());
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_deposit_limit(&mut builder, 1000);
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -103,8 +103,8 @@ module suilend::reserve_tests {
         let coins = balance::create_for_testing<TEST_USDC>(1);
         let ctokens = deposit_liquidity_and_mint_ctokens(&mut reserve, coins);
 
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(ctokens);
         test_scenario::end(scenario);
     }
 
@@ -123,7 +123,7 @@ module suilend::reserve_tests {
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_deposit_limit(&mut builder, 18_446_744_073_709_551_615);
                 reserve_config::set_deposit_limit_usd(&mut builder, 1);
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -142,8 +142,8 @@ module suilend::reserve_tests {
         let coins = balance::create_for_testing<TEST_USDC>(1);
         let ctokens = deposit_liquidity_and_mint_ctokens(&mut reserve, coins);
 
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(ctokens);
         test_scenario::end(scenario);
     }
 
@@ -188,8 +188,8 @@ module suilend::reserve_tests {
         assert!(balance::value(balances.available_amount()) == available_amount_old - 50);
         assert!(balance::supply_value(balances.ctoken_supply()) == ctoken_supply_old - 10);
 
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(tokens);
 
         test_scenario::end(scenario);
     }
@@ -207,7 +207,7 @@ module suilend::reserve_tests {
                 let config = default_reserve_config(scenario.ctx());
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_fee_bps(&mut builder, 100);
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -257,11 +257,11 @@ module suilend::reserve_tests {
         assert!(balance::value(&fees) == 4);
         assert!(balance::value(&ctoken_fees) == 0);
 
-        sui::test_utils::destroy(fees);
-        sui::test_utils::destroy(ctoken_fees);
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(fees);
+        std::unit_test::destroy(ctoken_fees);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(tokens);
+        std::unit_test::destroy(ctokens);
 
         test_scenario::end(scenario);
     }
@@ -280,7 +280,7 @@ module suilend::reserve_tests {
                 let config = default_reserve_config(scenario.ctx());
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_limit(&mut builder, 0);
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -303,9 +303,9 @@ module suilend::reserve_tests {
 
         let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1);
 
-        sui::test_utils::destroy(liquidity_request);
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(liquidity_request);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(ctokens);
 
         test_scenario::end(scenario);
     }
@@ -324,7 +324,7 @@ module suilend::reserve_tests {
                 let config = default_reserve_config(scenario.ctx());
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_limit_usd(&mut builder, 1);
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -347,9 +347,9 @@ module suilend::reserve_tests {
 
         let liquidity_request = borrow_liquidity<TEST_LM, TEST_USDC>(&mut reserve, 1_000_000 + 1);
 
-        sui::test_utils::destroy(liquidity_request);
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(liquidity_request);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(ctokens);
 
         test_scenario::end(scenario);
     }
@@ -385,7 +385,7 @@ module suilend::reserve_tests {
                         v
                     });
 
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -435,12 +435,12 @@ module suilend::reserve_tests {
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
         assert!(balance::value(balances.available_amount()) == old_available_amount - 125_000);
 
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(ctoken_fees);
-        sui::test_utils::destroy(fees);
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(ctoken_fees);
+        std::unit_test::destroy(fees);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(tokens);
+        std::unit_test::destroy(ctokens);
 
         test_scenario::end(scenario);
     }
@@ -489,7 +489,7 @@ module suilend::reserve_tests {
                         v
                     });
 
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -552,12 +552,12 @@ module suilend::reserve_tests {
 
         test_scenario::return_shared(system_state);
 
-        sui::test_utils::destroy(clock);
-        sui::test_utils::destroy(ctoken_fees);
-        sui::test_utils::destroy(fees);
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(tokens);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(ctoken_fees);
+        std::unit_test::destroy(fees);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(tokens);
+        std::unit_test::destroy(ctokens);
 
         test_scenario::end(scenario);
     }
@@ -575,7 +575,7 @@ module suilend::reserve_tests {
                 let config = default_reserve_config(scenario.ctx());
                 let mut builder = reserve_config::from(&config, test_scenario::ctx(&mut scenario));
                 reserve_config::set_borrow_fee_bps(&mut builder, 100);
-                sui::test_utils::destroy(config);
+                std::unit_test::destroy(config);
 
                 reserve_config::build(builder, test_scenario::ctx(&mut scenario))
             },
@@ -612,8 +612,8 @@ module suilend::reserve_tests {
         let balances: &Balances<TEST_LM, TEST_USDC> = reserve::balances(&reserve);
         assert!(balance::value(balances.available_amount()) == available_amount_old + 400);
 
-        sui::test_utils::destroy(reserve);
-        sui::test_utils::destroy(ctokens);
+        std::unit_test::destroy(reserve);
+        std::unit_test::destroy(ctokens);
 
         test_scenario::end(scenario);
     }
