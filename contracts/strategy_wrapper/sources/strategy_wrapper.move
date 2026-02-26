@@ -1,13 +1,11 @@
 module strategy_wrapper::strategy_wrapper {
-    use sui::event;
-    use suilend::lending_market::{Self, ObligationOwnerCap, LendingMarket, RateLimiterExemption};
-    use suilend::obligation::Obligation;
-    use suilend::reserve::CToken;
-    use sui::coin::Coin;
-    use sui::clock::Clock;
-    use sui::sui::SUI;
+    use sui::{clock::Clock, coin::Coin, event, sui::SUI};
     use sui_system::sui_system::SuiSystemState;
-
+    use suilend::{
+        lending_market::{Self, ObligationOwnerCap, LendingMarket, RateLimiterExemption},
+        obligation::Obligation,
+        reserve::CToken
+    };
 
     // === Errors ===
     const EIncorrectVersion: u64 = 1;
@@ -27,7 +25,6 @@ module strategy_wrapper::strategy_wrapper {
     const STRATEGY_SUI_LOOPING_XBTC: u8 = 100;
     const SLUSH_WBTC_LOOPING_XBTC: u8 = 101;
 
-
     // Structs
     public struct StrategyOwnerCap<phantom P> has key, store {
         id: UID,
@@ -35,7 +32,7 @@ module strategy_wrapper::strategy_wrapper {
         inner_cap: ObligationOwnerCap<P>,
         strategy_type: u8,
     }
-    
+
     /// Shared object that holds the obligation cap for hot potato pattern
     public struct WrappedObligationCap<phantom P> has key, store {
         id: UID,
@@ -76,7 +73,7 @@ module strategy_wrapper::strategy_wrapper {
         old_version: u64,
         new_version: u64,
     }
-    
+
     public struct ConvertedToWrappedCap has copy, drop {
         strategy_cap_id: address,
         wrapped_cap_id: address,
@@ -115,10 +112,10 @@ module strategy_wrapper::strategy_wrapper {
     public fun create_strategy_owner_cap<P>(
         lending_market: &mut LendingMarket<P>,
         strategy_type: u8,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): StrategyOwnerCap<P> {
         assert!(is_valid_strategy_type(strategy_type), EInvalidStrategyType);
-        
+
         // Create a new obligation in the lending market
         let inner_cap = lending_market::create_obligation(lending_market, ctx);
         let obligation_id = lending_market::obligation_id(&inner_cap);
@@ -145,20 +142,20 @@ module strategy_wrapper::strategy_wrapper {
     public fun convert_to_wrapped_cap<P>(
         mut strategy_cap: StrategyOwnerCap<P>,
         relayer_address: address,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): (WrappedObligationCap<P>, RelayerCap<P>) {
         assert_version_and_upgrade(&mut strategy_cap);
-        
+
         let strategy_cap_id = object::id_address(&strategy_cap);
         let obligation_id = lending_market::obligation_id(&strategy_cap.inner_cap);
-        
-        let StrategyOwnerCap { 
-            id: strategy_id, 
-            version: _, 
-            inner_cap, 
-            strategy_type 
+
+        let StrategyOwnerCap {
+            id: strategy_id,
+            version: _,
+            inner_cap,
+            strategy_type,
         } = strategy_cap;
-        
+
         object::delete(strategy_id);
 
         let wrapped_cap = WrappedObligationCap {
@@ -192,7 +189,7 @@ module strategy_wrapper::strategy_wrapper {
     public fun borrow_obligation_cap<P>(
         wrapped_cap: &mut WrappedObligationCap<P>,
         relayer_cap: &RelayerCap<P>,
-        ctx: &TxContext
+        ctx: &TxContext,
     ): (ObligationOwnerCap<P>, BorrowReceipt<P>) {
         assert!(wrapped_cap.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(relayer_cap.wrapped_cap_id == object::id(wrapped_cap), EUnauthorizedRelayer);
@@ -223,7 +220,7 @@ module strategy_wrapper::strategy_wrapper {
         wrapped_cap: &mut WrappedObligationCap<P>,
         inner_cap: ObligationOwnerCap<P>,
         receipt: BorrowReceipt<P>,
-        ctx: &TxContext
+        ctx: &TxContext,
     ) {
         assert!(wrapped_cap.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(receipt.wrapped_cap_id == object::id(wrapped_cap), EUnauthorizedRelayer);
@@ -231,9 +228,9 @@ module strategy_wrapper::strategy_wrapper {
         assert!(option::is_none(&wrapped_cap.inner_cap), EObligationCapNotBorrowed);
 
         let obligation_id = lending_market::obligation_id(&inner_cap);
-        
+
         option::fill(&mut wrapped_cap.inner_cap, inner_cap);
-        
+
         let BorrowReceipt { wrapped_cap_id: _, borrower } = receipt;
 
         event::emit(ReturnedObligationCap {
@@ -248,24 +245,24 @@ module strategy_wrapper::strategy_wrapper {
     public fun convert_back_to_strategy_cap<P>(
         mut wrapped_cap: WrappedObligationCap<P>,
         relayer_cap: RelayerCap<P>,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): StrategyOwnerCap<P> {
         assert!(wrapped_cap.version == CURRENT_VERSION, EIncorrectVersion);
         assert!(relayer_cap.wrapped_cap_id == object::id(&wrapped_cap), EUnauthorizedRelayer);
         assert!(option::is_some(&wrapped_cap.inner_cap), EObligationCapAlreadyBorrowed);
 
-        let WrappedObligationCap { 
-            id: wrapped_id, 
-            version: _, 
-            inner_cap, 
-            strategy_type, 
-            relayer_address: _ 
+        let WrappedObligationCap {
+            id: wrapped_id,
+            version: _,
+            inner_cap,
+            strategy_type,
+            relayer_address: _,
         } = wrapped_cap;
-        
-        let RelayerCap { 
-            id: relayer_id, 
-            wrapped_cap_id: _, 
-            strategy_type: _ 
+
+        let RelayerCap {
+            id: relayer_id,
+            wrapped_cap_id: _,
+            strategy_type: _,
         } = relayer_cap;
 
         let inner_cap = option::destroy_some(inner_cap);
@@ -307,7 +304,7 @@ module strategy_wrapper::strategy_wrapper {
     // Get a reference to the obligation from the lending market
     public fun get_obligation<P>(
         cap: &StrategyOwnerCap<P>,
-        lending_market: &LendingMarket<P>
+        lending_market: &LendingMarket<P>,
     ): &Obligation<P> {
         assert_current_version(cap);
         let obligation_id = lending_market::obligation_id(&cap.inner_cap);
@@ -353,13 +350,13 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     // === Auto-Migration Functions ===
-    
+
     /// Automatically migrate a strategy owner cap to the current version if needed
     fun auto_migrate<P>(strategy_cap: &mut StrategyOwnerCap<P>) {
         if (strategy_cap.version < CURRENT_VERSION) {
             let old_version = strategy_cap.version;
             strategy_cap.version = CURRENT_VERSION;
-            
+
             event::emit(MigratedStrategyOwnerCap {
                 cap_id: object::id_address(strategy_cap),
                 old_version,
@@ -380,7 +377,7 @@ module strategy_wrapper::strategy_wrapper {
     }
 
     // === Convenience Functions for PTB Compatibility ===
-    
+
     /// Deposit liquidity and mint cTokens, then deposit into the strategy's obligation
     /// This is PTB-compatible since it doesn't expose references
     public fun deposit_liquidity_and_deposit_into_obligation<P, T>(
@@ -392,7 +389,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ) {
         assert_current_version(strategy_cap);
-        
+
         // First mint cTokens
         let ctokens = lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
             lending_market,
@@ -401,7 +398,7 @@ module strategy_wrapper::strategy_wrapper {
             deposit,
             ctx,
         );
-        
+
         // Then deposit cTokens into obligation using our inner cap
         lending_market::deposit_ctokens_into_obligation<P, T>(
             lending_market,
@@ -411,9 +408,8 @@ module strategy_wrapper::strategy_wrapper {
             ctokens,
             ctx,
         );
-        
     }
-    
+
     /// Borrow from the strategy's obligation
     public fun borrow_from_obligation<P, T>(
         strategy_cap: &StrategyOwnerCap<P>,
@@ -424,7 +420,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ): Coin<T> {
         assert_current_version(strategy_cap);
-        
+
         lending_market::borrow<P, T>(
             lending_market,
             reserve_array_index,
@@ -446,7 +442,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ): Coin<SUI> {
         assert_current_version(strategy_cap);
-        
+
         // Create the borrow request first
         let liquidity_request = lending_market::borrow_request<P, SUI>(
             lending_market,
@@ -455,7 +451,7 @@ module strategy_wrapper::strategy_wrapper {
             clock,
             amount,
         );
-        
+
         // Unstake from staker if needed to ensure liquidity
         lending_market::unstake_sui_from_staker<P>(
             lending_market,
@@ -464,7 +460,7 @@ module strategy_wrapper::strategy_wrapper {
             system_state,
             ctx,
         );
-        
+
         // Fulfill the liquidity request
         lending_market::fulfill_liquidity_request<P, SUI>(
             lending_market,
@@ -484,7 +480,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ): Coin<T> {
         assert_current_version(strategy_cap);
-        
+
         // First withdraw cTokens from obligation
         let ctokens = lending_market::withdraw_ctokens<P, T>(
             lending_market,
@@ -494,7 +490,7 @@ module strategy_wrapper::strategy_wrapper {
             ctoken_amount,
             ctx,
         );
-        
+
         // Then redeem cTokens for underlying asset
         lending_market::redeem_ctokens_and_withdraw_liquidity<P, T>(
             lending_market,
@@ -516,7 +512,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ): Coin<CToken<P, T>> {
         assert_current_version(strategy_cap);
-        
+
         lending_market::withdraw_ctokens<P, T>(
             lending_market,
             reserve_array_index,
@@ -537,7 +533,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ) {
         assert_current_version(strategy_cap);
-        
+
         lending_market::deposit_ctokens_into_obligation<P, T>(
             lending_market,
             reserve_array_index,
@@ -558,7 +554,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ): Coin<CToken<P, T>> {
         assert_current_version(strategy_cap);
-        
+
         lending_market::deposit_liquidity_and_mint_ctokens<P, T>(
             lending_market,
             reserve_array_index,
@@ -578,7 +574,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ): Coin<T> {
         assert_current_version(strategy_cap);
-        
+
         lending_market::redeem_ctokens_and_withdraw_liquidity<P, T>(
             lending_market,
             reserve_array_index,
@@ -600,7 +596,7 @@ module strategy_wrapper::strategy_wrapper {
         ctx: &mut TxContext,
     ): Coin<T> {
         assert_current_version(strategy_cap);
-        
+
         lending_market::claim_rewards<P, T>(
             lending_market,
             &strategy_cap.inner_cap,
@@ -622,7 +618,13 @@ module strategy_wrapper::strategy_wrapper {
 
     #[test_only]
     public fun destroy_wrapped_cap_for_testing<P>(wrapped_cap: WrappedObligationCap<P>) {
-        let WrappedObligationCap { id, version: _, inner_cap, strategy_type: _, relayer_address: _ } = wrapped_cap;
+        let WrappedObligationCap {
+            id,
+            version: _,
+            inner_cap,
+            strategy_type: _,
+            relayer_address: _,
+        } = wrapped_cap;
         if (option::is_some(&inner_cap)) {
             lending_market::destroy_for_testing(option::destroy_some(inner_cap));
         } else {
@@ -636,4 +638,4 @@ module strategy_wrapper::strategy_wrapper {
         let RelayerCap { id, wrapped_cap_id: _, strategy_type: _ } = relayer_cap;
         object::delete(id);
     }
-} 
+}
