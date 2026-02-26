@@ -1,8 +1,8 @@
 #[test_only]
 module strategy_wrapper::strategy_wrapper_tests {
-    use std::type_name;
+    use std::{type_name, unit_test};
     use strategy_wrapper::strategy_wrapper;
-    use sui::{bag, clock::{Self, Clock}, test_scenario, test_utils};
+    use sui::{bag, clock::{Self, Clock}, test_scenario};
     use suilend::{
         lending_market::{Self, LendingMarket, ObligationOwnerCap},
         lending_market_tests::{Self, LENDING_MARKET},
@@ -36,11 +36,11 @@ module strategy_wrapper::strategy_wrapper_tests {
             prices,
             type_to_index,
         ) = lending_market_tests::destruct_state(state);
-        test_utils::destroy(prices);
-        test_utils::destroy(type_to_index);
+        unit_test::destroy(prices);
+        unit_test::destroy(type_to_index);
 
         let obligation_cap = lending_market::create_obligation(&mut lending_market, ctx);
-        test_utils::destroy(_owner_cap);
+        unit_test::destroy(_owner_cap);
 
         (lending_market, obligation_cap, clock)
     }
@@ -49,7 +49,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_create_strategy_owner_cap() {
         let mut scenario = test_scenario::begin(@0x1);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
             &mut lending_market,
             1, // STRATEGY_SUI_LOOPING_SSUI
@@ -63,7 +63,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         assert!(strategy_wrapper::get_strategy_type(&strategy_cap) == 1);
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_for_testing(strategy_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
@@ -74,8 +74,8 @@ module strategy_wrapper::strategy_wrapper_tests {
         let mut scenario = test_scenario::begin(@0x1);
         let (mut lending_market1, obligation_cap1, clock1) = setup(scenario.ctx());
         let (mut lending_market2, obligation_cap2, clock2) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap1); // Don't need these anymore
-        test_utils::destroy(obligation_cap2);
+        unit_test::destroy(obligation_cap1); // Don't need these anymore
+        unit_test::destroy(obligation_cap2);
 
         // Test creating strategies with different types
         let sui_strategy = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -94,8 +94,8 @@ module strategy_wrapper::strategy_wrapper_tests {
         assert!(strategy_wrapper::get_strategy_type(&btc_strategy) == 2);
 
         // Cleanup
-        test_utils::destroy(lending_market1);
-        test_utils::destroy(lending_market2);
+        unit_test::destroy(lending_market1);
+        unit_test::destroy(lending_market2);
         strategy_wrapper::destroy_for_testing(sui_strategy);
         strategy_wrapper::destroy_for_testing(btc_strategy);
         clock::destroy_for_testing(clock1);
@@ -108,7 +108,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_invalid_strategy_type() {
         let mut scenario = test_scenario::begin(@0x1);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Try to create with invalid strategy type (99)
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -118,7 +118,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         );
 
         // Should never reach here
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_for_testing(strategy_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
@@ -140,7 +140,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_version_control() {
         let mut scenario = test_scenario::begin(@0x1);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
             &mut lending_market,
             1,
@@ -154,7 +154,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         strategy_wrapper::assert_current_version(&strategy_cap);
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_for_testing(strategy_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
@@ -164,7 +164,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_auto_migration_functionality() {
         let mut scenario = test_scenario::begin(@0x1);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
         let mut strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
             &mut lending_market,
             1,
@@ -187,7 +187,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         let _strategy_type = strategy_wrapper::get_strategy_type(&strategy_cap);
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_for_testing(strategy_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
@@ -199,7 +199,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_convert_to_wrapped_cap() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Create strategy owner cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -226,7 +226,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         assert!(strategy_wrapper::relayer_cap_wrapped_id(&relayer_cap) == object::id(&wrapped_cap));
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
         strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
         clock::destroy_for_testing(clock);
@@ -237,7 +237,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_wrapped_cap_properties() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Create and convert to wrapped cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -262,7 +262,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         assert!(strategy_wrapper::relayer_cap_wrapped_id(&relayer_cap) == object::id(&wrapped_cap));
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
         strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
         clock::destroy_for_testing(clock);
@@ -274,7 +274,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_unauthorized_relayer_borrow() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Create and convert to wrapped cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -307,7 +307,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         );
 
         // Cleanup (won't be reached due to expected failure)
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
         strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
         clock::destroy_for_testing(clock);
@@ -319,7 +319,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_double_borrow_fails() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Create and convert to wrapped cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -365,7 +365,7 @@ module strategy_wrapper::strategy_wrapper_tests {
             receipt,
             scenario.ctx(),
         );
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
         strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
         clock::destroy_for_testing(clock);
@@ -379,7 +379,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_convert_back_to_strategy_cap() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Create and convert to wrapped cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -409,7 +409,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         assert!(strategy_wrapper::get_version(&restored_strategy_cap) == 1);
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_for_testing(restored_strategy_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
@@ -420,7 +420,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_convert_back_while_borrowed_fails() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, _clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Create and convert to wrapped cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -477,7 +477,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_wrapped_cap_view_functions() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Create and convert to wrapped cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -501,7 +501,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         assert!(strategy_wrapper::relayer_cap_wrapped_id(&relayer_cap) == object::id(&wrapped_cap));
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_wrapped_cap_for_testing(wrapped_cap);
         strategy_wrapper::destroy_relayer_cap_for_testing(relayer_cap);
         clock::destroy_for_testing(clock);
@@ -512,7 +512,7 @@ module strategy_wrapper::strategy_wrapper_tests {
     fun test_hot_potato_complete_workflow() {
         let mut scenario = test_scenario::begin(ALICE);
         let (mut lending_market, obligation_cap, clock) = setup(scenario.ctx());
-        test_utils::destroy(obligation_cap); // Don't need this anymore
+        unit_test::destroy(obligation_cap); // Don't need this anymore
 
         // Step 1: Create strategy cap
         let strategy_cap = strategy_wrapper::create_strategy_owner_cap<LENDING_MARKET>(
@@ -576,7 +576,7 @@ module strategy_wrapper::strategy_wrapper_tests {
         assert!(strategy_wrapper::get_strategy_type(&restored_strategy_cap) == 1);
 
         // Cleanup
-        test_utils::destroy(lending_market);
+        unit_test::destroy(lending_market);
         strategy_wrapper::destroy_for_testing(restored_strategy_cap);
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
