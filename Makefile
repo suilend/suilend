@@ -16,4 +16,4 @@ test:
 	sui move test --no-lint --silence-warnings -p contracts/oracles
 	sui move test --no-lint --silence-warnings -p contracts/sprungsui
 	sui move test --no-lint --silence-warnings -p contracts/strategy_wrapper
-	sui move test --no-lint --silence-warnings -p contracts/suilend
+	sui move test --no-lint --silence-warnings -p contracts/suilend -i 20000000

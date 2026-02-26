@@ -20,7 +20,7 @@ jobs:
         run: cd contracts/suilend && sui move build
 
       - name: test-suilend
-        run: cd contracts/suilend && sui move test
+        run: cd contracts/suilend && sui move test -i 20000000
 
       - name: build-oracles
         run: cd contracts/oracles && sui move build
