@@ -1,7 +1,7 @@
 #[test_only]
 module oracles::switchboard_tests {
-    use sui::clock::{Self};
     use oracles::switchboard::{get_price, from_switchboard_decimal};
+    use sui::clock;
 
     #[test]
     fun happy_switchboard() {
@@ -14,7 +14,9 @@ module oracles::switchboard_tests {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
 
         let mut aggregator = switchboard::aggregator::new_aggregator(
-            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            object::id_from_bytes(
+                x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4",
+            ),
             std::string::utf8(b"test"),
             @0x26,
             x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
@@ -23,7 +25,7 @@ module oracles::switchboard_tests {
             1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
             1, // min job responses
             1337, // created at ms
-            sui::test_scenario::ctx(&mut scenario)
+            sui::test_scenario::ctx(&mut scenario),
         );
 
         // scale the price to 18 decimals
@@ -43,21 +45,24 @@ module oracles::switchboard_tests {
             switchboard_decimal::new(high_price, false),
             switchboard_decimal::new(range, false),
             switchboard_decimal::new(0, false),
-            switchboard_decimal::new(price, false)
+            switchboard_decimal::new(price, false),
         );
 
         let (spot_price, current_result) = get_price(
-            &aggregator, 
+            &aggregator,
             &clock,
             60,
             10,
-            aggregator.id()
+            aggregator.id(),
         );
 
         assert!(spot_price == from_switchboard_decimal(&switchboard_decimal::new(price, false)));
         assert!(current_result == aggregator.current_result());
 
-        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        switchboard::aggregator_delete_action::run(
+            aggregator,
+            sui::test_scenario::ctx(&mut scenario),
+        );
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
@@ -74,7 +79,9 @@ module oracles::switchboard_tests {
         let mut clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
 
         let mut aggregator = switchboard::aggregator::new_aggregator(
-            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            object::id_from_bytes(
+                x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4",
+            ),
             std::string::utf8(b"test"),
             @0x26,
             x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
@@ -83,7 +90,7 @@ module oracles::switchboard_tests {
             1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
             1, // min job responses
             1337, // created at ms
-            sui::test_scenario::ctx(&mut scenario)
+            sui::test_scenario::ctx(&mut scenario),
         );
 
         // scale the price to 18 decimals
@@ -103,20 +110,23 @@ module oracles::switchboard_tests {
             switchboard_decimal::new(high_price, false),
             switchboard_decimal::new(range, false),
             switchboard_decimal::new(0, false),
-            switchboard_decimal::new(price, false)
+            switchboard_decimal::new(price, false),
         );
 
         clock.set_for_testing(62_000);
 
         get_price(
-            &aggregator, 
+            &aggregator,
             &clock,
             60,
             10,
-            aggregator.id()
+            aggregator.id(),
         );
 
-        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        switchboard::aggregator_delete_action::run(
+            aggregator,
+            sui::test_scenario::ctx(&mut scenario),
+        );
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
@@ -133,7 +143,9 @@ module oracles::switchboard_tests {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
 
         let mut aggregator = switchboard::aggregator::new_aggregator(
-            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            object::id_from_bytes(
+                x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4",
+            ),
             std::string::utf8(b"test"),
             @0x26,
             x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
@@ -142,7 +154,7 @@ module oracles::switchboard_tests {
             1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
             1, // min job responses
             1337, // created at ms
-            sui::test_scenario::ctx(&mut scenario)
+            sui::test_scenario::ctx(&mut scenario),
         );
 
         // scale the price to 18 decimals
@@ -162,18 +174,21 @@ module oracles::switchboard_tests {
             switchboard_decimal::new(high_price, false),
             switchboard_decimal::new(stddev, false),
             switchboard_decimal::new(0, false),
-            switchboard_decimal::new(price, false)
+            switchboard_decimal::new(price, false),
         );
 
         get_price(
-            &aggregator, 
+            &aggregator,
             &clock,
             60,
             10,
-            aggregator.id()
+            aggregator.id(),
         );
 
-        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        switchboard::aggregator_delete_action::run(
+            aggregator,
+            sui::test_scenario::ctx(&mut scenario),
+        );
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
@@ -190,7 +205,9 @@ module oracles::switchboard_tests {
         let clock = clock::create_for_testing(test_scenario::ctx(&mut scenario));
 
         let mut aggregator = switchboard::aggregator::new_aggregator(
-            object::id_from_bytes(x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4"),
+            object::id_from_bytes(
+                x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4",
+            ),
             std::string::utf8(b"test"),
             @0x26,
             x"add8f0a36f15156b5f4720f94a62230dbef3c5d8bbfc6a799b5e6bfb56671bd4", // feed hash
@@ -199,7 +216,7 @@ module oracles::switchboard_tests {
             1_000_000_000, // max variance scaled to 9 decimals (1e9 == 1%)
             1, // min job responses
             1337, // created at ms
-            sui::test_scenario::ctx(&mut scenario)
+            sui::test_scenario::ctx(&mut scenario),
         );
 
         // scale the price to 18 decimals
@@ -219,21 +236,24 @@ module oracles::switchboard_tests {
             switchboard_decimal::new(high_price, false),
             switchboard_decimal::new(stddev, false),
             switchboard_decimal::new(0, false),
-            switchboard_decimal::new(price, false)
+            switchboard_decimal::new(price, false),
         );
 
         let random_id = object::new(scenario.ctx());
         get_price(
-            &aggregator, 
+            &aggregator,
             &clock,
             60,
             10,
-            random_id.to_inner()
+            random_id.to_inner(),
         );
 
-        switchboard::aggregator_delete_action::run(aggregator, sui::test_scenario::ctx(&mut scenario));
+        switchboard::aggregator_delete_action::run(
+            aggregator,
+            sui::test_scenario::ctx(&mut scenario),
+        );
         clock::destroy_for_testing(clock);
-        sui::test_utils::destroy(random_id);
+        std::unit_test::destroy(random_id);
 
         test_scenario::end(scenario);
     }

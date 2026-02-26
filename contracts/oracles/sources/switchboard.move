@@ -1,8 +1,7 @@
 module oracles::switchboard {
-    use switchboard::aggregator::{Aggregator, CurrentResult};
-    use switchboard::decimal::Decimal;    
-    use oracles::oracle_decimal::{OracleDecimal, Self};
+    use oracles::oracle_decimal::{Self, OracleDecimal};
     use sui::clock::{Self, Clock};
+    use switchboard::{aggregator::{Aggregator, CurrentResult}, decimal::Decimal};
 
     // Errors
     const EPriceIsStale: u64 = 0;
@@ -12,13 +11,12 @@ module oracles::switchboard {
     const ESwitchboardDecimalIsZero: u64 = 4;
 
     public fun get_price(
-        switchboard_feed: &Aggregator, 
+        switchboard_feed: &Aggregator,
         clock: &Clock,
         max_staleness_s: u64,
         max_confidence_interval_pct: u64,
         expected_feed_id: ID,
     ): (OracleDecimal, CurrentResult) {
-
         // get the switchboard feed id as a price identifier - here it's just 32 bytes
         assert!(switchboard_feed.id() == expected_feed_id, EWrongFeedId);
 
@@ -31,16 +29,18 @@ module oracles::switchboard {
 
         // check current sui time against feed's update time to make sure the price is not stale
         let cur_time_ms = clock::timestamp_ms(clock);
-        if (cur_time_ms > update_timestamp_ms &&
-            cur_time_ms - update_timestamp_ms > max_staleness_s * 1000) {
+        if (
+            cur_time_ms > update_timestamp_ms &&
+            cur_time_ms - update_timestamp_ms > max_staleness_s * 1000
+        ) {
             abort EPriceIsStale
         };
 
         // stddev / result <= x/100
         // stddev * 100 <= result * x
         assert!(
-            (stdev.value() as u256) * 100u256 <= (result.value() as u256) * (max_confidence_interval_pct as u256), 
-            EPriceRangeIsTooLarge
+            (stdev.value() as u256) * 100u256 <= (result.value() as u256) * (max_confidence_interval_pct as u256),
+            EPriceRangeIsTooLarge,
         );
 
         (from_switchboard_decimal(result), *current_result)

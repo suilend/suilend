@@ -1,18 +1,14 @@
 #[test_only]
 module oracles::pyth_tests {
-    use pyth::price_info;
-    use pyth::price_feed::{Self};
-    use pyth::price_identifier::{PriceIdentifier, Self};
-    use pyth::price;
-    use pyth::i64::{Self};
-    use sui::clock;
     use oracles::pyth::{get_prices, from_pyth_price};
+    use pyth::{i64, price, price_feed, price_identifier::{Self, PriceIdentifier}, price_info};
+    use sui::clock;
 
     #[test_only]
     fun example_price_identifier(): PriceIdentifier {
         let mut v = vector::empty<u8>();
 
-        let mut i = 0;
+        let mut i = 0u64;
         while (i < 32) {
             vector::push_back(&mut v, 0);
             i = i + 1;
@@ -32,14 +28,14 @@ module oracles::pyth_tests {
             i64::new(8, false),
             0,
             i64::new(5, false),
-            0
+            0,
         );
 
         let ema_price = price::new(
             i64::new(8, false),
             0,
             i64::new(4, true),
-            0
+            0,
         );
 
         let price_info_object = price_info::new_price_info_object_for_testing(
@@ -49,10 +45,10 @@ module oracles::pyth_tests {
                 price_feed::new(
                     example_price_identifier(),
                     spot_price,
-                    ema_price
-                )
+                    ema_price,
+                ),
             ),
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
 
         let (actual_spot_price, actual_ema_price, price_feed) = get_prices(
@@ -65,7 +61,9 @@ module oracles::pyth_tests {
 
         assert!(actual_spot_price == from_pyth_price(&spot_price));
         assert!(actual_ema_price == from_pyth_price(&ema_price));
-        assert!(price_feed == price_info_object.get_price_info_from_price_info_object().get_price_feed());
+        assert!(
+            price_feed == price_info_object.get_price_info_from_price_info_object().get_price_feed(),
+        );
 
         price_info::destroy(price_info_object);
         clock::destroy_for_testing(clock);
@@ -84,14 +82,14 @@ module oracles::pyth_tests {
             i64::new(100, false),
             11,
             i64::new(5, false),
-            0
+            0,
         );
 
         let ema_price = price::new(
             i64::new(8, false),
             0,
             i64::new(4, true),
-            0
+            0,
         );
 
         let price_info_object = price_info::new_price_info_object_for_testing(
@@ -101,10 +99,10 @@ module oracles::pyth_tests {
                 price_feed::new(
                     example_price_identifier(),
                     spot_price,
-                    ema_price
-                )
+                    ema_price,
+                ),
             ),
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
 
         get_prices(
@@ -141,7 +139,7 @@ module oracles::pyth_tests {
             i64::new(8, false),
             0,
             i64::new(4, true),
-            0
+            0,
         );
 
         let price_info_object = price_info::new_price_info_object_for_testing(
@@ -151,10 +149,10 @@ module oracles::pyth_tests {
                 price_feed::new(
                     example_price_identifier(),
                     spot_price,
-                    ema_price
-                )
+                    ema_price,
+                ),
             ),
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
 
         get_prices(
@@ -182,14 +180,14 @@ module oracles::pyth_tests {
             i64::new(100, false),
             11,
             i64::new(5, false),
-            0
+            0,
         );
 
         let ema_price = price::new(
             i64::new(8, false),
             0,
             i64::new(4, true),
-            0
+            0,
         );
 
         let price_info_object = price_info::new_price_info_object_for_testing(
@@ -199,10 +197,10 @@ module oracles::pyth_tests {
                 price_feed::new(
                     example_price_identifier(),
                     spot_price,
-                    ema_price
-                )
+                    ema_price,
+                ),
             ),
-            test_scenario::ctx(&mut scenario)
+            test_scenario::ctx(&mut scenario),
         );
 
         get_prices(
@@ -217,6 +215,4 @@ module oracles::pyth_tests {
         clock::destroy_for_testing(clock);
         test_scenario::end(scenario);
     }
-
-
 }

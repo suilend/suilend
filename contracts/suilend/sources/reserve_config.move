@@ -465,9 +465,8 @@ module suilend::reserve_config {
             i = i + 1;
         };
 
-        // should never get here
-        assert!(1 == 0, EInvalidReserveConfig);
-        decimal::from(0)
+        // should not reach
+        abort EInvalidReserveConfig
     }
 
     /// Calculates the supply APR based on the current utilization and borrow APR.
@@ -843,28 +842,28 @@ module suilend::reserve_config {
         let mut scenario = test_scenario::begin(owner);
         let mut config = default_reserve_config(scenario.ctx());
         config.interest_rate_utils = {
-                let mut v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 10);
-                vector::push_back(&mut v, 100);
-                v
-            };
+            let mut v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 10);
+            vector::push_back(&mut v, 100);
+            v
+        };
         config.interest_rate_aprs = {
-                let mut v = vector::empty();
-                vector::push_back(&mut v, 0);
-                vector::push_back(&mut v, 10000);
-                vector::push_back(&mut v, 100000);
-                v
-            };
+            let mut v = vector::empty();
+            vector::push_back(&mut v, 0);
+            vector::push_back(&mut v, 10000);
+            vector::push_back(&mut v, 100000);
+            v
+        };
 
         assert!(calculate_apr(&config, decimal::from_percent(0)) == decimal::from(0));
         assert!(calculate_apr(&config, decimal::from_percent(5)) == decimal::from_percent(50));
         assert!(calculate_apr(&config, decimal::from_percent(10)) == decimal::from_percent(100));
         assert!(
-            calculate_apr(&config, decimal::from_percent(55)) == decimal::from_percent_u64(550)
+            calculate_apr(&config, decimal::from_percent(55)) == decimal::from_percent_u64(550),
         );
         assert!(
-            calculate_apr(&config, decimal::from_percent(100)) == decimal::from_percent_u64(1000)
+            calculate_apr(&config, decimal::from_percent(100)) == decimal::from_percent_u64(1000),
         );
 
         destroy(config);

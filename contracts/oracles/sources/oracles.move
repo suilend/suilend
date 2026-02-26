@@ -1,15 +1,12 @@
 module oracles::oracles {
-    use sui::event;
-    use sui::clock::Clock;
-    use sui::bag::{Self, Bag};
-    use pyth::price_identifier::PriceIdentifier;
-    use pyth::price_info::{PriceInfoObject};
-    use pyth::price_feed::{PriceFeed};
-    use oracles::version::{Version, Self};
-    use oracles::pyth;
+    use oracles::{oracle_decimal::OracleDecimal, pyth, switchboard, version::{Self, Version}};
+    use pyth::{
+        price_feed::PriceFeed,
+        price_identifier::PriceIdentifier,
+        price_info::PriceInfoObject
+    };
+    use sui::{bag::{Self, Bag}, clock::Clock, event};
     use switchboard::aggregator::{Aggregator, CurrentResult};
-    use oracles::switchboard;
-    use oracles::oracle_decimal::OracleDecimal;
 
     /* Constants */
     const CURRENT_VERSION: u16 = 1;
@@ -23,10 +20,10 @@ module oracles::oracles {
         config: OracleRegistryConfig,
         oracles: vector<Oracle>,
         version: Version,
-        extra_fields: Bag
+        extra_fields: Bag,
     }
 
-    public struct NewRegistryEvent has copy, store, drop {
+    public struct NewRegistryEvent has copy, drop, store {
         registry_id: ID,
         admin_cap_id: ID,
         pyth_max_staleness_threshold_s: u64,
@@ -37,31 +34,29 @@ module oracles::oracles {
 
     public struct AdminCap has key, store {
         id: UID,
-        oracle_registry_id: ID
+        oracle_registry_id: ID,
     }
 
     public struct OracleRegistryConfig has store {
         pyth_max_staleness_threshold_s: u64,
         pyth_max_confidence_interval_pct: u64,
-
         switchboard_max_staleness_threshold_s: u64,
         switchboard_max_confidence_interval_pct: u64,
-
-        extra_fields: Bag
+        extra_fields: Bag,
     }
 
     public struct Oracle has store {
         oracle_type: OracleType,
-        extra_fields: Bag
+        extra_fields: Bag,
     }
 
-    public enum OracleType has store, drop, copy {
+    public enum OracleType has copy, drop, store {
         Pyth {
             price_identifier: PriceIdentifier,
         },
         Switchboard {
             feed_id: ID,
-        }
+        },
     }
 
     // hot potato ensures that price is fresh
@@ -73,13 +68,13 @@ module oracles::oracles {
         metadata: OracleMetadata,
     }
 
-    public enum OracleMetadata has store, drop, copy {
+    public enum OracleMetadata has copy, drop, store {
         Pyth {
             price_feed: PriceFeed,
         },
         Switchboard {
             current_result: CurrentResult,
-        }
+        },
     }
 
     // == Public Getters ==
@@ -108,7 +103,7 @@ module oracles::oracles {
     public fun metadata_pyth(oracle_metadata: &OracleMetadata): &PriceFeed {
         match (oracle_metadata) {
             OracleMetadata::Pyth { price_feed } => price_feed,
-            _ => abort EInvalidOracleType
+            _ => abort EInvalidOracleType,
         }
     }
 
@@ -117,25 +112,22 @@ module oracles::oracles {
     public fun metadata_switchboard(oracle_metadata: &OracleMetadata): &CurrentResult {
         match (oracle_metadata) {
             OracleMetadata::Switchboard { current_result } => current_result,
-            _ => abort EInvalidOracleType
+            _ => abort EInvalidOracleType,
         }
     }
 
-    public fun new(
-        config: OracleRegistryConfig,
-        ctx: &mut TxContext
-    ): (OracleRegistry, AdminCap) {
+    public fun new(config: OracleRegistryConfig, ctx: &mut TxContext): (OracleRegistry, AdminCap) {
         let registry = OracleRegistry {
             id: object::new(ctx),
             config: config,
             oracles: vector::empty(),
             version: version::new(CURRENT_VERSION),
-            extra_fields: bag::new(ctx)
+            extra_fields: bag::new(ctx),
         };
 
         let admin_cap = AdminCap {
             id: object::new(ctx),
-            oracle_registry_id: object::id(&registry)
+            oracle_registry_id: object::id(&registry),
         };
 
         event::emit(NewRegistryEvent {
@@ -143,8 +135,12 @@ module oracles::oracles {
             admin_cap_id: object::id(&admin_cap),
             pyth_max_staleness_threshold_s: registry.config.pyth_max_staleness_threshold_s,
             pyth_max_confidence_interval_pct: registry.config.pyth_max_confidence_interval_pct,
-            switchboard_max_staleness_threshold_s: registry.config.switchboard_max_staleness_threshold_s,
-            switchboard_max_confidence_interval_pct: registry.config.switchboard_max_confidence_interval_pct,
+            switchboard_max_staleness_threshold_s: registry
+                .config
+                .switchboard_max_staleness_threshold_s,
+            switchboard_max_confidence_interval_pct: registry
+                .config
+                .switchboard_max_confidence_interval_pct,
         });
 
         (registry, admin_cap)
@@ -155,14 +151,14 @@ module oracles::oracles {
         pyth_max_confidence_interval_pct: u64,
         switchboard_max_staleness_threshold_s: u64,
         switchboard_max_confidence_interval_pct: u64,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ): OracleRegistryConfig {
         OracleRegistryConfig {
             pyth_max_staleness_threshold_s,
             pyth_max_confidence_interval_pct,
             switchboard_max_staleness_threshold_s,
             switchboard_max_confidence_interval_pct,
-            extra_fields: bag::new(ctx)
+            extra_fields: bag::new(ctx),
         }
     }
 
@@ -170,58 +166,68 @@ module oracles::oracles {
         registry: &mut OracleRegistry,
         admin_cap: &AdminCap,
         price_info_obj: &PriceInfoObject,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
         assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
 
-        registry.oracles.push_back(Oracle {
-            oracle_type: OracleType::Pyth { 
-                price_identifier: price_info_obj.get_price_info_from_price_info_object().get_price_identifier() 
-            },
-            extra_fields: bag::new(ctx)
-        });
+        registry
+            .oracles
+            .push_back(Oracle {
+                oracle_type: OracleType::Pyth {
+                    price_identifier: price_info_obj
+                        .get_price_info_from_price_info_object()
+                        .get_price_identifier(),
+                },
+                extra_fields: bag::new(ctx),
+            });
     }
 
     public fun set_pyth_oracle(
         registry: &mut OracleRegistry,
         admin_cap: &AdminCap,
         price_info_obj: &PriceInfoObject,
-        oracle_index: u64
+        oracle_index: u64,
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
         assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
 
-        registry.oracles[oracle_index].oracle_type = OracleType::Pyth { 
-            price_identifier: price_info_obj.get_price_info_from_price_info_object().get_price_identifier() 
-        };
+        registry.oracles[oracle_index].oracle_type =
+            OracleType::Pyth {
+                price_identifier: price_info_obj
+                    .get_price_info_from_price_info_object()
+                    .get_price_identifier(),
+            };
     }
 
     public fun add_switchboard_oracle(
         registry: &mut OracleRegistry,
         admin_cap: &AdminCap,
         aggregator: &Aggregator,
-        ctx: &mut TxContext
+        ctx: &mut TxContext,
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
         assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
 
-        registry.oracles.push_back(Oracle {
-            oracle_type: OracleType::Switchboard { feed_id: aggregator.id() },
-            extra_fields: bag::new(ctx)
-        });
+        registry
+            .oracles
+            .push_back(Oracle {
+                oracle_type: OracleType::Switchboard { feed_id: aggregator.id() },
+                extra_fields: bag::new(ctx),
+            });
     }
 
     public fun set_switchboard_oracle(
         registry: &mut OracleRegistry,
         admin_cap: &AdminCap,
         aggregator: &Aggregator,
-        oracle_index: u64
+        oracle_index: u64,
     ) {
         registry.version.assert_version_and_upgrade(CURRENT_VERSION);
         assert!(admin_cap.oracle_registry_id == object::id(registry), EInvalidAdminCap);
 
-        registry.oracles[oracle_index].oracle_type = OracleType::Switchboard { feed_id: aggregator.id() };
+        registry.oracles[oracle_index].oracle_type =
+            OracleType::Switchboard { feed_id: aggregator.id() };
     }
 
     public fun get_pyth_price(
@@ -237,11 +243,11 @@ module oracles::oracles {
         match (oracle.oracle_type) {
             OracleType::Pyth { price_identifier } => {
                 let (price, ema_price, price_feed) = pyth::get_prices(
-                    price_info_obj, 
-                    clock, 
-                    registry.config.pyth_max_staleness_threshold_s, 
+                    price_info_obj,
+                    clock,
+                    registry.config.pyth_max_staleness_threshold_s,
                     registry.config.pyth_max_confidence_interval_pct,
-                    price_identifier
+                    price_identifier,
                 );
 
                 OraclePriceUpdate {
@@ -249,12 +255,11 @@ module oracles::oracles {
                     oracle_index,
                     price,
                     ema_price: option::some(ema_price),
-                    metadata: OracleMetadata::Pyth { price_feed }
+                    metadata: OracleMetadata::Pyth { price_feed },
                 }
             },
-            _ => abort EInvalidOracleType
+            _ => abort EInvalidOracleType,
         }
-
     }
 
     public fun get_switchboard_price(
@@ -270,11 +275,11 @@ module oracles::oracles {
         match (oracle.oracle_type) {
             OracleType::Switchboard { feed_id } => {
                 let (price, current_result) = switchboard::get_price(
-                    aggregator, 
-                    clock, 
-                    registry.config.switchboard_max_staleness_threshold_s, 
+                    aggregator,
+                    clock,
+                    registry.config.switchboard_max_staleness_threshold_s,
                     registry.config.switchboard_max_confidence_interval_pct,
-                    feed_id
+                    feed_id,
                 );
 
                 OraclePriceUpdate {
@@ -282,29 +287,31 @@ module oracles::oracles {
                     oracle_index,
                     price,
                     ema_price: option::none(),
-                    metadata: OracleMetadata::Switchboard { current_result }
+                    metadata: OracleMetadata::Switchboard { current_result },
                 }
             },
-            _ => abort EInvalidOracleType
+            _ => abort EInvalidOracleType,
         }
     }
 
     #[test_only]
-    public fun new_oracle_registry_for_testing(config: OracleRegistryConfig, ctx: &mut TxContext): (OracleRegistry, AdminCap) {
+    public fun new_oracle_registry_for_testing(
+        config: OracleRegistryConfig,
+        ctx: &mut TxContext,
+    ): (OracleRegistry, AdminCap) {
         let registry = OracleRegistry {
             id: object::new(ctx),
             config,
             oracles: vector::empty(),
             version: version::new(CURRENT_VERSION),
-            extra_fields: bag::new(ctx)
+            extra_fields: bag::new(ctx),
         };
 
         let admin_cap = AdminCap {
             id: object::new(ctx),
-            oracle_registry_id: object::id(&registry)
+            oracle_registry_id: object::id(&registry),
         };
 
         (registry, admin_cap)
     }
 }
-

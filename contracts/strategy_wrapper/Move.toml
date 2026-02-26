@@ -1,10 +1,9 @@
 [package]
 name = "strategy_wrapper"
-version = "0.0.1"
-published-at = "0x864b66441e95323c320ee7584592769930a2d236b45d731011ee7a98eb785b35"
 edition = "2024"
 
 [dependencies]
+sui_system = { system = "sui_system" }
 suilend = { local = "../suilend" }
 
 # v01 = 0xba97dc73a07638d03d77ad2161484eb21db577edc9cadcd7035fef4b4f2f6fa1
@@ -16,6 +15,6 @@ suilend = { local = "../suilend" }
 # v07 = 0x864b66441e95323c320ee7584592769930a2d236b45d731011ee7a98eb785b35
 
 
-[addresses]
+#[addresses]
 # strategy_wrapper = "0x0" 
-strategy_wrapper = "0xba97dc73a07638d03d77ad2161484eb21db577edc9cadcd7035fef4b4f2f6fa1"
+#strategy_wrapper = "0xba97dc73a07638d03d77ad2161484eb21db577edc9cadcd7035fef4b4f2f6fa1"

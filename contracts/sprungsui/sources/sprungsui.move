@@ -1,18 +1,18 @@
 module sprungsui::sprungsui {
-    use sui::coin::{Self};
+    use sui::coin;
 
     public struct SPRUNGSUI has drop {}
 
     #[allow(deprecated_usage)] // create_currency -> coin_registry::new_currency_with_otw
     fun init(witness: SPRUNGSUI, ctx: &mut TxContext) {
         let (treasury, metadata) = coin::create_currency(
-            witness, 
-            9, 
-            b"", 
-            b"Staked SUI", 
-            b"", 
+            witness,
+            9,
+            b"",
+            b"Staked SUI",
+            b"",
             option::none(),
-            ctx
+            ctx,
         );
 
         transfer::public_share_object(metadata);

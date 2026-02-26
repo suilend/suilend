@@ -1,7 +1,6 @@
 module suilend::test_dynamic_field {
-    use sui::dynamic_field as df;
-    use sui::test_scenario;
-    use sui::test_utils::{destroy};
+    use std::unit_test;
+    use sui::{dynamic_field as df, test_scenario};
 
     // Define a simple struct to hold a dynamic field
     public struct Container has key {
@@ -22,13 +21,13 @@ module suilend::test_dynamic_field {
         let mut scenario = test_scenario::begin(@0x1);
         let ctx = test_scenario::ctx(&mut scenario);
         let container = create_container_with_field(ctx);
-        
+
         // Verify the dynamic field exists and has the correct value
         assert!(df::exists_(&container.id, b"field_key"));
         let value: &u64 = df::borrow(&container.id, b"field_key");
         assert!(*value == 42);
 
-        destroy(container);
+        unit_test::destroy(container);
         test_scenario::end(scenario);
     }
 
@@ -37,13 +36,13 @@ module suilend::test_dynamic_field {
         let mut scenario = test_scenario::begin(@0x1);
         let ctx = test_scenario::ctx(&mut scenario);
         let container = create_container_with_field(ctx);
-        
+
         // Verify the dynamic field exists and has the correct value
         assert!(df::exists_(&container.id, b"field_key"));
         let value: &u64 = df::borrow(&container.id, b"field_key");
         assert!(*value == 42);
 
-        destroy(container);
+        unit_test::destroy(container);
         test_scenario::end(scenario);
     }
 }

@@ -1,13 +1,3 @@
 [package]
 name = "sprungsui"
 edition = "2024"
-published-at = "0xb87cea7e4220461e35dff856185814d6a37ef479ce895ffbe4efa1d1af5aacbc"
-
-[dependencies]
-
-[addresses]
-sprungsui = "0xb87cea7e4220461e35dff856185814d6a37ef479ce895ffbe4efa1d1af5aacbc"
-
-[dev-dependencies]
-
-[dev-addresses]

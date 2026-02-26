@@ -1,12 +1,14 @@
 /// This module contains logic for parsing pyth prices
 module oracles::pyth {
-    use pyth::price_info::{Self, PriceInfoObject};
-    use pyth::price_feed::{Self, PriceFeed};
-    use pyth::price_identifier::PriceIdentifier;
-    use pyth::price::{Self, Price};
-    use pyth::i64::{Self};
+    use oracles::oracle_decimal::{Self, OracleDecimal};
+    use pyth::{
+        i64,
+        price::{Self, Price},
+        price_feed::{Self, PriceFeed},
+        price_identifier::PriceIdentifier,
+        price_info::{Self, PriceInfoObject}
+    };
     use sui::clock::{Self, Clock};
-    use oracles::oracle_decimal::{OracleDecimal, Self};
 
     // Errors
     const EConfidenceIntervalExceeded: u64 = 0;
@@ -15,7 +17,7 @@ module oracles::pyth {
     const EPythDecimalIsZero: u64 = 3;
 
     public(package) fun get_prices(
-        price_info_obj: &PriceInfoObject, 
+        price_info_obj: &PriceInfoObject,
         clock: &Clock,
         max_staleness_threshold_s: u64,
         max_confidence_interval_pct: u64,
@@ -38,14 +40,16 @@ module oracles::pyth {
         // -> conf * (100 / x )<= price
         assert!(
             (conf as u128) * 100u128 <= (price_mag as u128) * (max_confidence_interval_pct as u128),
-            EConfidenceIntervalExceeded
+            EConfidenceIntervalExceeded,
         );
 
         // check current sui time against pythnet publish time. there can be some issues that arise because the
         // timestamps are from different sources and may get out of sync, but that's why we have a fallback oracle
         let cur_time_s = clock::timestamp_ms(clock) / 1000;
-        if (cur_time_s > price::get_timestamp(&price) && // this is technically possible!
-            cur_time_s - price::get_timestamp(&price) > max_staleness_threshold_s) {
+        if (
+            cur_time_s > price::get_timestamp(&price) && // this is technically possible!
+            cur_time_s - price::get_timestamp(&price) > max_staleness_threshold_s
+        ) {
             abort EPriceIsStale
         };
 
@@ -60,12 +64,10 @@ module oracles::pyth {
             } else {
                 price.get_expo().get_magnitude_if_positive()
             },
-            price.get_expo().get_is_negative()
+            price.get_expo().get_is_negative(),
         );
 
         assert!(price.base() > 0, EPythDecimalIsZero);
         price
     }
-
 }
-

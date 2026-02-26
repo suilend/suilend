@@ -57,7 +57,11 @@ module suilend::lending_market_registry {
         assert!(registry.version == CURRENT_VERSION, EIncorrectVersion);
 
         let (owner_cap, lending_market) = lending_market::create_lending_market<P>(ctx);
-        table::add(&mut registry.lending_markets, type_name::with_defining_ids<P>(), object::id(&lending_market));
+        table::add(
+            &mut registry.lending_markets,
+            type_name::with_defining_ids<P>(),
+            object::id(&lending_market),
+        );
         (owner_cap, lending_market)
     }
 
@@ -67,8 +71,8 @@ module suilend::lending_market_registry {
 
     #[test]
     fun test_happy() {
-        use sui::test_utils::{Self};
         use sui::test_scenario::{Self};
+        use std::unit_test;
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -89,18 +93,18 @@ module suilend::lending_market_registry {
         );
 
         test_scenario::return_shared(registry);
-        test_utils::destroy(owner_cap_1);
-        test_utils::destroy(lending_market_1);
-        test_utils::destroy(owner_cap_2);
-        test_utils::destroy(lending_market_2);
+        unit_test::destroy(owner_cap_1);
+        unit_test::destroy(lending_market_1);
+        unit_test::destroy(owner_cap_2);
+        unit_test::destroy(lending_market_2);
         test_scenario::end(scenario);
     }
 
     #[test]
     #[expected_failure(abort_code = 0, location = sui::dynamic_field)]
     fun test_fail_duplicate_lending_market_type() {
-        use sui::test_utils::{Self};
         use sui::test_scenario::{Self};
+        use std::unit_test;
 
         let owner = @0x26;
         let mut scenario = test_scenario::begin(owner);
@@ -122,10 +126,10 @@ module suilend::lending_market_registry {
         );
 
         test_scenario::return_shared(registry);
-        test_utils::destroy(owner_cap_1);
-        test_utils::destroy(owner_cap_1_too);
-        test_utils::destroy(lending_market_1);
-        test_utils::destroy(lending_market_1_too);
+        unit_test::destroy(owner_cap_1);
+        unit_test::destroy(owner_cap_1_too);
+        unit_test::destroy(lending_market_1);
+        unit_test::destroy(lending_market_1_too);
         test_scenario::end(scenario);
     }
 }
