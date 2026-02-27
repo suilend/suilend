@@ -1221,13 +1221,13 @@ module suilend::obligation {
     /// A looped state is defined as having a deposit and borrow of the same asset.
     /// This is to prevent reward farming exploits.
     ///
-
+    /// Looping is currently allowed for correlated assets.
     public(package) fun is_looped<P>(obligation: &Obligation<P>): bool {
-        // looping is allowed now for coralated assets
-        // let target_reserve_array_indices = vector[1, 2, 5, 7, 19, 20, 3, 9];
         // The vector target_reserve_array_indices maps to disabled_pairings_map
         // by corresponding indices of each element
         // target_reserve_index --> pairings disabled
+        //
+        // let target_reserve_array_indices = vector[1, 2, 5, 7, 19, 20, 3, 9];
         // let disabled_pairings_map = vector[
         //     vector[2, 5, 7, 19, 20], // 1 --> [2, 5, 7, 19, 20]
         //     vector[1, 5, 7, 19, 20], // 2 --> [1, 5, 7, 19, 20]
@@ -1238,7 +1238,6 @@ module suilend::obligation {
         //     vector[9], // 3 --> [9]
         //     vector[3], // 9 --> [3]
         // ];
-
 
         let mut i = 0;
         while (i < vector::length(&obligation.borrows)) {

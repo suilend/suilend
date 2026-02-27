@@ -1910,7 +1910,7 @@ module suilend::obligation_tests {
             1_000_000,
         );
 
-        assert!(obligation.is_looped());
+        assert!(!obligation.is_looped());
 
         repay<TEST_MARKET>(
             &mut obligation,
@@ -1933,7 +1933,7 @@ module suilend::obligation_tests {
             ),
         );
 
-        assert!(obligation.is_looped());
+        assert!(!obligation.is_looped());
 
         unit_test::destroy(reserves);
         std::unit_test::destroy(lending_market_id);
@@ -1990,7 +1990,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped());
+            assert!(!obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2008,7 +2008,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped());
+            assert!(!obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2073,7 +2073,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped());
+            assert!(!obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2091,7 +2091,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped());
+            assert!(!obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2156,7 +2156,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped());
+            assert!(!obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2174,7 +2174,7 @@ module suilend::obligation_tests {
                 1_000_000,
             );
 
-            assert!(obligation.is_looped());
+            assert!(!obligation.is_looped());
 
             repay<TEST_MARKET>(
                 &mut obligation,
@@ -2326,7 +2326,7 @@ module suilend::obligation_tests {
         let mut i = 0;
         while (i < vector::length(obligation.user_reward_managers())) {
             let user_reward_manager = vector::borrow(obligation.user_reward_managers(), i);
-            assert!(liquidity_mining::shares(user_reward_manager) == 0);
+            assert!(liquidity_mining::shares(user_reward_manager) > 0);
             i = i + 1;
         };
 
