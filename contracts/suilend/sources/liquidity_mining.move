@@ -11,6 +11,7 @@ module suilend::liquidity_mining {
     const EMaxConcurrentPoolRewardsViolated: u64 = 3;
     const ENotAllRewardsClaimed: u64 = 4;
     const EPoolRewardPeriodNotOver: u64 = 5;
+    const ERewardBalanceNotEmpty: u64 = 6;
 
     // === Constants ===
     const MAX_REWARDS: u64 = 75;
@@ -253,6 +254,31 @@ module suilend::liquidity_mining {
             .borrow_mut(RewardBalance<T> {});
 
         reward_balance.withdraw_all()
+    }
+
+    public(package) fun force_close_user_reward<T>(
+        pool_reward_manager: &mut PoolRewardManager,
+        user_reward_manager: &mut UserRewardManager,
+        clock: &Clock,
+        reward_index: u64,
+    ) {
+        let pool_reward = pool_reward_manager.pool_rewards.borrow_mut(reward_index).borrow_mut();
+        assert!(pool_reward.coin_type == type_name::with_defining_ids<T>(), EInvalidType);
+        assert!(clock.timestamp_ms() >= pool_reward.end_time_ms, EPoolRewardPeriodNotOver);
+
+        let reward_balance: &Balance<T> = pool_reward.additional_fields.borrow(RewardBalance<T> {});
+        assert!(reward_balance.value() == 0, ERewardBalanceNotEmpty);
+
+        let optional_reward = user_reward_manager.rewards.borrow_mut(reward_index);
+        if (optional_reward.is_some()) {
+            let UserReward {
+                pool_reward_id: _,
+                earned_rewards: _,
+                cumulative_rewards_per_share: _,
+            } = optional_reward.extract();
+
+            pool_reward.num_user_reward_managers = pool_reward.num_user_reward_managers - 1;
+        }
     }
 
     /// Cancels a pool reward campaign, claims unallocated rewards, and sets the end time to the current time.

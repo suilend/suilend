@@ -1758,6 +1758,41 @@ module suilend::lending_market {
         coin::from_balance(drained, ctx)
     }
 
+    public fun force_close_user_reward<P, RewardType>(
+        lending_market: &mut LendingMarket<P>,
+        obligation_id: ID,
+        reserve_array_index: u64,
+        is_deposit_reward: bool,
+        reward_index: u64,
+        clock: &Clock,
+    ) {
+        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        let coin_tag = type_name::with_defining_ids<RewardType>().as_string();
+        assert!(
+            coin_tag == std::ascii::string(POINTS_SEASON_1)
+            || coin_tag == std::ascii::string(POINTS_SEASON_2)
+            || coin_tag == std::ascii::string(STEAMM_POINTS),
+            EWrongType,
+        );
+
+        let obligation = lending_market.obligations.borrow_mut(obligation_id);
+        let reserve = lending_market.reserves.borrow_mut(reserve_array_index);
+        reserve.compound_interest(clock);
+
+        let pool_reward_manager = if (is_deposit_reward) {
+            reserve.deposits_pool_reward_manager_mut()
+        } else {
+            reserve.borrows_pool_reward_manager_mut()
+        };
+
+        obligation.force_close_user_reward<P, RewardType>(
+            pool_reward_manager,
+            clock,
+            reward_index,
+        );
+    }
+
     /// Updates the rate limiter configuration.
     ///
     /// This is an admin-only function that allows the lending market owner to update the rate
