@@ -67,7 +67,8 @@ jobs:
           ecosystem: sui
           working-directory: certora/specs/obligation
           configurations: |-
-            confs/health_consistency.conf
+            confs/health_consistency_p1.conf
+            confs/health_consistency_p2.conf
             confs/isolation.conf
             confs/reserve_separation.conf
           job-name: "Verify Obligation Integrity Rules"
