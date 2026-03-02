@@ -34,7 +34,10 @@ public fun cvlm_manifest() {
     target(@dummy_pool, b"dummy_pool_lending_market", b"repay");
     target(@dummy_pool, b"dummy_pool_lending_market", b"forgive");
     target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards");
-    target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards_and_deposit");
+    
+    // Excluded: Direct verification is computationally infeasible for this function. See health.move for rationale.
+    // target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards_and_deposit");
+    
     target(@dummy_pool, b"dummy_pool_lending_market", b"init_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"rebalance_staker");
     target(@dummy_pool, b"dummy_pool_lending_market", b"unstake_sui_from_staker");
