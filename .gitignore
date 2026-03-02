@@ -7,6 +7,8 @@ contracts/oracles/build
 .coverage_map.mvcov
 .trace
 
+*/**/package_summaries
+
 .DS_Store
 .env
 certora/spec/build
