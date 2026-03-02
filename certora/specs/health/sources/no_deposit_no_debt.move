@@ -1,0 +1,111 @@
+/// property: Borrowing Requires Collateral Deposits
+/// description: Verifies that obligations without deposits cannot have borrows
+module health::no_deposit_no_debt;
+
+use commons::helper::{setup_obligation, refresh_health};
+use cvlm::asserts::{cvlm_assert, cvlm_assume_msg, cvlm_assert_msg};
+use cvlm::function::Function;
+use cvlm::ghost::ghost_destroy;
+use cvlm::manifest::{target, invoker, rule};
+use dummy_pool::dummy_pool::DummyPool;
+use suilend::lending_market::LendingMarket;
+use suilend::obligation::Obligation;
+use commons::helper::zero;
+
+public fun cvlm_manifest() {
+    target(@dummy_pool, b"dummy_pool_lending_market", b"refresh_reserve_price");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"create_obligation");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_liquidity_and_mint_ctokens");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"redeem_ctokens_and_withdraw_liquidity");
+    target(
+        @dummy_pool,
+        b"dummy_pool_lending_market",
+        b"redeem_ctokens_and_withdraw_liquidity_request",
+    );
+    target(@dummy_pool, b"dummy_pool_lending_market", b"deposit_ctokens_into_obligation");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"borrow");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"compound_interest");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"borrow_request");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"fulfill_liquidity_request");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"withdraw_ctokens");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"liquidate");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"repay");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"forgive");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"claim_rewards_and_deposit");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"init_staker");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"rebalance_staker");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"unstake_sui_from_staker");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"add_reserve");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"update_reserve_config");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"change_reserve_price_feed");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"add_pool_reward");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"cancel_pool_reward");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"close_pool_reward");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"update_rate_limiter_config");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"set_fee_receivers");
+    target(@dummy_pool, b"dummy_pool_lending_market", b"new_obligation_owner_cap");
+
+    invoker(b"invoke");
+
+    rule(b"no_deposits_no_borrow_base");
+    rule(b"no_deposits_no_borrow_step");
+}
+
+native fun invoke(
+    target: Function,
+    lending_market: &mut LendingMarket<DummyPool>,
+    obligation_id: ID,
+);
+
+fun no_deposit_no_borrow(ob: &Obligation<DummyPool>): bool {
+    let deposits = ob.deposits().length();
+    let borrows = ob.borrows().length();
+
+    deposits != 0 || borrows == 0
+}
+
+/// Verifies that newly created obligations have no deposits and no borrows
+public(package) fun no_deposits_no_borrow_base(
+    lending_market: &mut LendingMarket<DummyPool>,
+    ctx: &mut TxContext,
+) {
+    let cap = lending_market.create_obligation(ctx);
+    let obligation = lending_market.obligation(cap.obligation_id());
+    cvlm_assert(no_deposit_no_borrow(obligation));
+
+    ghost_destroy(cap);
+}
+
+/// Verifies that obligations without deposits remain without borrows
+public(package) fun no_deposits_no_borrow_step(
+    lending_market: &mut LendingMarket<DummyPool>,
+    id: ID,
+    target: Function,
+) {
+    let obligation = setup_obligation(lending_market, id);
+    cvlm_assume_msg(no_deposit_no_borrow(obligation), b"Assume invariant in pre-state");
+
+    invoke(target, lending_market, id);
+
+    let (obligation, reserves) = lending_market.obligation_and_reserves_mut_for_testing(id);
+    refresh_health(obligation, reserves);
+
+    // Assume no empty borrows/deposits exists to mitigate spurious cex
+    // We cannot do this in refresh operations as it will lead to timeouts in other rules, where it does not matter.
+    let n_deposits = obligation.deposits().length();
+    let n_borrows = obligation.borrows().length();
+    
+    let mut i = 0;
+    while ( i < n_deposits) {
+        cvlm_assume_msg(obligation.deposits()[i].deposited_ctoken_amount() > 0, b"No empty deposits");
+        i = i + 1;
+    };
+    let mut i = 0;
+    while ( i < n_borrows) {
+        cvlm_assume_msg(obligation.borrows()[i].borrowed_amount().gt(zero()), b"No empty borrows");
+        i = i + 1;
+    };
+
+    cvlm_assert_msg(no_deposit_no_borrow(obligation), b"Assert invariant in post-state");
+}

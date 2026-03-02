@@ -1,0 +1,52 @@
+diff --git a/contracts/suilend/sources/lending_market.move b/contracts/suilend/sources/lending_market.move
+index 9acfffa..a95b1fe 100644
+--- a/contracts/suilend/sources/lending_market.move
++++ b/contracts/suilend/sources/lending_market.move
+@@ -16,6 +16,7 @@ module suilend::lending_market {
+     use suilend::rate_limiter::{Self, RateLimiter, RateLimiterConfig};
+     use suilend::reserve::{Self, Reserve, CToken, LiquidityRequest};
+     use suilend::reserve_config::{ReserveConfig, borrow_fee};
++    use suilend::obligation::ExistStaleOracles;
+ 
+     // === Errors ===
+     const EIncorrectVersion: u64 = 1;
+@@ -1248,6 +1249,11 @@ module suilend::lending_market {
+         &lending_market.reserves
+     }
+ 
++    #[test_only]
++    public fun reserves_mut<P>(lending_market: &mut LendingMarket<P>): &mut vector<Reserve<P>> {
++        &mut lending_market.reserves
++    }
++
+     fun max_borrow_amount<P>(
+         mut rate_limiter: RateLimiter,
+         obligation: &Obligation<P>,
+@@ -1363,6 +1369,11 @@ module suilend::lending_market {
+         object_table::borrow(&lending_market.obligations, obligation_id)
+     }
+ 
++     /// Get a reference to an obligation by its ID.
++    public fun obligation_mut<P>(lending_market: &mut LendingMarket<P>, obligation_id: ID): &mut Obligation<P> {
++        object_table::borrow_mut(&mut lending_market.obligations, obligation_id)
++    }
++
+     /// Get the fee receiver address.
+     public fun fee_receiver<P>(lending_market: &LendingMarket<P>): address {
+         lending_market.fee_receiver
+@@ -1987,6 +1998,15 @@ module suilend::lending_market {
+         let obligation = lending_market.obligations.borrow_mut(obligation_id);
+         obligation.refresh(&mut lending_market.reserves, clock)
+     }
++    
++    public fun obligation_and_reserves_mut_for_testing<P>(
++        lending_market: &mut LendingMarket<P>,
++        obligation_id: ID,
++    ): (&mut Obligation<P>, &mut vector<Reserve<P>>) {
++        let obligation = object_table::borrow_mut(&mut lending_market.obligations, obligation_id);
++        let reserves = &mut lending_market.reserves;
++        (obligation, reserves)
++    }
+ 
+     #[test_only]
+     public fun add_reserve_for_testing<P, T>(

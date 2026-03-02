@@ -9,3 +9,6 @@ contracts/oracles/build
 
 .DS_Store
 .env
+certora/spec/build
+.vscode
+.certora_internal/
