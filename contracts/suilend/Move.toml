@@ -1,7 +1,7 @@
 [package]
 name = "suilend"
 version = "0.0.1"
-published-at = "0x2d2a5129b8f07061d697c1b1729a06e696bf3b19c865a869055efba83759b04b"
+published-at = "0xdf48a8edf980a895be1719a74801308ebf634fb4d759017f7650d96196bd14e8"
 edition = "2024"
 
 [dependencies.Pyth]
@@ -20,4 +20,4 @@ local = "../sprungsui"
 [addresses]
 sui = "0x2"
 # suilend = "0x0"
-suilend = "0xf95b06141ed4a174f239417323bde3f209b972f5930d8521ea38a52aff3a6ddf"
+suilend = "0x16273556ccb509904a6c31b3a2d3c73cf763665a945b41798ceae92de95893dc"
