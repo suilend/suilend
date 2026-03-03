@@ -1122,6 +1122,10 @@ module suilend::lending_market {
     /// * The reward period is not over.
     /// * The `coin_type` of the deposit reserve does not match the type of the reward.
     /// * It will also panic if the underlying `claim_rewards_by_obligation_id` or `repay` or `deposit_liquidity_and_mint_ctokens` panics.
+    ///
+    /// For expired points campaign types: instead of claiming
+    /// and depositing, force-closes the UserReward entry on the obligation. The pool reward must
+    /// have been cancelled and drained first. deposit_reserve_id is ignored.
     public fun claim_rewards_and_deposit<P, RewardType>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
@@ -1135,6 +1139,32 @@ module suilend::lending_market {
         ctx: &mut TxContext,
     ) {
         assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
+
+        // If expired points campaign, close the UserReward
+        let coin_tag = type_name::with_defining_ids<RewardType>().as_string();
+        if (
+            coin_tag == std::ascii::string(POINTS_SEASON_1)
+            || coin_tag == std::ascii::string(POINTS_SEASON_2)
+            || coin_tag == std::ascii::string(STEAMM_POINTS)
+        ) {
+            let obligation = lending_market.obligations.borrow_mut(obligation_id);
+            let reserve = lending_market.reserves.borrow_mut(reward_reserve_id);
+            reserve::compound_interest(reserve, clock);
+
+            let pool_reward_manager = if (is_deposit_reward) {
+                reserve::deposits_pool_reward_manager_mut(reserve)
+            } else {
+                reserve::borrows_pool_reward_manager_mut(reserve)
+            };
+
+            obligation::force_close_expired_user_reward<P, RewardType>(
+                obligation,
+                pool_reward_manager,
+                clock,
+                reward_index,
+            );
+            return
+        };
 
         let mut rewards = claim_rewards_by_obligation_id<P, RewardType>(
             lending_market,
@@ -1756,41 +1786,6 @@ module suilend::lending_market {
         );
 
         coin::from_balance(drained, ctx)
-    }
-
-    public fun force_close_expired_user_reward<P, RewardType>(
-        lending_market: &mut LendingMarket<P>,
-        obligation_id: ID,
-        reserve_array_index: u64,
-        is_deposit_reward: bool,
-        reward_index: u64,
-        clock: &Clock,
-    ) {
-        assert!(lending_market.version == CURRENT_VERSION, EIncorrectVersion);
-
-        let coin_tag = type_name::with_defining_ids<RewardType>().as_string();
-        assert!(
-            coin_tag == std::ascii::string(POINTS_SEASON_1)
-            || coin_tag == std::ascii::string(POINTS_SEASON_2)
-            || coin_tag == std::ascii::string(STEAMM_POINTS),
-            EWrongType,
-        );
-
-        let obligation = lending_market.obligations.borrow_mut(obligation_id);
-        let reserve = lending_market.reserves.borrow_mut(reserve_array_index);
-        reserve.compound_interest(clock);
-
-        let pool_reward_manager = if (is_deposit_reward) {
-            reserve.deposits_pool_reward_manager_mut()
-        } else {
-            reserve.borrows_pool_reward_manager_mut()
-        };
-
-        obligation.force_close_expired_user_reward<P, RewardType>(
-            pool_reward_manager,
-            clock,
-            reward_index,
-        );
     }
 
     /// Updates the rate limiter configuration.
