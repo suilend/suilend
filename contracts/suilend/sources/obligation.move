@@ -1218,29 +1218,26 @@ module suilend::obligation {
 
     /// Checks if an obligation is in a "looped" state.
     ///
-    /// A looped state is defined as having a deposit and borrow of the same asset,
-    /// or having a deposit and borrow of a disabled pair of assets. This is to prevent
-    /// reward farming exploits.
+    /// A looped state is defined as having a deposit and borrow of the same asset.
+    /// This is to prevent reward farming exploits.
     ///
-    /// # Panics
-    /// * If the internal `target_reserve_array_indices` and `disabled_pairings_map` vectors
-    ///   have inconsistent lengths, leading to an out-of-bounds access.
+    /// Looping is currently allowed for correlated assets.
     public(package) fun is_looped<P>(obligation: &Obligation<P>): bool {
-        let target_reserve_array_indices = vector[1, 2, 5, 7, 19, 20, 3, 9];
-
         // The vector target_reserve_array_indices maps to disabled_pairings_map
         // by corresponding indices of each element
         // target_reserve_index --> pairings disabled
-        let disabled_pairings_map = vector[
-            vector[2, 5, 7, 19, 20], // 1 --> [2, 5, 7, 19, 20]
-            vector[1, 5, 7, 19, 20], // 2 --> [1, 5, 7, 19, 20]
-            vector[1, 2, 7, 19, 20], // 5 --> [1, 2, 7, 19, 20]
-            vector[1, 2, 5, 19, 20], // 7 --> [1, 2, 5, 19, 20]
-            vector[1, 2, 5, 7, 20], // 19 --> [1, 2, 5, 7, 20]
-            vector[1, 2, 5, 7, 19], // 20 --> [1, 2, 5, 7, 19]
-            vector[9], // 3 --> [9]
-            vector[3], // 9 --> [3]
-        ];
+        //
+        // let target_reserve_array_indices = vector[1, 2, 5, 7, 19, 20, 3, 9];
+        // let disabled_pairings_map = vector[
+        //     vector[2, 5, 7, 19, 20], // 1 --> [2, 5, 7, 19, 20]
+        //     vector[1, 5, 7, 19, 20], // 2 --> [1, 5, 7, 19, 20]
+        //     vector[1, 2, 7, 19, 20], // 5 --> [1, 2, 7, 19, 20]
+        //     vector[1, 2, 5, 19, 20], // 7 --> [1, 2, 5, 19, 20]
+        //     vector[1, 2, 5, 7, 20], // 19 --> [1, 2, 5, 7, 20]
+        //     vector[1, 2, 5, 7, 19], // 20 --> [1, 2, 5, 7, 19]
+        //     vector[9], // 3 --> [9]
+        //     vector[3], // 9 --> [3]
+        // ];
 
         let mut i = 0;
         while (i < vector::length(&obligation.borrows)) {
@@ -1255,35 +1252,6 @@ module suilend::obligation {
             if (deposit_index < vector::length(&obligation.deposits)) {
                 return true
             };
-
-            let (has_target_borrow_idx, target_borrow_idx) = vector::index_of(
-                &target_reserve_array_indices,
-                &borrow.reserve_array_index,
-            );
-
-            // If the borrowing is over a targetted reserve
-            // we check if the deposit reserve is a disabled pair
-            if (has_target_borrow_idx) {
-                let disabled_pairs = vector::borrow(&disabled_pairings_map, target_borrow_idx);
-                let pair_count = vector::length(disabled_pairs);
-                let mut j = 0;
-
-                while (j < pair_count) {
-                    let disabled_reserve_array_index = *vector::borrow(disabled_pairs, j);
-
-                    let deposit_index = find_deposit_index_by_reserve_array_index(
-                        obligation,
-                        disabled_reserve_array_index,
-                    );
-
-                    if (deposit_index < vector::length(&obligation.deposits)) {
-                        return true
-                    };
-
-                    j = j +1;
-                };
-            };
-
             i = i + 1;
         };
 
