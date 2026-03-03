@@ -256,6 +256,10 @@ module suilend::liquidity_mining {
         reward_balance.withdraw_all()
     }
 
+    /// Forcibly removes a UserReward entry from a UserRewardManager after the pool reward has ended
+    /// and its balance has been fully drained. Decrements num_user_reward_managers, allowing
+    /// close_pool_reward to eventually be called once all entries are removed.
+    /// drain_pool_reward_balance must be called first
     public(package) fun force_close_expired_user_reward<T>(
         pool_reward_manager: &mut PoolRewardManager,
         user_reward_manager: &mut UserRewardManager,

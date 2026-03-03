@@ -891,6 +891,9 @@ module suilend::obligation {
         )
     }
 
+    /// Removes a UserReward entry from this obligation after the pool reward has
+    /// ended and its balance is fully drained. No-ops if this obligation has no entry for
+    /// the given pool reward manager.
     public(package) fun force_close_expired_user_reward<P, T>(
         obligation: &mut Obligation<P>,
         pool_reward_manager: &mut PoolRewardManager,
@@ -898,6 +901,10 @@ module suilend::obligation {
         reward_index: u64,
     ) {
         let i = find_user_reward_manager_index(obligation, pool_reward_manager);
+
+        if (i >= obligation.user_reward_managers.length()) {
+            return
+        };
 
         let user_reward_manager = obligation.user_reward_managers.borrow_mut(i);
 
