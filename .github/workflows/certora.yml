@@ -33,6 +33,7 @@ jobs:
       - name: Submit health jobs to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/health
           configurations: |-
@@ -51,6 +52,7 @@ jobs:
       - name: Submit solvency jobs to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/solvency
           configurations: |-
@@ -64,6 +66,7 @@ jobs:
       - name: Submit obligation integrity rules to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/obligation
           configurations: |-
@@ -78,6 +81,7 @@ jobs:
       - name: Submit liquidation rules to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/liquidation
           configurations: |-
@@ -90,6 +94,7 @@ jobs:
       - name: Submit staker rules to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/staker
           configurations: |-
