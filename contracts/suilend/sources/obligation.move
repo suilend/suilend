@@ -732,9 +732,9 @@ module suilend::obligation {
             obligation.unweighted_borrowed_value_usd,
         );
 
-        // Allow full liquidation when borrow is dust, or when bonus is capped
+        // Allow full liquidation when borrow is below USD threshold, or when bonus is capped
         let allow_full_liquidation =
-            borrow.market_value.le(decimal::from(1)) ||
+            borrow.market_value.le(decimal::from(100)) ||
             bonus.lt(configured_bonus);
 
         let repay_amount = if (allow_full_liquidation) {
