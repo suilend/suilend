@@ -891,7 +891,7 @@ module suilend::obligation {
         )
     }
 
-    public(package) fun force_close_user_reward<P, T>(
+    public(package) fun force_close_expired_user_reward<P, T>(
         obligation: &mut Obligation<P>,
         pool_reward_manager: &mut PoolRewardManager,
         clock: &Clock,
@@ -901,7 +901,7 @@ module suilend::obligation {
 
         let user_reward_manager = obligation.user_reward_managers.borrow_mut(i);
 
-        liquidity_mining::force_close_user_reward<T>(
+        liquidity_mining::force_close_expired_user_reward<T>(
             pool_reward_manager,
             user_reward_manager,
             clock,

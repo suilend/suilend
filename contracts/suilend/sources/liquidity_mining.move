@@ -256,7 +256,7 @@ module suilend::liquidity_mining {
         reward_balance.withdraw_all()
     }
 
-    public(package) fun force_close_user_reward<T>(
+    public(package) fun force_close_expired_user_reward<T>(
         pool_reward_manager: &mut PoolRewardManager,
         user_reward_manager: &mut UserRewardManager,
         clock: &Clock,
@@ -1291,7 +1291,7 @@ module suilend::liquidity_mining {
 
         // Force close user 1's reward
         clock.set_for_testing(11 * MILLISECONDS_IN_DAY);
-        force_close_user_reward<USDC>(
+        force_close_expired_user_reward<USDC>(
             &mut pool_reward_manager,
             &mut user_reward_manager_1,
             &clock,
@@ -1304,7 +1304,7 @@ module suilend::liquidity_mining {
         // close_pool_reward would fail here
 
         // Force close user 2's reward
-        force_close_user_reward<USDC>(
+        force_close_expired_user_reward<USDC>(
             &mut pool_reward_manager,
             &mut user_reward_manager_2,
             &clock,
@@ -1352,7 +1352,7 @@ module suilend::liquidity_mining {
 
         // Campaign ended but balance not drained — should abort
         clock.set_for_testing(21 * MILLISECONDS_IN_DAY);
-        force_close_user_reward<USDC>(
+        force_close_expired_user_reward<USDC>(
             &mut pool_reward_manager,
             &mut user_reward_manager,
             &clock,
@@ -1391,7 +1391,7 @@ module suilend::liquidity_mining {
 
         // Campaign still active — should abort
         clock.set_for_testing(10 * MILLISECONDS_IN_DAY);
-        force_close_user_reward<USDC>(
+        force_close_expired_user_reward<USDC>(
             &mut pool_reward_manager,
             &mut user_reward_manager,
             &clock,

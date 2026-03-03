@@ -1758,7 +1758,7 @@ module suilend::lending_market {
         coin::from_balance(drained, ctx)
     }
 
-    public fun force_close_user_reward<P, RewardType>(
+    public fun force_close_expired_user_reward<P, RewardType>(
         lending_market: &mut LendingMarket<P>,
         obligation_id: ID,
         reserve_array_index: u64,
@@ -1786,7 +1786,7 @@ module suilend::lending_market {
             reserve.borrows_pool_reward_manager_mut()
         };
 
-        obligation.force_close_user_reward<P, RewardType>(
+        obligation.force_close_expired_user_reward<P, RewardType>(
             pool_reward_manager,
             clock,
             reward_index,
