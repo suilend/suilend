@@ -1244,4 +1244,163 @@ module suilend::liquidity_mining {
         std::unit_test::destroy(user_reward_manager_2);
         test_scenario::end(scenario);
     }
+
+    #[test]
+    fun test_force_close_expired_user_reward_points() {
+        use sui::test_scenario;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let mut clock = clock::create_for_testing(ctx);
+        clock.set_for_testing(0);
+
+        let mut pool_reward_manager = new_pool_reward_manager(ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
+
+        // Two users with equal shares
+        let mut user_reward_manager_1 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_1,
+            100,
+            &clock,
+        );
+        let mut user_reward_manager_2 = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_2,
+            100,
+            &clock,
+        );
+
+        // Cancel at day 10
+        clock.set_for_testing(10 * MILLISECONDS_IN_DAY);
+        let unallocated = cancel_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&unallocated) == 50 * 1_000_000);
+
+        // Drain remaining balance
+        let drained = drain_pool_reward_balance<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&drained) == 50 * 1_000_000);
+
+        // Verify UserReward entries exist before force close
+        assert!(option::is_some(vector::borrow(user_reward_manager_1.rewards(), 0)));
+        assert!(option::is_some(vector::borrow(user_reward_manager_2.rewards(), 0)));
+
+        // Force close user 1's reward
+        clock.set_for_testing(11 * MILLISECONDS_IN_DAY);
+        force_close_user_reward<USDC>(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_1,
+            &clock,
+            0,
+        );
+
+        // UserReward entry should be gone
+        assert!(option::is_none(vector::borrow(user_reward_manager_1.rewards(), 0)));
+
+        // close_pool_reward would fail here
+
+        // Force close user 2's reward
+        force_close_user_reward<USDC>(
+            &mut pool_reward_manager,
+            &mut user_reward_manager_2,
+            &clock,
+            0,
+        );
+        assert!(option::is_none(vector::borrow(user_reward_manager_2.rewards(), 0)));
+
+        // Now close_pool_reward succeeds (num_user_reward_managers == 0)
+        let dust = close_pool_reward<USDC>(&mut pool_reward_manager, 0, &clock);
+        assert!(balance::value(&dust) == 0);
+
+        std::unit_test::destroy(unallocated);
+        std::unit_test::destroy(drained);
+        std::unit_test::destroy(dust);
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager_1);
+        std::unit_test::destroy(user_reward_manager_2);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = ERewardBalanceNotEmpty)]
+    fun test_force_close_user_reward_fails_before_drain() {
+        use sui::test_scenario;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let mut clock = clock::create_for_testing(ctx);
+        clock.set_for_testing(0);
+
+        let mut pool_reward_manager = new_pool_reward_manager(ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
+
+        let mut user_reward_manager = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(
+            &mut pool_reward_manager,
+            &mut user_reward_manager,
+            100,
+            &clock,
+        );
+
+        // Campaign ended but balance not drained — should abort
+        clock.set_for_testing(21 * MILLISECONDS_IN_DAY);
+        force_close_user_reward<USDC>(
+            &mut pool_reward_manager,
+            &mut user_reward_manager,
+            &clock,
+            0,
+        );
+
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager);
+        test_scenario::end(scenario);
+    }
+
+    #[test]
+    #[expected_failure(abort_code = EPoolRewardPeriodNotOver)]
+    fun test_force_close_user_reward_fails_before_end() {
+        use sui::test_scenario;
+
+        let owner = @0x26;
+        let mut scenario = test_scenario::begin(owner);
+        let ctx = test_scenario::ctx(&mut scenario);
+
+        let mut clock = clock::create_for_testing(ctx);
+        clock.set_for_testing(0);
+
+        let mut pool_reward_manager = new_pool_reward_manager(ctx);
+        let usdc = balance::create_for_testing<USDC>(100 * 1_000_000);
+        add_pool_reward(&mut pool_reward_manager, usdc, 0, 20 * MILLISECONDS_IN_DAY, &clock, ctx);
+
+        let mut user_reward_manager = new_user_reward_manager(&mut pool_reward_manager, &clock);
+        change_user_reward_manager_share(
+            &mut pool_reward_manager,
+            &mut user_reward_manager,
+            100,
+            &clock,
+        );
+
+        // Campaign still active — should abort
+        clock.set_for_testing(10 * MILLISECONDS_IN_DAY);
+        force_close_user_reward<USDC>(
+            &mut pool_reward_manager,
+            &mut user_reward_manager,
+            &clock,
+            0,
+        );
+
+        std::unit_test::destroy(clock);
+        std::unit_test::destroy(pool_reward_manager);
+        std::unit_test::destroy(user_reward_manager);
+        test_scenario::end(scenario);
+    }
 }
