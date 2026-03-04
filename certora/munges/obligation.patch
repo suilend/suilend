@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/obligation.move b/contracts/suilend/sources/obligation.move
-index 8e5dec6..b6380ac 100644
+index 2e535a5..443154b 100644
 --- a/contracts/suilend/sources/obligation.move
 +++ b/contracts/suilend/sources/obligation.move
 @@ -157,7 +157,7 @@ module suilend::obligation {
@@ -139,7 +139,19 @@ index 8e5dec6..b6380ac 100644
          obligation: &mut Obligation<P>,
          pool_reward_manager: &mut PoolRewardManager,
          clock: &Clock,
-@@ -909,41 +916,82 @@ module suilend::obligation {
+@@ -899,6 +906,11 @@ module suilend::obligation {
+         &obligation.deposits
+     }
+ 
++    #[test_only]
++    public fun deposits_mut<P>(obligation: &mut Obligation<P>): &mut vector<Deposit> {
++        &mut obligation.deposits
++    }
++
+     /// Get the borrows of the obligation.
+     public fun borrows<P>(obligation: &Obligation<P>): &vector<Borrow> {
+         &obligation.borrows
+@@ -909,41 +921,82 @@ module suilend::obligation {
          obligation.deposited_value_usd
      }
  
@@ -222,7 +234,7 @@ index 8e5dec6..b6380ac 100644
      public use fun deposit_coin_type as Deposit.coin_type;
  
      /// Get the coin type of the deposit.
-@@ -965,6 +1013,13 @@ module suilend::obligation {
+@@ -965,6 +1018,13 @@ module suilend::obligation {
          deposit.deposited_ctoken_amount
      }
  
@@ -236,7 +248,7 @@ index 8e5dec6..b6380ac 100644
      public use fun deposit_market_value as Deposit.market_value;
  
      /// Get the market value of the deposit.
-@@ -972,6 +1027,13 @@ module suilend::obligation {
+@@ -972,6 +1032,13 @@ module suilend::obligation {
          deposit.market_value
      }
  
@@ -250,7 +262,7 @@ index 8e5dec6..b6380ac 100644
      public use fun deposit_user_reward_manager_index as Deposit.user_reward_manager_index;
  
      /// Get the user reward manager index of the deposit.
-@@ -1000,6 +1062,14 @@ module suilend::obligation {
+@@ -1000,6 +1067,14 @@ module suilend::obligation {
          borrow.borrowed_amount
      }
  
@@ -265,7 +277,7 @@ index 8e5dec6..b6380ac 100644
      public use fun borrow_cumulative_borrow_rate as Borrow.cumulative_borrow_rate;
  
      /// Get the cumulative borrow rate of the borrow.
-@@ -1014,6 +1084,13 @@ module suilend::obligation {
+@@ -1014,6 +1089,13 @@ module suilend::obligation {
          borrow.market_value
      }
  
@@ -279,7 +291,7 @@ index 8e5dec6..b6380ac 100644
      public use fun borrow_user_reward_manager_index as Borrow.user_reward_manager_index;
  
      /// Get the user reward manager index of the borrow.
-@@ -1036,6 +1113,18 @@ module suilend::obligation {
+@@ -1036,6 +1118,18 @@ module suilend::obligation {
          0
      }
  
@@ -298,7 +310,7 @@ index 8e5dec6..b6380ac 100644
      /// Get the borrowed amount of a specific coin type.
      public fun borrowed_amount<P, T>(obligation: &Obligation<P>): Decimal {
          let mut i = 0;
-@@ -1051,6 +1140,17 @@ module suilend::obligation {
+@@ -1051,6 +1145,17 @@ module suilend::obligation {
          decimal::from(0)
      }
  
@@ -316,7 +328,7 @@ index 8e5dec6..b6380ac 100644
      /// Whether the obligation is healthy.
      public fun is_healthy<P>(obligation: &Obligation<P>): bool {
          le(obligation.weighted_borrowed_value_upper_bound_usd, obligation.allowed_borrow_value_usd)
-@@ -1087,7 +1187,7 @@ module suilend::obligation {
+@@ -1087,7 +1192,7 @@ module suilend::obligation {
      /// # Panics
      ///
      /// * If the `borrow_weight` of the reserve is zero, as this would lead to division by zero.
@@ -325,7 +337,7 @@ index 8e5dec6..b6380ac 100644
          obligation: &Obligation<P>,
          reserve: &Reserve<P>,
      ): u64 {
-@@ -1126,7 +1226,7 @@ module suilend::obligation {
+@@ -1126,7 +1231,7 @@ module suilend::obligation {
      ///
      /// * Panics with `EDepositNotFound` if the obligation does not have a deposit for the
      ///   specified `reserve`.
@@ -334,7 +346,7 @@ index 8e5dec6..b6380ac 100644
          obligation: &Obligation<P>,
          reserve: &Reserve<P>,
      ): u64 {
-@@ -1179,11 +1279,15 @@ module suilend::obligation {
+@@ -1179,11 +1284,15 @@ module suilend::obligation {
      /// # Panics
      ///
      /// * Panics with `EOraclesAreStale` if `exist_stale_oracles` is `Some`.
@@ -351,7 +363,7 @@ index 8e5dec6..b6380ac 100644
      /// Checks if an obligation is in a "looped" state and zeroes out its liquidity mining
      /// rewards if it is.
      ///
-@@ -1205,7 +1309,7 @@ module suilend::obligation {
+@@ -1205,7 +1314,7 @@ module suilend::obligation {
      ///   deposit or borrow in the obligation has an invalid `reserve_array_index` or
      ///   `user_reward_manager_index` that is out of bounds for the `reserves` or
      ///   `user_reward_managers` vectors, respectively.
@@ -360,7 +372,7 @@ index 8e5dec6..b6380ac 100644
          obligation: &mut Obligation<P>,
          reserves: &mut vector<Reserve<P>>,
          clock: &Clock,
-@@ -1226,7 +1330,7 @@ module suilend::obligation {
+@@ -1226,7 +1335,7 @@ module suilend::obligation {
      /// # Panics
      /// * If the internal `target_reserve_array_indices` and `disabled_pairings_map` vectors
      ///   have inconsistent lengths, leading to an out-of-bounds access.
@@ -369,7 +381,7 @@ index 8e5dec6..b6380ac 100644
          let target_reserve_array_indices = vector[1, 2, 5, 7, 19, 20, 3, 9];
  
          // The vector target_reserve_array_indices maps to disabled_pairings_map
-@@ -1464,7 +1568,7 @@ module suilend::obligation {
+@@ -1464,7 +1573,7 @@ module suilend::obligation {
      }
  
      /// Compound the debt on a borrow object
@@ -378,7 +390,7 @@ index 8e5dec6..b6380ac 100644
          let new_cumulative_borrow_rate = reserve::cumulative_borrow_rate(reserve);
  
          let compounded_interest_rate = div(
-@@ -1481,7 +1585,7 @@ module suilend::obligation {
+@@ -1481,7 +1590,7 @@ module suilend::obligation {
          borrow.cumulative_borrow_rate = new_cumulative_borrow_rate;
      }
  
@@ -387,7 +399,7 @@ index 8e5dec6..b6380ac 100644
          let mut i = 0;
          while (i < vector::length(&obligation.deposits)) {
              let deposit = vector::borrow(&obligation.deposits, i);
-@@ -1512,7 +1616,7 @@ module suilend::obligation {
+@@ -1512,7 +1621,7 @@ module suilend::obligation {
          i
      }
  
@@ -396,7 +408,7 @@ index 8e5dec6..b6380ac 100644
          let mut i = 0;
          while (i < vector::length(&obligation.borrows)) {
              let borrow = vector::borrow(&obligation.borrows, i);
-@@ -1526,14 +1630,21 @@ module suilend::obligation {
+@@ -1526,14 +1635,21 @@ module suilend::obligation {
          i
      }
  
@@ -420,7 +432,7 @@ index 8e5dec6..b6380ac 100644
          obligation: &Obligation<P>,
          reserve: &Reserve<P>,
      ): &Deposit {
-@@ -1543,7 +1654,7 @@ module suilend::obligation {
+@@ -1543,7 +1659,7 @@ module suilend::obligation {
          vector::borrow(&obligation.deposits, i)
      }
  
@@ -429,7 +441,7 @@ index 8e5dec6..b6380ac 100644
          obligation: &mut Obligation<P>,
          reserve: &mut Reserve<P>,
          clock: &Clock,
-@@ -1572,7 +1683,7 @@ module suilend::obligation {
+@@ -1572,7 +1688,7 @@ module suilend::obligation {
          vector::length(&obligation.borrows) - 1
      }
  
@@ -438,7 +450,7 @@ index 8e5dec6..b6380ac 100644
          obligation: &mut Obligation<P>,
          reserve: &mut Reserve<P>,
          clock: &Clock,
-@@ -1601,7 +1712,7 @@ module suilend::obligation {
+@@ -1601,7 +1717,7 @@ module suilend::obligation {
          vector::length(&obligation.deposits) - 1
      }
  
@@ -447,7 +459,7 @@ index 8e5dec6..b6380ac 100644
          obligation: &Obligation<P>,
          pool_reward_manager: &PoolRewardManager,
      ): u64 {
-@@ -1651,7 +1762,7 @@ module suilend::obligation {
+@@ -1641,7 +1757,7 @@ module suilend::obligation {
      }
  
      #[test_only]

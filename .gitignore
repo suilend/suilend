@@ -6,14 +6,6 @@ suilend-cli/node_modules
 contracts/oracles/build
 .coverage_map.mvcov
 .trace
-<<<<<<< kel/fixes_pub
-
-*/**/package_summaries
-=======
->>>>>>> certora
 
 .DS_Store
 .env
-certora/spec/build
-.vscode
-.certora_internal/

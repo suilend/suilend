@@ -1,13 +1,11 @@
 name: Certora Prover 
 
 on:
-  push:
-    branches:
-      - certora
   pull_request:
     branches:
       - certora
-      - feat/adjustments
+      - main
+      - devel
   workflow_dispatch:
 
 jobs:
@@ -33,6 +31,7 @@ jobs:
       - name: Submit health jobs to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-version: "8.10.1"
           cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/health
@@ -52,6 +51,7 @@ jobs:
       - name: Submit solvency jobs to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-version: "8.10.1"
           cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/solvency
@@ -66,6 +66,7 @@ jobs:
       - name: Submit obligation integrity rules to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-version: "8.10.1"
           cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/obligation
@@ -81,6 +82,7 @@ jobs:
       - name: Submit liquidation rules to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-version: "8.10.1"
           cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/liquidation
@@ -94,6 +96,7 @@ jobs:
       - name: Submit staker rules to Certora Prover
         uses: Certora/certora-run-action@v2
         with:
+          cli-version: "8.10.1"
           cli-release: beta
           ecosystem: sui
           working-directory: certora/specs/staker

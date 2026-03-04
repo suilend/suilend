@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/reserve.move b/contracts/suilend/sources/reserve.move
-index a3f5672..c528f0c 100644
+index d0cfa28..7ce14a7 100644
 --- a/contracts/suilend/sources/reserve.move
 +++ b/contracts/suilend/sources/reserve.move
 @@ -178,7 +178,7 @@ module suilend::reserve {
