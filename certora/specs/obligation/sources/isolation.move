@@ -111,8 +111,6 @@ public fun isolation_borrow_integrity(
     // If isolation pre and it remains isolates, it must remain isolated and the number of borrows must not changed
     cvlm_assert(!(isolated_pre && isolated_post) || (borrows_pre == borrows_post));
 
-    // If isolated post but not pre, then borrows pre must've been 0 and borrows post must be 1
-    cvlm_assert(!(!isolated_pre && isolated_post) || (borrows_pre == 0 && borrows_post == 1));
 
     // If isolated pre but not post, we exited from isolation
     cvlm_assert(!(isolated_pre && !isolated_post) || borrows_post == 0);

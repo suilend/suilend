@@ -1,5 +1,5 @@
 diff --git a/contracts/suilend/sources/staker.move b/contracts/suilend/sources/staker.move
-index 84fc06d..e03e2a9 100644
+index 79788ca..0cb4344 100644
 --- a/contracts/suilend/sources/staker.move
 +++ b/contracts/suilend/sources/staker.move
 @@ -39,7 +39,7 @@ module suilend::staker {

@@ -3,11 +3,14 @@ name = "obligation"
 edition = "2024.beta"
 
 [dependencies]
+MoveStdlib = { override = true, git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/move-stdlib", rev = "framework/testnet" }
+Sui = { override = true, git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+SuiSystem = { override = true, git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-system", rev = "framework/testnet" }
 suilend = { local = "../../../contracts/suilend" }
 dummy_pool = { local = "../dummy_pool" }
 commons = { local = "../commons" }
-cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm", rev = "main" }
-certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries", rev = "main" }
+cvlm = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "cvlm", rev = "sui-v1.55.0" }
+certora_sui_summaries = { git = "https://github.com/Certora/cvl-move-proto.git", subdir = "certora_sui_summaries", rev = "sui-v1.55.0" }
 
 [addresses]
 obligation = "0x0"

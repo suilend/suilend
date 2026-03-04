@@ -11,8 +11,6 @@ use suilend::liquidity_mining::{PoolRewardManager, UserRewardManager};
 use suilend::obligation::{Obligation, ExistStaleOracles, Borrow, is_healthy};
 use suilend::reserve::{Reserve, config};
 use suilend::reserve_config::{isolated, open_ltv, borrow_weight};
-use cvlm::ghost::ghost_destroy;
-use commons::helper::zero;
 
 public fun cvlm_manifest() {
     // Debt compounding: Debt is compounded by multiplying the current borrowed amount
@@ -22,12 +20,13 @@ public fun cvlm_manifest() {
 
     // Main entrypoints: For efficiency, the core obligation operations (deposit, borrow, repay, withdraw)
     // are simplified such that they do not perform intermediate health updates.
-    // The `refresh` function is summarized to do nothing. Instead, health related values are computed in the specs.
     summary(b"deposit", @suilend, b"obligation", b"deposit");
     summary(b"repay", @suilend, b"obligation", b"repay");
     summary(b"withdraw_unchecked", @suilend, b"obligation", b"withdraw_unchecked");
     summary(b"withdraw", @suilend, b"obligation", b"withdraw");
     summary(b"borrow", @suilend, b"obligation", b"borrow");
+    
+    // The `refresh` function is summarized to do nothing. Instead, health related values are computed in the specs.
     summary(b"obligation_refresh", @suilend, b"obligation", b"refresh");
 
     // Prover-friendly deposit/borrow indexing: Uses native ghost functions to simplify
@@ -111,21 +110,41 @@ public fun borrow<P>(
     amount: u64,
 ) {
     let borrow_index = obligation.find_or_add_borrow(reserve, clock);
-    cvlm_assume_msg(obligation.borrows().length() <= max_borrows(), b"");
+    cvlm_assume_msg(obligation.borrows().length() <= max_borrows(), b"Bounded number of borrows");
 
     let deposit_index = obligation.find_deposit_index(reserve);
-    cvlm_assume_msg(deposit_index == obligation.deposits().length(), b"");
+    cvlm_assume_msg(deposit_index == obligation.deposits().length(), b"No deposit from this reserve");
 
     let borrow = &mut obligation.borrows_mut()[borrow_index];
-    *borrow.borrowed_amount_mut() = borrow.borrowed_amount().add(suilend::decimal::from(amount));
 
-    let borrow_market_value_upper_bound = reserve.market_value_upper_bound(
-        decimal::from(amount),
-    );
+    let borrow_market_value_delta = reserve.market_value(decimal::from(amount));
+    cvlm_assume_msg(borrow_market_value_delta.gt(decimal::from(0)), b"Borrow not too small");
+    let weight = reserve.config().borrow_weight();
+
+    let _old_market_value = borrow.market_value();
+    let old_market_value_upper_bound = reserve.market_value_upper_bound(borrow.borrowed_amount());
+
+    let new_borrowed_amount = borrow.borrowed_amount().add(decimal::from(amount));
+    let new_market_value = reserve.market_value(new_borrowed_amount);
+
+    *borrow.borrowed_amount_mut() = new_borrowed_amount;
+    *borrow.market_value_mut() = new_market_value;
+
+    let new_market_value_upper_bound = reserve.market_value_upper_bound(borrow.borrowed_amount());
+
+    // We ignore these update since they are unrelated to the subsequent health check and all rule recompute health aggregates anyways.
+    // *obligation.unweighted_borrowed_value_usd_mut() =
+    //     obligation.unweighted_borrowed_value_usd().sub(old_market_value).add(new_market_value);
+    // *obligation.weighted_borrowed_value_usd_mut() =
+    //     obligation
+    //         .weighted_borrowed_value_usd()
+    //         .sub(old_market_value.mul(weight))
+    //         .add(new_market_value.mul(weight));
     *obligation.weighted_borrowed_value_upper_bound_usd_mut() =
         obligation
             .weighted_borrowed_value_upper_bound_usd()
-            .add(borrow_market_value_upper_bound.mul(borrow_weight(config(reserve))));
+            .sub(old_market_value_upper_bound.mul(weight))
+            .add(new_market_value_upper_bound.mul(weight));
 
     assert!(is_healthy(obligation));
 
@@ -156,7 +175,6 @@ public fun repay<P>(
 
     let new_borrow_amount = borrow.borrowed_amount().sub(repay_amount);
     *borrow.borrowed_amount_mut() = new_borrow_amount;
-
 
     repay_amount
 }
@@ -194,18 +212,28 @@ public fun withdraw_unchecked<P>(
     let deposit_index = obligation.find_deposit_index(reserve);
     cvlm_assume_msg(deposit_index < obligation.deposits().length(), b"Deposit exists");
     let deposit = vector::borrow_mut(obligation.deposits_mut(), deposit_index);
-    let new_ctokens = deposit.deposited_ctoken_amount() - ctoken_amount;
-    *deposit.deposited_ctoken_amount_mut() = new_ctokens;
+    
+    let open = reserve.config().open_ltv();
+    let _close = reserve.config().close_ltv();
+    
+    // Snapshot old values
+    let _old_market_value = deposit.market_value();
+    let old_market_value_lower_bound = reserve.ctoken_market_value_lower_bound(deposit.deposited_ctoken_amount());
 
-    // Cache update allowed borrow value
-    *obligation.allowed_borrow_value_usd_mut() =
-        obligation
-            .allowed_borrow_value_usd()
-            .sub(reserve
-                .ctoken_market_value_lower_bound(ctoken_amount)
-                .mul(
-                    open_ltv(config(reserve)),
-                ));
+    *deposit.deposited_ctoken_amount_mut() = deposit.deposited_ctoken_amount() - ctoken_amount;
+    *deposit.market_value_mut() = reserve.ctoken_market_value(deposit.deposited_ctoken_amount());
+    let new_market_value_lower_bound = reserve.ctoken_market_value_lower_bound(deposit.deposited_ctoken_amount());
+    let _new_deposit_market_value = deposit.market_value();
+
+    // We ignore these update since they are unrelated to the subsequent health check and all rule recompute health aggregates anyways.
+    // *obligation.deposited_value_usd_mut() = obligation.deposited_value_usd()
+    //     .sub(old_market_value).add(new_deposit_market_value);
+    // *obligation.unhealthy_borrow_value_usd_mut() = obligation.unhealthy_borrow_value_usd()
+    //     .sub(old_market_value.mul(close)).add(new_deposit_market_value.mul(close));
+
+    *obligation.allowed_borrow_value_usd_mut() = obligation.allowed_borrow_value_usd()
+        .sub(old_market_value_lower_bound.mul(open)).add(new_market_value_lower_bound.mul(open));
+    
 }
 
 /// No-op refresh function that returns a nondeterministic result.
