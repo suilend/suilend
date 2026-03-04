@@ -85,7 +85,6 @@ public fun exactly_one_borrow_in_isolation_step(
 
 /// Verifies the integrity of isolation mode transitions:
 /// - Remaining in isolation maintains borrow count
-/// - Entering isolation requires zero to one borrow transition
 /// - Exiting isolation requires clearing all borrows
 /// - Cannot skip directly to multiple borrows when entering isolation
 public fun isolation_borrow_integrity(
