@@ -1,8 +1,8 @@
 diff --git a/contracts/suilend/sources/lending_market.move b/contracts/suilend/sources/lending_market.move
-index f97a2a7..310a47e 100644
+index cc19e1a..fa243b2 100644
 --- a/contracts/suilend/sources/lending_market.move
 +++ b/contracts/suilend/sources/lending_market.move
-@@ -1274,6 +1274,11 @@ module suilend::lending_market {
+@@ -1280,6 +1280,11 @@ module suilend::lending_market {
          &lending_market.reserves
      }
  
@@ -14,7 +14,7 @@ index f97a2a7..310a47e 100644
      fun max_borrow_amount<P>(
          mut rate_limiter: RateLimiter,
          obligation: &Obligation<P>,
-@@ -1389,6 +1394,11 @@ module suilend::lending_market {
+@@ -1395,6 +1400,11 @@ module suilend::lending_market {
          object_table::borrow(&lending_market.obligations, obligation_id)
      }
  
@@ -26,7 +26,7 @@ index f97a2a7..310a47e 100644
      /// Get the fee receiver address.
      public fun fee_receiver<P>(lending_market: &LendingMarket<P>): address {
          lending_market.fee_receiver
-@@ -2013,6 +2023,15 @@ module suilend::lending_market {
+@@ -2095,6 +2105,15 @@ module suilend::lending_market {
          let obligation = lending_market.obligations.borrow_mut(obligation_id);
          obligation.refresh(&mut lending_market.reserves, clock)
      }
