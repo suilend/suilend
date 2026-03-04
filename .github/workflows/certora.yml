@@ -1,13 +1,11 @@
 name: Certora Prover 
 
 on:
-  push:
-    branches:
-      - certora
   pull_request:
     branches:
       - certora
-      - feat/adjustments
+      - main
+      - devel
   workflow_dispatch:
 
 jobs:
