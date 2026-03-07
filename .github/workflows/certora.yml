@@ -1,0 +1,110 @@
+name: Certora Prover 
+
+on:
+  pull_request:
+    branches:
+      - certora
+      - main
+      - devel
+  workflow_dispatch:
+
+jobs:
+  certora_run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install sui
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/Mystenlabs/suiup/main/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          suiup install -y sui@1.65.2
+      - name: Apply patch
+        run: ./certora/munges/munge.sh
+      - name: Submit health jobs to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          cli-version: "8.10.1"
+          cli-release: beta
+          ecosystem: sui
+          working-directory: certora/specs/health
+          configurations: |-
+            confs/health.conf
+            confs/integrity.conf
+            confs/no_col_decrease.conf
+            confs/no_dep_no_borrow.conf
+            confs/unhealthy_condition.conf
+            confs/ltv_monotonicity_decrease.conf
+            confs/ltv_monotonicity_increase_part1.conf
+            confs/ltv_monotonicity_increase_part2.conf
+          job-name: "Verify Obligation Health Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit solvency jobs to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          cli-version: "8.10.1"
+          cli-release: beta
+          ecosystem: sui
+          working-directory: certora/specs/solvency
+          configurations: |-
+            confs/accounting.conf
+            confs/ratios.conf
+            confs/solvency.conf
+          job-name: "Verify Reserve Solvency Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit obligation integrity rules to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          cli-version: "8.10.1"
+          cli-release: beta
+          ecosystem: sui
+          working-directory: certora/specs/obligation
+          configurations: |-
+            confs/health_consistency_p1.conf
+            confs/health_consistency_p2.conf
+            confs/isolation.conf
+            confs/reserve_separation.conf
+          job-name: "Verify Obligation Integrity Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit liquidation rules to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          cli-version: "8.10.1"
+          cli-release: beta
+          ecosystem: sui
+          working-directory: certora/specs/liquidation
+          configurations: |-
+            confs/integrity.conf
+            confs/profit.conf
+          job-name: "Verify Liquidation Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit staker rules to Certora Prover
+        uses: Certora/certora-run-action@v2
+        with:
+          cli-version: "8.10.1"
+          cli-release: beta
+          ecosystem: sui
+          working-directory: certora/specs/staker
+          configurations: |-
+            confs/fees.conf
+            confs/integrity.conf
+            confs/liabilities_covered.conf
+          job-name: "Verify Staker Rules"
+          certora-key: ${{ secrets.CERTORAKEY }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,94 @@
+diff --git a/contracts/suilend/sources/staker.move b/contracts/suilend/sources/staker.move
+index 79788ca..0cb4344 100644
+--- a/contracts/suilend/sources/staker.move
++++ b/contracts/suilend/sources/staker.move
+@@ -39,7 +39,7 @@ module suilend::staker {
+     /// # Returns
+     ///
+     /// * `u64` - The total amount of SUI owed to the reserve.
+-    public(package) fun liabilities<P>(staker: &Staker<P>): u64 {
++    public fun liabilities<P>(staker: &Staker<P>): u64 {
+         staker.liabilities
+     }
+ 
+@@ -52,7 +52,7 @@ module suilend::staker {
+     /// # Returns
+     ///
+     /// * `&Balance<P>` - A reference to the LST balance.
+-    public(package) fun lst_balance<P>(staker: &Staker<P>): &Balance<P> {
++    public fun lst_balance<P>(staker: &Staker<P>): &Balance<P> {
+         &staker.lst_balance
+     }
+ 
+@@ -65,7 +65,7 @@ module suilend::staker {
+     /// # Returns
+     ///
+     /// * `&Balance<SUI>` - A reference to the SUI balance.
+-    public(package) fun sui_balance<P>(staker: &Staker<P>): &Balance<SUI> {
++    public fun sui_balance<P>(staker: &Staker<P>): &Balance<SUI> {
+         &staker.sui_balance
+     }
+ 
+@@ -80,7 +80,7 @@ module suilend::staker {
+     /// # Returns
+     ///
+     /// * `u64` - The total SUI supply, including both staked and unstaked SUI.
+-    public(package) fun total_sui_supply<P>(staker: &Staker<P>): u64 {
++    public fun total_sui_supply<P>(staker: &Staker<P>): u64 {
+         staker.liquid_staking_info.total_sui_supply() + staker.sui_balance.value()
+     }
+ 
+@@ -93,7 +93,7 @@ module suilend::staker {
+     /// # Returns
+     ///
+     /// * `&LiquidStakingInfo<P>` - A reference to the liquid staking information.
+-    public(package) fun liquid_staking_info<P>(staker: &Staker<P>): &LiquidStakingInfo<P> {
++    public fun liquid_staking_info<P>(staker: &Staker<P>): &LiquidStakingInfo<P> {
+         &staker.liquid_staking_info
+     }
+ 
+@@ -114,7 +114,7 @@ module suilend::staker {
+     /// # Panics
+     ///
+     /// * If the treasury cap has a non-zero supply (`ETreasuryCapNonZeroSupply`).
+-    public(package) fun create_staker<P: drop>(
++    public fun create_staker<P: drop>(
+         treasury_cap: TreasuryCap<P>,
+         ctx: &mut TxContext,
+     ): Staker<P> {
+@@ -143,7 +143,7 @@ module suilend::staker {
+     ///
+     /// * `staker` - A mutable reference to the `Staker` to modify.
+     /// * `sui` - The SUI balance to deposit.
+-    public(package) fun deposit<P>(staker: &mut Staker<P>, sui: Balance<SUI>) {
++    public fun deposit<P>(staker: &mut Staker<P>, sui: Balance<SUI>) {
+         staker.liabilities = staker.liabilities + sui.value();
+         staker.sui_balance.join(sui);
+     }
+@@ -161,7 +161,7 @@ module suilend::staker {
+     /// # Returns
+     ///
+     /// * `Balance<SUI>` - The withdrawn SUI balance.
+-    public(package) fun withdraw<P: drop>(
++    public fun withdraw<P: drop>(
+         staker: &mut Staker<P>,
+         withdraw_amount: u64,
+         system_state: &mut SuiSystemState,
+@@ -188,7 +188,7 @@ module suilend::staker {
+     ///
+     /// * `staker` - A mutable reference to the `Staker` to modify.
+     /// * `system_state` - A mutable reference to the `SuiSystemState` for staking operations.
+-    public(package) fun rebalance<P: drop>(
++    public fun rebalance<P: drop>(
+         staker: &mut Staker<P>,
+         system_state: &mut SuiSystemState,
+         ctx: &mut TxContext,
+@@ -236,7 +236,7 @@ module suilend::staker {
+     /// # Panics
+     ///
+     /// * If the total SUI supply is less than the liabilities after claiming (`EInvariantViolation`).
+-    public(package) fun claim_fees<P: drop>(
++    public fun claim_fees<P: drop>(
+         staker: &mut Staker<P>,
+         system_state: &mut SuiSystemState,
+         ctx: &mut TxContext,
